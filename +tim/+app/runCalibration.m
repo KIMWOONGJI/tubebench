@@ -19,6 +19,10 @@ function [cal, file, raw] = runCalibration(session, opts)
 %   opts.prompt(msg, mapping): called before each configuration. In
 %   hardware mode the default prints the instruction and waits for ENTER.
 %   In simulation mode the default moves the microphones in the virtual rig.
+%   opts.report(q): (optional) called after every measurement with its
+%   quality (q.kind = 'measurement': channel, config, fracOk, coherence
+%   and SNR medians) and after every channel (q.kind = 'channel': nValid,
+%   Nf, repeatability) - used by the GUI step list.
 %   Every raw measurement is returned in raw and saved with the calibration.
 
 if nargin < 2, opts = struct(); end
@@ -35,8 +39,10 @@ elseif strcmp(cfg.mode, 'simulation')
 else
     prompt = @(msg, mapping) hardwarePrompt(msg, lang);
 end
+report = @(q) [];
+if isfield(opts, 'report'), report = opts.report; end
 a = cfg.analysis;
-session.beginOperation();                         % STOP between steps stays pending
+session.beginOperation();                       % STOP between steps stays pending
 opGuard = onCleanup(@() session.endOperation());
 % step 0: preparation checklist (test specimen removed, anechoic/absorbing
 % termination, ports sealed); microphones in their measurement ports
@@ -66,6 +72,11 @@ for k = chans
             'df', a.df, 'preRoll', m.settings.preRoll, 'excitationBand', [m.settings.fStart m.settings.fStop]));
         sp.(seq{i, 1}) = s;
         raw(end+1) = struct('channel', k, 'config', seq{i, 1}, 'meas', m, 'spectra', s); %#ok<AGROW>
+        coh = s.coherence(:, k); snr = min(s.snr_dB(:, [ref k]), [], 2);
+        okBins = coh >= cfg.calibration.coherenceMin & snr >= cfg.calibration.snrMin_dB;
+        report(struct('kind', 'measurement', 'channel', k, 'config', seq{i, 1}, ...
+            'fracOk', mean(okBins), 'coherenceMedian', median(coh, 'omitnan'), ...
+            'snrMedian_dB', median(snr, 'omitnan'), 'integrityOk', m.integrityOk));
     end
     o = struct('cohI', sp.I.coherence(:, k), 'cohII', sp.II.coherence(:, k), ...
         'snrI', min(sp.I.snr_dB(:, [ref k]), [], 2), 'snrII', min(sp.II.snr_dB(:, [ref k]), [], 2), ...
@@ -80,6 +91,8 @@ for k = chans
     end
     session.log('%s', msg);
     for n = 1:numel(r.notes), session.log('  note: %s', r.notes{n}); end
+    report(struct('kind', 'channel', 'channel', k, 'nValid', r.nValid, 'Nf', r.Nf, ...
+        'repeatability', r.repeatability, 'text', msg));
 end
 home = zeros(1, 4); home([cfg.mics.channel]) = [cfg.mics.position];
 prompt(tim.app.msg(lang, 'calDone'), home);

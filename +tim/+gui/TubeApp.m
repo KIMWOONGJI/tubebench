@@ -3,6 +3,7 @@ classdef TubeApp < handle
     %
     %   app = tim.gui.TubeApp();                      % default / example config
     %   app = tim.gui.TubeApp('config/user_config.json');
+    %   app = tim.gui.TubeApp(file, 'Visible', 'off')  % hidden window (automated tests)
     %
     %   The GUI is a thin layer over tim.app.MeasurementSession; every
     %   action is also available from scripts (see start_here.m). It is
@@ -22,21 +23,31 @@ classdef TubeApp < handle
         LiveLast double = 0     % (reserved) live-view bookkeeping
         LiveCount double = 0    % number of live-view refreshes (diagnostics / tests)
         EnableState = []        % Enable states saved while busy
+        ConnList = []           % tim.gui.Checklist of the connection steps
+        CalList = []            % tim.gui.Checklist of the calibration steps
+        CalKeys cell = {}       % checklist key of every calibration operator step
+        CalMap = []             % microphone mapping currently shown in the calibration diagram
+        PulseTimer = []         % highlights the calibration ports while the operator works
     end
 
     methods
-        function app = TubeApp(cfgFile)
-            if nargin >= 1 && ~isempty(cfgFile)
+        function app = TubeApp(cfgFile, opts)
+            arguments
+                cfgFile = ''
+                opts.Visible (1,:) char = 'on'
+            end
+            if ~isempty(cfgFile)
                 app.Cfg = tim.app.loadConfig(cfgFile);
             else
                 app.Cfg = tim.app.defaultConfig();
             end
-            app.build();
+            app.build(opts.Visible);
             app.refreshFromCfg();
             app.log('Ready. Mode: %s. Generator output is OFF until you press START.', app.Cfg.mode);
         end
 
         function delete(app)
+            try, app.stopPulse(); catch, end
             try, app.disconnect(); catch, end
             if ~isempty(app.Fig) && isvalid(app.Fig), delete(app.Fig); end
         end
@@ -45,18 +56,54 @@ classdef TubeApp < handle
             if ~isempty(app.Session)
                 try, app.Session.close(); catch, end
                 app.Session = [];
+                if isfield(app.H, 'connHead') && isvalid(app.H.connHead)
+                    app.H.connHead.Text = 'Disconnected. The list shows the last connection.';
+                    app.H.connHead.FontColor = [0.3 0.3 0.3];
+                end
             end
             if isfield(app.H, 'status') && isvalid(app.H.status), app.setStatus('disconnected', false); end
+            if isfield(app.H, 'lamp') && all(isvalid(app.H.lamp))
+                P = tim.gui.palette();
+                set(app.H.lamp, 'Color', P.idle);
+                for c = 1:4, app.H.card(c).lamp.Color = P.idle; app.H.card(c).state.Text = 'not connected'; end
+            end
         end
     end
 
     methods
-        function drawCalSetup(app, mapping, msg, stepText)
+        function sel = ask(app, msg, title, options, defaultIdx, cancelIdx, icon)
+            %ASK Operator dialog that can never hang MATLAB: non-blocking
+            %   uiconfirm and a wait loop. (A blocking uiconfirm does not return
+            %   when the window is closed meanwhile - found in a test on
+            %   2026-10-09.) Timers keep running while it waits (pulsing
+            %   ports). Closing the window or STOP returns the cancel option.
+            if nargin < 7, icon = 'question'; end
+            answer = '';
+            function setAnswer(s)
+                answer = s;
+            end
+            uiconfirm(app.Fig, msg, title, 'Options', options, 'DefaultOption', defaultIdx, ...
+                'CancelOption', cancelIdx, 'Icon', icon, 'CloseFcn', @(~, ev) setAnswer(ev.SelectedOption));
+            while isempty(answer)
+                if ~isvalid(app.Fig) || (~isempty(app.Session) && app.Session.StopRequested)
+                    answer = options{cancelIdx};
+                    break
+                end
+                pause(0.1);
+            end
+            sel = answer;
+        end
+
+        function drawCalSetup(app, mapping, msg, stepText, fromMapping)
             % Schematic of the tube: loudspeaker, ports M1..M4, sample holder,
-            % and which DAQ channel's microphone sits in which port.
+            % and which DAQ channel's microphone sits in which port
+            % (mapping(c) = port of channel c). With fromMapping the
+            % microphones are drawn where they were before this step; the move
+            % to mapping is then animated by animateCalMics.
+            if nargin < 5 || isempty(fromMapping), fromMapping = mapping; end
             ax = app.H.axCalSetup; cla(ax); hold(ax, 'on');
-            axis(ax, [0 10.4 0.2 4.6]); axis(ax, 'off'); ax.DataAspectRatioMode = 'auto';
-            px = [2.4 3.2 7.0 7.8];                                   % schematic port positions
+            axis(ax, [0 10.4 0.2 5.6]); axis(ax, 'off'); ax.DataAspectRatioMode = 'auto';
+            px = app.calPortX();                                      % schematic port positions
             calPorts = app.Cfg.calibration.positions;
             rectangle(ax, 'Position', [1.0 1.5 8.6 1.0], 'FaceColor', [0.93 0.93 0.93], 'EdgeColor', [0.4 0.4 0.4]);
             patch(ax, [0.3 0.75 1.0 1.0 0.75 0.3], [1.2 1.6 1.6 2.4 2.4 2.8], [0.55 0.55 0.55], 'EdgeColor', 'none');
@@ -79,26 +126,34 @@ classdef TubeApp < handle
                 text(ax, 9.95, 2.0, 'anechoic / absorbing', 'Rotation', 90, 'HorizontalAlignment', 'center', 'FontSize', 11);
             end
             P = tim.gui.palette(); col = P.ch;
+            hi = gobjects(0);
             for p = 1:4
                 if ismember(p, calPorts) && ~isempty(mapping)
-                    rectangle(ax, 'Position', [px(p) - 0.33 2.5 0.66 1.75], 'FaceColor', [1 0.96 0.7], 'EdgeColor', 'none');
+                    % calibration ports a, b (pulsing while the operator moves microphones)
+                    hi(end + 1) = patch(ax, px(p) + [-0.36 0.36 0.36 -0.36], [2.5 2.5 4.85 4.85], [1 0.85 0.25], ...
+                        'EdgeColor', 'none', 'FaceAlpha', 0.35); %#ok<AGROW>
                 end
                 rectangle(ax, 'Position', [px(p) - 0.08 2.5 0.16 0.35], 'FaceColor', [0.3 0.3 0.3], 'EdgeColor', 'none');
                 text(ax, px(p), 1.95, sprintf('M%d', p), 'HorizontalAlignment', 'center', 'FontWeight', 'bold');
-                if isempty(mapping), continue; end
-                c = find(mapping == p, 1);
-                if isempty(c), continue; end
+            end
+            app.H.calHi = hi;
+            % microphones (one marker + number + label per DAQ channel)
+            mic = gobjects(1, 4); num = gobjects(1, 4); lab = gobjects(1, 4);
+            for c = 1:numel(fromMapping)
+                p = fromMapping(c);
+                if p < 1, continue; end
                 lbl = sprintf('ch%d', c);
                 try
                     t = app.Session.Daq.Teds{c};
                     if ~isempty(t), lbl = sprintf('ch%d\n%d', c, t.serialNumber); end
                 catch
                 end
-                if c == app.Cfg.analysis.refChannel, lbl = [lbl sprintf('\n(ref)')]; end
-                plot(ax, px(p), 3.15, 'o', 'MarkerSize', 22, 'MarkerFaceColor', col(c, :), 'MarkerEdgeColor', 'k');
-                text(ax, px(p), 3.15, sprintf('%d', c), 'Color', 'w', 'FontWeight', 'bold', 'HorizontalAlignment', 'center');
-                text(ax, px(p), 3.95, lbl, 'HorizontalAlignment', 'center', 'FontSize', 9);
+                if c == app.Cfg.analysis.refChannel, lbl = [lbl sprintf('\n(ref)')]; end %#ok<AGROW>
+                mic(c) = plot(ax, px(p), 3.15, 'o', 'MarkerSize', 22, 'MarkerFaceColor', col(c, :), 'MarkerEdgeColor', 'k');
+                num(c) = text(ax, px(p), 3.15, sprintf('%d', c), 'Color', 'w', 'FontWeight', 'bold', 'HorizontalAlignment', 'center');
+                lab(c) = text(ax, px(p), 3.95, lbl, 'HorizontalAlignment', 'center', 'FontSize', 9);
             end
+            app.H.calMic = mic; app.H.calMicNum = num; app.H.calMicLbl = lab;
             if isempty(mapping)
                 title(ax, {'Switching calibration: press "Run switching cal." - every step shows here which microphone goes into which port', ...
                     'Each microphone stays on its own cable and LAN-XI input; only the microphone bodies are moved.'}, 'FontSize', 10);
@@ -137,18 +192,21 @@ classdef TubeApp < handle
 
     methods (Access = private)
         %% ----------------------------------------------------------- layout
-        function build(app)
+        function build(app, visible)
             % window fills the screen (maximised); restored size = most of the screen
             scr = get(groot, 'ScreenSize');
             W = max(1400, scr(3) - 80); Hh = max(760, scr(4) - 120);
-            app.Fig = uifigure('Name', 'Transfer-impedance tube', 'Position', [40 50 W Hh], ...
+            app.Fig = uifigure('Name', 'Transfer-impedance tube', 'Position', [40 50 W Hh], 'Visible', visible, ...
                 'CloseRequestFcn', @(src, ~) tim.gui.closeApp(src, app));   % never gets stuck
-            try, app.Fig.WindowState = 'maximized'; catch, end
+            if strcmp(visible, 'on')
+                try, app.Fig.WindowState = 'maximized'; catch, end
+            end
             g = uigridlayout(app.Fig, [1 2], 'ColumnWidth', {430, '1x'});
-            nRows = 36;
+            nRows = 37;
             left = uigridlayout(g, [nRows 2], 'RowHeight', repmat({24}, 1, nRows), 'ColumnWidth', {205, '1x'}, ...
                 'Scrollable', 'on', 'RowSpacing', 6);
             h = struct();
+            P = tim.gui.palette();
             r = 0;
             % ---------------- instruments
             r = r + 1; app.header(left, r, 'INSTRUMENTS');
@@ -162,6 +220,18 @@ classdef TubeApp < handle
             h.disconnect = uibutton(left, 'Text', 'Disconnect', 'ButtonPushedFcn', @(~, ~) app.disconnect()); app.place(h.disconnect, r);
             r = r + 1; app.lab(left, r, 'Status');
             h.status = uilabel(left, 'Text', 'disconnected', 'FontColor', [0.6 0 0]); app.place(h.status, r);
+            % status lamps: generator, LAN-XI, the four channels (details: Connection tab)
+            r = r + 1;
+            gl = uigridlayout(left, [1 6], 'Padding', [0 0 0 0], 'ColumnSpacing', 4, ...
+                'ColumnWidth', {92, 80, '1x', '1x', '1x', '1x'});
+            gl.Layout.Row = r; gl.Layout.Column = [1 2];
+            names = {'Generator', 'LAN-XI', 'ch1', 'ch2', 'ch3', 'ch4'};
+            tips = {'function generator 33220A', 'LAN-XI module', 'channel 1', 'channel 2', 'channel 3', 'channel 4'};
+            for i = 1:6
+                gi = uigridlayout(gl, [1 2], 'Padding', [0 0 0 0], 'ColumnSpacing', 4, 'ColumnWidth', {13, '1x'});
+                h.lamp(i) = uilamp(gi, 'Color', P.idle, 'Tooltip', [tips{i} ' - details in the Connection tab']);
+                uilabel(gi, 'Text', names{i}, 'FontSize', 11, 'Tooltip', tips{i});
+            end
             % ---------------- excitation
             r = r + 1; app.header(left, r, 'EXCITATION');
             r = r + 1; app.lab(left, r, 'Mode');
@@ -250,23 +320,59 @@ classdef TubeApp < handle
             t = uitab(tabs, 'Title', 'Log');
             tg = uigridlayout(t, [1 1]);
             h.log = uitextarea(tg, 'Editable', 'off', 'FontName', 'Consolas');
-            t = uitab(tabs, 'Title', 'Channels / TEDS');
-            tg = uigridlayout(t, [1 1]);
+            % connection: checklist of every step, one card per channel, details table
+            t = uitab(tabs, 'Title', 'Connection'); h.connTab = t;
+            tg = uigridlayout(t, [4 1], 'RowHeight', {24, 276, 142, '1x'}, 'RowSpacing', 6);
+            h.connHead = uilabel(tg, 'Text', 'Press "Connect + TEDS": every step of the connection is checked here.', ...
+                'FontWeight', 'bold', 'FontSize', 13);
+            pc = uipanel(tg, 'Title', 'Connection checklist', 'FontWeight', 'bold');
+            app.ConnList = tim.gui.Checklist(pc, app.connKeys(), app.connLabels(), struct('LabelWidth', 270));
+            gc = uigridlayout(tg, [1 4], 'ColumnSpacing', 8, 'Padding', [0 0 0 0]);
+            for c = 1:4
+                pnl = uipanel(gc);
+                g2 = uigridlayout(pnl, [5 2], 'RowHeight', {24, 20, 20, 20, 20}, 'ColumnWidth', {16, '1x'}, ...
+                    'Padding', [6 4 6 4], 'RowSpacing', 2, 'ColumnSpacing', 6);
+                hd = uilabel(g2, 'Text', sprintf('  ch%d', c), 'FontWeight', 'bold', 'FontColor', 'w', ...
+                    'BackgroundColor', P.ch(c, :));
+                hd.Layout.Row = 1; hd.Layout.Column = [1 2];
+                card = struct('head', hd, 'lamp', uilamp(g2, 'Color', P.idle), ...
+                    'state', uilabel(g2, 'Text', 'not connected', 'FontWeight', 'bold'));
+                card.lamp.Layout.Row = 2; card.lamp.Layout.Column = 1;
+                card.state.Layout.Row = 2; card.state.Layout.Column = 2;
+                for k = 3:5
+                    l = uilabel(g2, 'Text', '', 'FontSize', 11, 'FontColor', [0.3 0.3 0.3]);
+                    l.Layout.Row = k; l.Layout.Column = [1 2];
+                    card.(sprintf('line%d', k - 2)) = l;
+                end
+                h.card(c) = card;
+            end
             h.chanTable = uitable(tg);
-            t = uitab(tabs, 'Title', 'Tube setup');
-            % 2D drawing with the dimension lines + 3D model, both follow the fields
-            tg = uigridlayout(t, [2 1], 'RowHeight', {'1x', '1.4x'}, 'RowSpacing', 4);
-            h.axTube = uiaxes(tg); h.tubeTab = t;
+            % tube setup: 3D model that follows the IMPEDANCE TUBE fields
+            t = uitab(tabs, 'Title', 'Tube setup'); h.tubeTab = t;
+            tg = uigridlayout(t, [2 1], 'RowHeight', {28, '1x'}, 'RowSpacing', 2);
+            bar = uigridlayout(tg, [1 8], 'ColumnWidth', {80, 60, 100, 60, 16, 110, 100, '1x'}, ...
+                'Padding', [4 2 4 2], 'ColumnSpacing', 6);
+            views = {'Default', 'default'; 'Side', 'side'; 'Perspective', 'perspective'; 'Top', 'top'};
+            for i = 1:4
+                uibutton(bar, 'Text', views{i, 1}, 'ButtonPushedFcn', @(~, ~) app.tubeView(views{i, 2}), ...
+                    'Tooltip', 'viewpoint (rotate / zoom freely with the toolbar of the drawing)');
+            end
+            uilabel(bar, 'Text', '');
+            h.secChk = uicheckbox(bar, 'Text', 'Section view', 'Value', true, ...
+                'Tooltip', 'remove the half towards the viewer: bore, specimen and microphone tips visible', ...
+                'ValueChangedFcn', @(~, ~) app.onTubeChanged());
+            h.dimChk = uicheckbox(bar, 'Text', 'Dimensions', 'Value', true, ...
+                'ValueChangedFcn', @(~, ~) app.onTubeChanged());
+            h.tubeInfo = uilabel(bar, 'Text', '', 'FontSize', 11, 'FontColor', [0.3 0.3 0.3]);
             h.axTube3D = uiaxes(tg);
             axtoolbar(h.axTube3D, {'rotate', 'zoomin', 'zoomout', 'pan', 'restoreview'});
             % waveforms: one graph per channel (shared time axis), also used for the live view
             t = uitab(tabs, 'Title', 'Waveforms'); h.waveTab = t;
             tg = uigridlayout(t, [4 1], 'RowSpacing', 2);
-            P = tim.gui.palette();
             for c = 1:4
                 ax = uiaxes(tg); h.axW(c) = ax;
                 h.waveLine(c) = plot(ax, NaN, NaN, '-', 'Color', P.ch(c, :), 'LineWidth', 0.8);
-                ylabel(ax, sprintf('ch%d [mV]', c)); grid(ax, 'on');
+                ylabel(ax, sprintf('ch%d [Pa]', c)); grid(ax, 'on');
                 if c < 4, ax.XTickLabel = {}; else, xlabel(ax, 'Time [s]'); end
             end
             linkaxes(h.axW, 'x');
@@ -276,9 +382,14 @@ classdef TubeApp < handle
             for i = 1:numel(names)
                 t = uitab(tabs, 'Title', names{i});
                 if strcmp(keys{i}, 'axCal')
-                    % calibration tab: set-up diagram (which mic in which port) + curves
-                    tg = uigridlayout(t, [2 1], 'RowHeight', {260, '1x'});
-                    h.axCalSetup = uiaxes(tg);
+                    % calibration tab: set-up diagram (which mic in which port, animated
+                    % moves) + list of the operator steps with their quality + curves
+                    tg = uigridlayout(t, [2 1], 'RowHeight', {320, '1x'}, 'RowSpacing', 4);
+                    top = uigridlayout(tg, [1 2], 'ColumnWidth', {'1x', 720}, 'Padding', [0 0 0 0]);
+                    h.axCalSetup = uiaxes(top);
+                    pcal = uipanel(top, 'Title', 'Calibration steps (quality of every measurement)', 'FontWeight', 'bold');
+                    app.CalList = tim.gui.Checklist(pcal, {}, {}, ...
+                        struct('LabelWidth', 245, 'RowHeight', 21, 'FontSize', 11));
                     h.calTab = t;
                 else
                     tg = uigridlayout(t, [1 1]);
@@ -290,6 +401,15 @@ classdef TubeApp < handle
             tim.gui.equationsPanel(t);
             app.H = h;
             app.drawCalSetup([], '', '');
+        end
+
+        function k = connKeys(~)
+            k = {'gen', 'lanxi', 'idle', 'open', 'teds', 'setup', 'sens', 'settle', 'signal'};
+        end
+        function l = connLabels(~)
+            l = {'Function generator 33220A (SCPI)', 'LAN-XI module (REST)', 'LAN-XI recorder state Idle', ...
+                'Open recorder', 'TEDS transducer detection', 'Channel setup -> streaming', ...
+                'Microphone sensitivities', 'Settling (CCLD + high-pass)', 'Signal check (no excitation)'};
         end
 
         function header(~, parent, row, txt)
@@ -343,6 +463,7 @@ classdef TubeApp < handle
             h.ampGain.Value = gf;
             app.onAmpModel();
             app.onTubeChanged();
+            if isempty(app.Session), app.refreshCards(); end
         end
 
         function v = mm2txt(~, x)
@@ -400,11 +521,24 @@ classdef TubeApp < handle
                 if ~isempty(msgs), txt = [txt ' CHECK: ' strjoin(msgs, '; ')]; end
                 app.H.fLimits.Text = txt;
                 if isempty(msgs), app.H.fLimits.FontColor = [0.2 0.2 0.2]; else, app.H.fLimits.FontColor = [0.75 0 0]; end
-                app.drawTube(geom, lim);
-                tim.gui.drawTube3D(app.H.axTube3D, geom, app.drawingDims(), [app.Cfg.mics.position]);
+                if known
+                    info = sprintf(['Distances between port CENTRES and specimen FACES.  Geometric range %.0f - %.0f Hz, ' ...
+                        '(1,1) cut-on %.0f Hz.  Microphones coloured by the LAN-XI channel in the port.'], ...
+                        lim.fLower, lim.fUpper, lim.cutOn11);
+                else
+                    info = ['SCHEMATIC - L1, d and L2 not entered: specimen results (R, tau, Zt, TL) are disabled.  ' ...
+                        sprintf('Geometric range %.0f - %.0f Hz.', lim.fLower, lim.fUpper)];
+                end
+                app.H.tubeInfo.Text = info;
+                tim.gui.drawTube3D(app.H.axTube3D, geom, app.drawingDims(), [app.Cfg.mics.position], ...
+                    struct('section', app.H.secChk.Value, 'dimensions', app.H.dimChk.Value));
             catch err
                 app.H.fLimits.Text = ['CHECK: ' err.message]; app.H.fLimits.FontColor = [0.75 0 0];
             end
+        end
+
+        function tubeView(app, name)
+            tim.gui.drawTube3D(app.H.axTube3D, 'view', name);
         end
 
         function td = drawingDims(app)
@@ -415,98 +549,6 @@ classdef TubeApp < handle
                     td.(f{1}) = app.Cfg.tubeDrawing.(f{1});
                 end
             end
-        end
-
-        function drawTube(app, geom, lim)
-            % Drawing of the impedance tube with the dimension lines s1, L1, d,
-            % L2, s2 (to scale when all distances are entered).
-            ax = app.H.axTube; cla(ax); hold(ax, 'on'); P = tim.gui.palette();
-            td = app.drawingDims();
-            D = 1e3 * geom.diameter;
-            s1 = 1e3 * geom.spacingUp; s2 = 1e3 * geom.spacingDown;
-            known = all(isfinite(geom.micPositions)) && isfinite(geom.xFront) && isfinite(geom.xRear);
-            if known
-                L1 = -1e3 * geom.micPositions(2); dd = 1e3 * (geom.xRear - geom.xFront);
-                L2 = 1e3 * geom.micPositions(3) - 1e3 * geom.xRear;
-                txt = @(v) sprintf('%g mm', round(v, 3));
-            else
-                L1 = max(3 * s1, 60); dd = max(0.4 * s1, 8); L2 = L1;      % schematic only
-                txt = @(v) '? (enter)';
-            end
-            % coordinates: x = 0 at the specimen front face
-            xF = 0; xR = dd; x = [-L1 - s1, -L1, dd + L2, dd + L2 + s2];
-            % tube ends: real lengths (cfg.tubeDrawing); long sections are drawn
-            % shortened with break marks so that the measurement region stays readable
-            lUp = 1e3 * td.upstreamLength; lDn = 1e3 * td.downstreamLength;
-            show = max(60, 0.4 * max(L1, L2));
-            x0 = x(1) - min(lUp, show); x1 = x(4) + min(lDn, show);
-            % tube, loudspeaker (large end), termination with absorber (small end), specimen
-            patch(ax, [x0 x1 x1 x0], [-D/2 -D/2 D/2 D/2], [0.95 0.95 0.95], 'EdgeColor', [0.35 0.35 0.35], 'LineWidth', 1);
-            patch(ax, [x0 - 25, x0, x0, x0 - 25], [-D/2 - 8, -D/2, D/2, D/2 + 8], [0.55 0.55 0.55], 'EdgeColor', 'none');
-            text(ax, x0 - 12, -D/2 - 14, 'loudspeaker', 'HorizontalAlignment', 'center', 'FontSize', 12);
-            plot(ax, [x1 x1], [-D/2 D/2], 'k-', 'LineWidth', 3);
-            text(ax, x1, -D/2 - 14, 'termination (absorber)', 'HorizontalAlignment', 'center', 'FontSize', 12);
-            if lUp > show
-                app.breakMark(ax, x0 + 0.2 * (x(1) - x0), D);
-                text(ax, x0 + 0.6 * (x(1) - x0), 0, {'bore end', sprintf('-> M1 %g mm', round(lUp, 3))}, ...
-                    'FontSize', 10, 'HorizontalAlignment', 'center', 'Color', [0.35 0.35 0.35]);
-            end
-            if lDn > show
-                app.breakMark(ax, x1 - 0.2 * (x1 - x(4)), D);
-                text(ax, x1 - 0.6 * (x1 - x(4)), 0, {'M4 -> end', sprintf('%g mm', round(lDn, 3))}, ...
-                    'FontSize', 10, 'HorizontalAlignment', 'center', 'Color', [0.35 0.35 0.35]);
-            end
-            patch(ax, [xF max(xR, xF + 1.5) max(xR, xF + 1.5) xF], [-D/2 -D/2 D/2 D/2], [0.85 0.72 0.45], 'EdgeColor', [0.45 0.35 0.15]);
-            text(ax, (xF + xR) / 2, 0, 'specimen', 'Rotation', 90, 'HorizontalAlignment', 'center', 'FontSize', 11);
-            text(ax, xF, -D/2 - 5, 'front ', 'HorizontalAlignment', 'right', 'FontSize', 11, 'Color', [0.35 0.35 0.35]);
-            text(ax, xR, -D/2 - 5, ' rear', 'HorizontalAlignment', 'left', 'FontSize', 11, 'Color', [0.35 0.35 0.35]);
-            % microphone ports (centre lines)
-            for k = 1:4
-                plot(ax, [x(k) x(k)], [D/2 D/2 + 7], '-', 'Color', P.ch(k, :), 'LineWidth', 4);
-                plot(ax, [x(k) x(k)], [-D/2 D/2], ':', 'Color', P.ch(k, :));
-                text(ax, x(k), D/2 + 12, sprintf('M%d', k), 'HorizontalAlignment', 'center', 'FontWeight', 'bold', 'FontSize', 13, 'Color', P.ch(k, :));
-            end
-            % dimension lines (two rows above the tube)
-            y1 = D/2 + 28; y2 = D/2 + 46;
-            app.dimLine(ax, x(1), x(2), y1, sprintf('s1 = %s', sprintf('%g mm', round(s1, 3))));
-            app.dimLine(ax, x(2), xF, y2, sprintf('L1 = %s', txt(L1)));
-            app.dimLine(ax, xF, xR, y1, sprintf('d = %s', txt(dd)));
-            app.dimLine(ax, xR, x(3), y2, sprintf('L2 = %s', txt(L2)));
-            app.dimLine(ax, x(3), x(4), y1, sprintf('s2 = %s', sprintf('%g mm', round(s2, 3))));
-            for xx = [x(1) x(2) xF xR x(3) x(4)]
-                plot(ax, [xx xx], [D/2 + 17, y2 + 3], '-', 'Color', [0.7 0.7 0.7], 'LineWidth', 0.5);
-            end
-            text(ax, (x0 + x1) / 2, -D/2 - 24, sprintf('inner diameter %g mm', D), 'HorizontalAlignment', 'center', 'FontSize', 12);
-            axis(ax, 'equal'); ax.YLim = [-D/2 - 34, y2 + 16]; ax.XLim = [x0 - 35, x1 + 15];
-            ax.YTick = []; ax.XColor = 'none'; ax.YColor = 'none';
-            if known
-                title(ax, {sprintf(['Impedance tube (to scale).  Distances between port CENTRES and specimen FACES.  ' ...
-                    'Geometric range %.0f - %.0f Hz, (1,1) cut-on %.0f Hz'], lim.fLower, lim.fUpper, lim.cutOn11)}, 'FontWeight', 'normal');
-            else
-                title(ax, {'Impedance tube (schematic - L1, d, L2 not entered yet).  Distances between port CENTRES and specimen FACES.', ...
-                    sprintf('Without L1, d and L2 the specimen results (R, tau, Zt, TL) are disabled.   Geometric range %.0f - %.0f Hz', ...
-                    lim.fLower, lim.fUpper)}, 'FontWeight', 'normal');
-            end
-            hold(ax, 'off');
-        end
-
-        function breakMark(~, ax, xc, D)
-            % pair of slanted lines: tube section drawn shortened
-            for dx = [-2 2]
-                plot(ax, xc + dx + [-3 3], [-D/2 - 4, D/2 + 4], '-', 'Color', [0.3 0.3 0.3], 'LineWidth', 1);
-            end
-        end
-
-        function dimLine(~, ax, xa, xb, y, label)
-            % horizontal dimension line with arrow heads and a label above it
-            plot(ax, [xa xb], [y y], '-', 'Color', [0.2 0.2 0.2], 'LineWidth', 0.8);
-            ah = min(4, abs(xb - xa) / 3);
-            if ah > 0.5
-                plot(ax, [xa xa + ah xa + ah], [y y + 1.5 y - 1.5], '-', 'Color', [0.2 0.2 0.2]);
-                plot(ax, [xb xb - ah xb - ah], [y y + 1.5 y - 1.5], '-', 'Color', [0.2 0.2 0.2]);
-            end
-            text(ax, (xa + xb) / 2, y + 4, label, 'HorizontalAlignment', 'center', 'FontSize', 13, 'FontWeight', 'bold', ...
-                'BackgroundColor', 'w', 'Margin', 1);
         end
 
         function updateDrive(app)
@@ -567,6 +609,7 @@ classdef TubeApp < handle
             app.appendLog(sprintf('[%s] %s', char(datetime('now'), 'HH:mm:ss'), line));
         end
         function appendLog(app, line)
+            if ~isvalid(app.H.log), fprintf('%s\n', line); return; end   % window closed
             v = app.H.log.Value;
             if ischar(v), v = {v}; end
             v{end+1} = line;
@@ -601,14 +644,19 @@ classdef TubeApp < handle
                     msg = err.message; icon = 'error';
                 end
                 if ~isempty(app.Session) && ~isempty(app.Session.Gen)
-                    app.Session.Gen.outputOff();
+                    try, app.Session.Gen.outputOff(); catch, end
                 end
-                uialert(app.Fig, msg, 'Stopped', 'Icon', icon);
+                if isvalid(app.Fig)            % window may have been closed meanwhile
+                    uialert(app.Fig, msg, 'Stopped', 'Icon', icon);
+                end
             end
         end
 
         function setBusy(app, tf, what)
             % Disable / restore all interactive controls (tabs stay usable).
+            if isempty(app.Fig) || ~isvalid(app.Fig)
+                app.Busy = false; return            % window closed during the action
+            end
             h = app.H;
             names = {'mode', 'loadCfg', 'saveCfg', 'connect', 'disconnect', 'exMode', 'fRange', 'dur', 'amp', 'reps', ...
                 'ampModel', 'ampGain', 'spkZ', 'spkP', 'start', 'background', 'tubeD', 's1', 'L1', 'dTh', 'L2', 's2', ...
@@ -651,14 +699,15 @@ classdef TubeApp < handle
                 if isempty(p) || p.samplesAvailable() == 0, drawnow('limitrate'); return; end
                 fs = daq.SampleRate; n = round(0.5 * fs);
                 x = p.tail(n, 1:4);
-                x = (x - mean(x, 1, 'omitnan')) * 1e3;                 % mV, slow drift removed
+                x = x - mean(x, 1, 'omitnan');                          % volts, slow drift removed
                 t = ((1:n) - n) / fs;                                   % seconds before "now"
                 total = p.samplesAvailable() / fs;
-                sens = [app.Session.Mics.sensitivity_VperPa];
+                [y, unit, sens] = app.toPressure(x, app.Session.Mics);
                 for c = 1:4
-                    set(app.H.waveLine(c), 'XData', t, 'YData', x(:, c));
-                    spl = 20 * log10(sqrt(mean(x(:, c).^2, 'omitnan')) / 1e3 / sens(c) / 2e-5);
+                    set(app.H.waveLine(c), 'XData', t, 'YData', y(:, c));
+                    spl = 20 * log10(sqrt(mean(x(:, c).^2, 'omitnan')) / sens(c) / 2e-5);
                     title(app.H.axW(c), sprintf('ch%d   %.1f dB SPL (last 0.5 s)', c, spl), 'FontWeight', 'normal');
+                    ylabel(app.H.axW(c), sprintf('ch%d [%s]', c, unit));
                 end
                 app.H.axW(1).XLim = [t(1) 0];
                 app.LiveCount = app.LiveCount + 1;
@@ -702,23 +751,137 @@ classdef TubeApp < handle
         function doConnect(app)
             app.readCfgFromUi();
             app.disconnect();
+            % connection checklist: every step is shown while it runs (the
+            % animated icon keeps turning during the slow LAN-XI setup)
+            app.ConnList.reset();
+            app.H.tabs.SelectedTab = app.H.connTab;
+            app.H.connHead.Text = sprintf('Connecting (%s mode) ...', app.Cfg.mode);
+            app.H.connHead.FontColor = [0.1 0.1 0.1];
+            app.refreshCards();
             s = tim.app.MeasurementSession(app.Cfg);
             s.StatusCallback = @(line) app.appendLog(line);
             s.BlockCallback = @() app.liveUpdate();       % live waveforms + keeps STOP responsive
+            s.ProgressCallback = @(key, state, detail) app.onProgress(key, state, detail);
             L = app.Cfg.ui.language; yes = tim.app.msg(L, 'yesPlay');
             if strcmp(app.Cfg.mode, 'hardware')       % no real loudspeaker in simulation
-                s.ExcitationConfirm = @(msg) strcmp(uiconfirm(app.Fig, msg, tim.app.msg(L, 'confirmTitle'), ...
-                    'Options', {yes, tim.app.msg(L, 'cancel')}, 'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning'), yes);
+                s.ExcitationConfirm = @(msg) strcmp(app.ask(msg, tim.app.msg(L, 'confirmTitle'), ...
+                    {yes, tim.app.msg(L, 'cancel')}, 2, 2, 'warning'), yes);
             end
             app.Session = s;
             s.connect();
             s.prepareAcquisition();
+            chk = s.signalCheck(1);                    % 1 s without excitation: level / fault flags per channel
             app.setStatus(sprintf('ready (%s)', app.Cfg.mode), true);
             m = s.Mics;
             app.H.chanTable.Data = table([m.channel].', [m.position].', {m.model}.', ...
                 1e3 * [m.sensitivity_VperPa].', {m.sensitivitySource}.', [m.tedsSerial].', ...
-                'VariableNames', {'Channel', 'Position', 'Model', 'Sens_mV_per_Pa', 'Source', 'TEDS_serial'});
+                [chk.spl_dB].', {chk.text}.', ...
+                'VariableNames', {'Channel', 'Position', 'Model', 'Sens_mV_per_Pa', 'Source', 'TEDS_serial', ...
+                'Level_dB_SPL', 'Signal_check'});
+            app.refreshCards(chk);
+            states = app.ConnList.States;
+            if any(strcmp(states, 'fail'))
+                app.H.connHead.Text = 'Connected, but a check FAILED - see the red items below.';
+                app.H.connHead.FontColor = tim.gui.palette().fail;
+            elseif any(strcmp(states, 'warn'))
+                app.H.connHead.Text = 'Connected with warnings - see the orange items below.';
+                app.H.connHead.FontColor = 0.75 * tim.gui.palette().warn;
+            else
+                app.H.connHead.Text = 'Connected - all checks passed.';
+                app.H.connHead.FontColor = tim.gui.palette().ok;
+            end
             if ~isempty(s.Calibration), app.showCal(s.Calibration); end
+        end
+
+        function onProgress(app, key, state, detail)
+            % a connection step started / ended (MeasurementSession.ProgressCallback)
+            app.ConnList.set(key, state, detail);
+            col = app.stateColor(state);
+            switch key
+                case 'gen'
+                    app.H.lamp(1).Color = col;
+                case {'lanxi', 'idle', 'open', 'setup'}
+                    app.H.lamp(2).Color = col;
+                case 'teds'
+                    if ~strcmp(state, 'run'), app.refreshCards(); end
+            end
+            if strcmp(state, 'fail')
+                i = find(strcmp(app.connKeys(), key), 1); lbl = app.connLabels();
+                app.H.connHead.Text = sprintf('Connection FAILED at "%s" - %s', lbl{i}, detail);
+                app.H.connHead.FontColor = tim.gui.palette().fail;
+                if strcmp(key, 'gen'), app.H.lamp(1).Color = col; else, app.H.lamp(2).Color = col; end
+            end
+        end
+
+        function col = stateColor(~, state)
+            P = tim.gui.palette();
+            switch state
+                case 'run', col = P.run;
+                case 'ok', col = P.ok;
+                case 'warn', col = P.warn;
+                case 'fail', col = P.fail;
+                otherwise, col = P.idle;
+            end
+        end
+
+        function refreshCards(app, chk)
+            % one card per channel: port, TEDS, sensitivity, signal check
+            if nargin < 2, chk = []; end
+            P = tim.gui.palette();
+            mics = app.Cfg.mics; teds = {};
+            if ~isempty(app.Session)
+                mics = app.Session.Mics;
+                if ~isempty(app.Session.Daq), teds = app.Session.Daq.Teds; end
+            end
+            for c = 1:4
+                card = app.H.card(c);
+                i = find([mics.channel] == c, 1);
+                if isempty(i), continue; end
+                m = mics(i);
+                card.head.Text = sprintf('  ch%d  ->  port M%d', c, m.position);
+                st = 'idle'; notes = {};
+                if numel(teds) >= c && ~isempty(teds{c})
+                    card.line1.Text = sprintf('TEDS  %s  s/n %d', teds{c}.typeNumber, teds{c}.serialNumber);
+                    st = 'ok';
+                elseif ~isempty(app.Session) && ~isempty(app.Session.Daq) && ~isempty(teds)
+                    card.line1.Text = 'no TEDS found'; st = 'warn'; notes{end + 1} = 'no TEDS'; %#ok<AGROW>
+                else
+                    card.line1.Text = '';
+                end
+                if isfield(m, 'sensitivitySource')
+                    card.line2.Text = sprintf('sensitivity %.4g mV/Pa (%s)', 1e3 * m.sensitivity_VperPa, m.sensitivitySource);
+                    if ~any(strcmp(m.sensitivitySource, {'certificate', 'teds'}))
+                        st = 'warn'; notes{end + 1} = 'nominal sensitivity'; %#ok<AGROW>
+                    end
+                    if m.serialMismatch
+                        st = 'warn'; notes{end + 1} = 'TEDS serial differs from config'; %#ok<AGROW>
+                    end
+                else
+                    card.line2.Text = sprintf('nominal %.4g mV/Pa', 1e3 * m.nominalSensitivity_VperPa);
+                end
+                if ~isempty(chk)
+                    k = chk([chk.channel] == c);
+                    if strcmp(k.state, 'fail')
+                        st = 'fail'; card.line3.Text = ['signal: ' k.text];
+                        card.line3.FontColor = P.fail;
+                    else
+                        card.line3.Text = sprintf('level %.1f dB SPL (1 s, no excitation)', k.spl_dB);
+                        card.line3.FontColor = [0.3 0.3 0.3];
+                    end
+                else
+                    card.line3.Text = '';
+                end
+                card.lamp.Color = app.stateColor(st);
+                app.H.lamp(2 + c).Color = card.lamp.Color;
+                switch st
+                    case 'ok', card.state.Text = 'OK';
+                    case 'warn', card.state.Text = ['check: ' strjoin(notes, ', ')];
+                    case 'fail', card.state.Text = 'FAULT';
+                    otherwise, card.state.Text = 'not connected';
+                end
+                card.state.FontColor = 0.8 * app.stateColor(st);
+            end
+            drawnow;
         end
 
         function onStart(app)
@@ -821,33 +984,168 @@ classdef TubeApp < handle
         function doRunCal(app)
             app.readCfgFromUi();
             app.syncSession();
-            % steps: preparation checklist + per channel config I (+ repeat) + config II
-            % + the final "return mics"
-            nCh = 3; per = 2 + double(app.Cfg.calibration.repeatConfigI);
-            app.CalStep = 0; app.CalSteps = 1 + nCh * per + 1;
-            [cal, file] = tim.app.runCalibration(app.Session, struct('prompt', @(msg, mapping) app.calStep(msg, mapping)));
+            % operator steps (same order as tim.app.runCalibration): preparation
+            % checklist, per channel config I (+ repeat) + config II, return mics
+            c = app.Cfg; ref = c.analysis.refChannel; ab = c.calibration.positions;
+            keys = {'prep'}; labels = {'Prepare: specimen REMOVED, absorbing end'};
+            for k = setdiff(1:4, ref)
+                keys{end + 1} = sprintf('ch%d_I', k); %#ok<AGROW>
+                labels{end + 1} = sprintf('ch%d  config I    (ch%d in M%d, ch%d in M%d)', k, ref, ab(1), k, ab(2)); %#ok<AGROW>
+                if c.calibration.repeatConfigI
+                    keys{end + 1} = sprintf('ch%d_Irep', k); %#ok<AGROW>
+                    labels{end + 1} = sprintf('ch%d  config I    repeated (re-mounted)', k); %#ok<AGROW>
+                end
+                keys{end + 1} = sprintf('ch%d_II', k); %#ok<AGROW>
+                labels{end + 1} = sprintf('ch%d  config II   (interchanged)', k); %#ok<AGROW>
+            end
+            keys{end + 1} = 'done'; labels{end + 1} = 'Return the microphones to M1-M4';
+            app.CalKeys = keys; app.CalList.rebuild(keys, labels);
+            app.CalStep = 0; app.CalSteps = numel(keys);
+            app.CalMap = zeros(1, 4); app.CalMap([c.mics.channel]) = [c.mics.position];
+            try
+                [cal, file] = tim.app.runCalibration(app.Session, struct( ...
+                    'prompt', @(msg, mapping) app.calStep(msg, mapping), 'report', @(q) app.calReport(q)));
+            catch err
+                app.stopPulse();
+                for k = app.CalList.runningKeys()
+                    app.CalList.set(k{1}, 'fail', err.message);
+                end
+                rethrow(err);
+            end
             app.Cfg.calibration.file = file;
             app.showCal(cal);
         end
 
         function calStep(app, msg, mapping)
-            % One operator step of the switching calibration: draw where every
-            % microphone must be, then (hardware) wait for confirmation or
-            % (simulation) move the virtual microphones.
+            % One operator step of the switching calibration: the diagram shows
+            % the microphones moving to their new ports, the calibration ports
+            % pulse, then (hardware) the operator confirms or (simulation) the
+            % virtual microphones are moved.
             app.CalStep = app.CalStep + 1;
+            key = app.CalKeys{min(app.CalStep, end)};
             stepText = sprintf('Calibration step %d of %d', app.CalStep, app.CalSteps);
-            app.drawCalSetup(mapping, msg, stepText);
-            app.H.tabs.SelectedTab = app.H.calTab; drawnow;
+            from = app.CalMap;
+            app.drawCalSetup(mapping, msg, stepText, from);
+            app.H.tabs.SelectedTab = app.H.calTab;
+            app.CalList.set(key, 'run', 'operator: place the microphones as shown');
+            app.animateCalMics(from, mapping);
+            app.CalMap = mapping;
             if strcmp(app.Cfg.mode, 'hardware')
                 L = app.Cfg.ui.language; done = tim.app.msg(L, 'calDoneButton');
-                sel = uiconfirm(app.Fig, sprintf('%s\n\n%s\n(see the diagram in the Calibration tab)', stepText, msg), ...
-                    tim.app.msg(L, 'calStepTitle'), 'Options', {done, tim.app.msg(L, 'abortButton')}, ...
-                    'DefaultOption', 1, 'CancelOption', 2);
+                app.startPulse();
+                sel = app.ask(sprintf('%s\n\n%s\n(see the diagram in the Calibration tab)', stepText, msg), ...
+                    tim.app.msg(L, 'calStepTitle'), {done, tim.app.msg(L, 'abortButton')}, 1, 2, 'question');
+                app.stopPulse();
                 if ~strcmp(sel, done)
+                    app.CalList.set(key, 'fail', 'aborted by the operator');
                     error('tim:gui:abort', 'Calibration aborted by user.');
                 end
             else
                 app.Session.setMicPositionsForSimulation(mapping);
+            end
+            if any(strcmp(key, {'prep', 'done'}))
+                app.CalList.set(key, 'ok', 'confirmed');
+            else
+                app.CalList.set(key, 'run', 'measuring (swept sine) ...');
+            end
+        end
+
+        function calReport(app, q)
+            % quality of the measurement just made (tim.app.runCalibration opts.report)
+            key = app.CalKeys{min(app.CalStep, end)};
+            switch q.kind
+                case 'measurement'
+                    if ~q.integrityOk || q.fracOk < 0.5
+                        st = 'fail';
+                    elseif q.fracOk < 0.9
+                        st = 'warn';
+                    else
+                        st = 'ok';
+                    end
+                    txt = sprintf('%.0f%% bins OK, coh %.4f, SNR %.0f dB', ...
+                        100 * q.fracOk, q.coherenceMedian, q.snrMedian_dB);
+                    if ~q.integrityOk, txt = ['data integrity FAILED - ' txt]; end
+                    app.CalList.set(key, st, txt);
+                case 'channel'
+                    txt = sprintf('  ->  C%d: %d/%d valid', q.channel, q.nValid, q.Nf);
+                    if ~isempty(q.repeatability)
+                        txt = sprintf('%s, re-mount %.2f dB/%.1f deg', txt, ...
+                            q.repeatability.maxMag_dB, q.repeatability.maxPhase_deg);
+                    end
+                    app.CalList.appendDetail(key, txt);
+                    if q.nValid < 0.9 * q.Nf && strcmp(app.CalList.state(key), 'ok')
+                        app.CalList.set(key, 'warn');
+                    end
+            end
+        end
+
+        function px = calPortX(~)
+            px = [2.4 3.2 7.0 7.8];          % schematic port positions in the calibration diagram
+        end
+
+        function animateCalMics(app, from, to)
+            % move the microphone markers from their old to their new ports:
+            % up, across, down (different heights so that two paths do not cross)
+            if isempty(from) || isequal(from, to) || ~isfield(app.H, 'calMic'), return; end
+            ax = app.H.axCalSetup; px = app.calPortX(); y0 = 3.15;
+            moving = find(from ~= to & from > 0 & to > 0);
+            moving = moving(isvalid(app.H.calMic(moving)));
+            if isempty(moving), return; end
+            lift = 4.0 + 0.6 * (0:numel(moving) - 1);
+            % time based (a uifigure redraw takes 0.1-0.2 s): fixed duration,
+            % as many frames as the window manages
+            T = 1.2; t0 = tic; last = false;
+            while ~last
+                tt = toc(t0); last = tt >= T;
+                s = (1 - cos(pi * min(tt / T, 1))) / 2;           % ease in / out
+                for i = 1:numel(moving)
+                    c = moving(i);
+                    [xx, yy] = calPath(s, px(from(c)), px(to(c)), y0, lift(i));
+                    set(app.H.calMic(c), 'XData', xx, 'YData', yy);
+                    app.H.calMicNum(c).Position = [xx yy 0];
+                    app.H.calMicLbl(c).Position = [xx yy + 0.8 0];
+                end
+                drawnow limitrate; pause(0.02);
+            end
+            drawnow;
+            % keep the paths as dashed arrows (what was moved where)
+            P = tim.gui.palette(); hold(ax, 'on');
+            for i = 1:numel(moving)
+                c = moving(i); xa = px(from(c)); xb = px(to(c));
+                hp = plot(ax, [xa xa xb xb], [y0 + 0.35, lift(i), lift(i), y0 + 0.35], '--', ...
+                    'Color', P.ch(c, :), 'LineWidth', 1.2);
+                ha = patch(ax, xb + [-0.07 0.07 0], y0 + 0.35 + [0.2 0.2 0], P.ch(c, :), 'EdgeColor', 'none');
+                uistack([hp ha], 'bottom');
+            end
+            hold(ax, 'off');
+        end
+
+        function startPulse(app)
+            % calibration ports pulse while MATLAB waits for the operator
+            app.stopPulse();
+            if ~isfield(app.H, 'calHi') || isempty(app.H.calHi), return; end
+            app.PulseTimer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.35, 'BusyMode', 'drop', ...
+                'Name', 'TubeApp-calibration-pulse', 'TimerFcn', @(~, ~) app.pulseStep());
+            start(app.PulseTimer);
+        end
+        function pulseStep(app)
+            try
+                hi = app.H.calHi(isvalid(app.H.calHi));
+                if isempty(hi), return; end
+                if hi(1).FaceAlpha > 0.5, a = 0.2; else, a = 0.9; end
+                set(hi, 'FaceAlpha', a);
+                drawnow limitrate
+            catch
+            end
+        end
+        function stopPulse(app)
+            if ~isempty(app.PulseTimer)
+                try, stop(app.PulseTimer); delete(app.PulseTimer); catch, end
+                app.PulseTimer = [];
+            end
+            if isfield(app.H, 'calHi')
+                hi = app.H.calHi(isvalid(app.H.calHi));
+                if ~isempty(hi), set(hi, 'FaceAlpha', 0.35); end
             end
         end
 
@@ -880,21 +1178,44 @@ classdef TubeApp < handle
             end
         end
 
+        function [y, unit, sens] = toPressure(~, v, mics)
+            % volts -> Pa with the resolved sensitivities (display only; the
+            % raw data stay in volts). Falls back to mV without a sensitivity.
+            sens = [mics.sensitivity_VperPa];
+            if numel(sens) == size(v, 2) && all(isfinite(sens) & sens > 0)
+                y = v ./ sens; unit = 'Pa';
+            else
+                y = 1e3 * v; unit = 'mV'; sens = nan(1, size(v, 2));
+            end
+        end
+
         function plotWave(app, m)
-            % one graph per channel, shared time axis; display high-pass 20 Hz
-            % removes the slow CCLD/DC settling drift (raw data unchanged)
+            % one graph per channel, shared time axis, in Pa (voltage /
+            % sensitivity); display high-pass 20 Hz removes the slow CCLD/DC
+            % settling drift (raw data unchanged, stored in volts)
             P = tim.gui.palette();
             x = m.records{1}; t = (0:size(x, 1) - 1) / m.fs;
             [b, a] = butter(2, 20 / (m.fs / 2), 'high');
-            xd = filtfilt(b, a, x - mean(x, 1)) * 1e3;
+            xd = filtfilt(b, a, x - mean(x, 1));
+            [y, unit, sens] = app.toPressure(xd, m.mics);
             for c = 1:4
-                set(app.H.waveLine(c), 'XData', t, 'YData', xd(:, c), 'Color', P.ch(c, :));
-                pk = max(abs(xd(:, c))); if ~(pk > 0), pk = 1; end
+                set(app.H.waveLine(c), 'XData', t, 'YData', y(:, c), 'Color', P.ch(c, :));
+                pk = max(abs(y(:, c))); if ~(pk > 0), pk = 1; end
                 app.H.axW(c).YLim = 1.1 * [-pk pk];
-                title(app.H.axW(c), sprintf('ch%d   peak %.3g mV', c, pk), 'FontWeight', 'normal');
+                ylabel(app.H.axW(c), sprintf('ch%d [%s]', c, unit));
+                if strcmp(unit, 'Pa')
+                    spl = 20 * log10(sqrt(mean(y(:, c).^2)) / 2e-5);
+                    src = ''; if isfield(m.mics, 'sensitivitySource'), src = [' ' m.mics(c).sensitivitySource]; end
+                    title(app.H.axW(c), sprintf('ch%d   peak %.3g Pa,  %.1f dB SPL rms   (%.4g mV/Pa%s)', ...
+                        c, pk, spl, 1e3 * sens(c), src), 'FontWeight', 'normal');
+                else
+                    title(app.H.axW(c), sprintf('ch%d   peak %.3g mV  (no sensitivity: shown in volts)', c, pk), ...
+                        'FontWeight', 'normal');
+                end
             end
             app.H.axW(1).XLim = [0 t(end)];
-            xlabel(app.H.axW(4), sprintf('Time [s]   -   %s, %s (display high-passed at 20 Hz)', m.kind, m.timestamp));
+            xlabel(app.H.axW(4), sprintf(['Time [s]   -   %s, %s.  p = voltage / sensitivity; raw data stored in V; ' ...
+                'display high-passed at 20 Hz'], m.kind, m.timestamp));
             ax = app.H.axSpec; cla(ax); hold(ax, 'on');
             p = tim.acq.voltsToPascal(x - mean(x, 1), m.mics, 'V');
             nfft = min(8192, 2^nextpow2(size(p, 1)));
@@ -975,4 +1296,16 @@ classdef TubeApp < handle
             delete(app.Fig);
         end
     end
+end
+
+function [x, y] = calPath(s, xa, xb, y0, yl)
+% point at fraction s of the path up - across - down (calibration animation)
+up = yl - y0; across = abs(xb - xa); d = s * (2 * up + across);
+if d < up
+    x = xa; y = y0 + d;
+elseif d < up + across
+    x = xa + sign(xb - xa) * (d - up); y = yl;
+else
+    x = xb; y = yl - (d - up - across);
+end
 end

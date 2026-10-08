@@ -62,15 +62,27 @@ cfg.geometry = struct('diameter', 0.029, ...
 % analysis. Values from the lab CAD assembly (cad/transfer-impedance-tube.step,
 % SolidWorks 2024 AP214 "Assy_SIT", read 2026-10-08 with tim.cad.readStep).
 cfg.tubeDrawing = struct( ...
-    'outerDiameter', 0.065, ...          % tube outer diameter [m] (r 32.5 mm)
-    'portDiameter', 0.0064, ...          % hole between holder and bore [m] (r 3.2 mm)
-    'upstreamLength', 0.090, ...         % loudspeaker end of the bore -> M1 [m]
-    'downstreamLength', 0.291, ...       % M4 -> termination face [m]
+    'outerDiameter', 0.065, ...          % flanges, specimen section, extension, end cap [m]
+    'bodyDiameter', 0.045, ...           % measurement tube between the flanges [m]
+    'flangeThickness', 0.009, ...        % joint flanges [m]
+    'boltCircleDiameter', 0.055, ...     % 6 x M4 per joint
+    'upstreamLength', 0.095, ...         % loudspeaker end of the bore -> M1 [m]
+    'downstreamTubeEnd', 0.041, ...      % M4 -> joint downstream tube / extension [m]
+    'downstreamLength', 0.291, ...       % M4 -> termination face (end cap) [m]
+    'endCapThickness', 0.008, ...
     'speakerHousingDiameter', 0.135, ... % large end: loudspeaker housing [m]
     'speakerHousingLength', 0.080, ...
+    'speakerCavityDiameter', 0.097, ...
+    'speakerFlangeDiameter', 0.127, ...  % tube flange recessed in the housing front
+    'speakerFlangeThickness', 0.005, ...
+    'holderDiameter', 0.022, ...         % microphone holder flange
+    'holderHeight', 0.007, ...           % holder above the tube body surface
+    'micDiameter', 0.007, ...            % B&K 4957
+    'micLength', 0.0341, ...
+    'micRecess', 0.00025, ...            % microphone tip behind the bore wall
+    'portDiameter', 0.0064, ...          % hole between holder and bore
     'absorberLength', NaN, ...           % absorber at the small end [m] (NaN = not specified)
-    'micLength', 0.034, ...              % 4957 + holder protruding from the bore wall [m]
-    'source', 'CAD Assy_SIT (SolidWorks 2024, AP214), 2026-10-08');
+    'source', 'CAD Assy_SIT (SolidWorks 2024, AP214), read 2026-10-08');
 
 % ---------------- environment ----------------
 cfg.environment = struct('temperature_C', 20, 'pressure_Pa', 101325, 'relativeHumidity', 50, ...

@@ -35,6 +35,7 @@ classdef LanXi < handle
         TedsTimeout double = 30        % s
         SetupTimeout double = 60       % s, PUT /channels/input (slow on hardware)
         Verbose logical = true
+        ProgressFcn = []               % @(key, state, detail), see prepare()
     end
 
     properties (Constant)
@@ -227,18 +228,37 @@ classdef LanXi < handle
 
         function prepare(obj, c)
             %PREPARE Idle -> RecorderStreaming including TEDS detection.
+            %   Steps are reported to ProgressFcn (keys open, teds, setup).
+            obj.progress('open', 'run', 'Idle -> RecorderOpened -> RecorderConfiguring');
             obj.moduleInfo();
             obj.open();
             obj.create();
+            obj.progress('open', 'ok', 'RecorderConfiguring');
             if ~isfield(c, 'detectTeds') || c.detectTeds
+                obj.progress('teds', 'run', 'transducer detection on all inputs');
                 try
                     obj.detectTransducers();
+                    found = find(~cellfun(@isempty, obj.Teds));
+                    txt = sprintf('%d of %d inputs with TEDS', numel(found), numel(obj.Teds));
+                    for i = found
+                        txt = sprintf('%s,  ch%d %s s/n %d', txt, i, obj.Teds{i}.typeNumber, obj.Teds{i}.serialNumber);
+                    end
+                    if numel(found) == numel(obj.Teds), st = 'ok'; else, st = 'warn'; end
+                    obj.progress('teds', st, txt);
                 catch err
                     obj.log('TEDS detection failed (continuing with manual sensitivities): %s', err.message);
                     obj.Teds = {};
+                    obj.progress('teds', 'warn', ['failed - manual sensitivities: ' err.message]);
                 end
+            else
+                obj.progress('teds', 'skip', 'disabled in the configuration');
             end
+            conn = ''; if isfield(c, 'connector'), conn = c.connector; end
+            obj.progress('setup', 'run', sprintf('%g S/s, %s, high-pass %s, %s - can take more than 10 s', ...
+                c.sampleRate, c.range, c.filter, conn));
             obj.configureChannels(c);
+            obj.progress('setup', 'ok', sprintf('%g S/s, %s, high-pass %s, %s -> RecorderStreaming', ...
+                c.sampleRate, c.range, c.filter, conn));
         end
 
         function startMeasurement(obj)
@@ -374,6 +394,11 @@ classdef LanXi < handle
         end
         function log(obj, varargin)
             if obj.Verbose, fprintf('[LAN-XI] %s\n', sprintf(varargin{:})); end
+        end
+        function progress(obj, key, state, detail)
+            if ~isempty(obj.ProgressFcn)
+                try, obj.ProgressFcn(key, state, detail); catch, end
+            end
         end
     end
 end

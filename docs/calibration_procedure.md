@@ -84,10 +84,20 @@ calibrated range.
 Press **"Run switching cal."**. The **Calibration** tab then shows, for every step, a diagram of
 the tube with the loudspeaker, ports M1–M4 and the sample position. The two calibration ports are
 highlighted in yellow, and coloured circles give the DAQ channel and TEDS serial of the microphone
-that must sit in each port. A dialog shows the step number ("Calibration step 4 of 7") and the
-instruction. Press "Done - measure" once the microphones are in place, or "Abort". After the last
-step the curves `|C_k|` and `∠C_k` are plotted in the same tab. The **Equations** tab lists the
-calibration equations together with all other equations used.
+that must sit in each port. At every step the circles **move** from their previous ports to the
+new ones (up, across, down; dashed arrows keep the paths visible), and while the dialog waits for
+you the two calibration ports **pulse**. A dialog shows the step number ("Calibration step 4 of
+8") and the instruction. Press "Done - measure" once the microphones are in place, or "Abort".
+Closing the window also aborts (the dialog never blocks MATLAB).
+
+Next to the diagram, the **step list** shows every operator step with its state (turning icon =
+running) and, after each measurement, its quality: share of the frequency bins that meet the
+coherence and SNR criteria (`calibration.coherenceMin`, `snrMin_dB`), median coherence and median
+SNR. Green ≥ 90 % of the bins, orange 50–90 %, red below 50 % or failed data integrity. After the
+config II measurement of a channel the list adds the number of valid bins of `C_k` and, with the
+repeated config I, the re-mount repeatability. After the last step the curves `|C_k|` and `∠C_k`
+are plotted in the same tab. The **Equations** tab lists the calibration equations together
+with all other equations used.
 
 While the calibration (or any measurement) runs, the GUI is **locked**: every input and button
 is disabled except the STOP button, which reads **"ABORT calibration"**. Pressing it switches the

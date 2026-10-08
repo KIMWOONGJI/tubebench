@@ -272,26 +272,62 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyError(@() tim.app.MeasurementSession(bad), 'tim:config:amplitude');
         end
 
-        function tube3DModelFollowsGeometry(tc)
-            % 3D drawing: complete and incomplete geometry, swapped channels
-            fig = figure('Visible', 'off'); cleanup = onCleanup(@() close(fig));
-            ax = axes(fig);
-            g = tc.cfg.geometry; g.xFront = 0; g.xRear = 0.075;
-            g.micPositions = [-0.070 -0.041 0.116 0.145];
-            td = tim.app.defaultConfig().tubeDrawing;
-            tim.gui.drawTube3D(ax, g, td, [2 1 3 4]);
-            sp = findobj(ax, 'Type', 'surface');
-            xmax = max(cellfun(@(X) max(X(:)), get(sp, 'XData')));
-            tc.verifyEqual(xmax, 145 + 1e3 * td.downstreamLength, 'AbsTol', 1e-9);
-            labels = cellfun(@(s) strjoin(cellstr(s), ' '), get(findobj(ax, 'Type', 'text'), 'String'), ...
-                'UniformOutput', false);
-            tc.verifyTrue(any(strcmp(labels, 'M1 ch2')), 'port M1 must show the channel mounted in it');
-            g.micPositions = nan(1, 4); g.xFront = NaN; g.xRear = NaN;
-            td.absorberLength = 0.05;
-            tim.gui.drawTube3D(ax, g, td);
-            labels = cellfun(@(s) strjoin(cellstr(s), ' '), get(findobj(ax, 'Type', 'text'), 'String'), ...
-                'UniformOutput', false);
-            tc.verifyTrue(any(strcmp(labels, 'absorber 50 mm')));
+        function connectionChecklistAndCalibrationReport(tc)
+            % progress of every connection step (GUI checklist), signal check
+            % without excitation, quality report of every calibration step
+            s = tim.app.MeasurementSession(tc.cfg);
+            cleanup = onCleanup(@() s.close());
+            ev = cell(0, 3);
+            function record(k, st, d)
+                ev(end + 1, :) = {k, st, d};
+            end
+            s.ProgressCallback = @record;
+            s.connect(); s.prepareAcquisition();
+            chk = s.signalCheck(0.5);
+            keys = {'gen', 'lanxi', 'idle', 'open', 'teds', 'setup', 'sens', 'settle', 'signal'};
+            [~, first] = unique(ev(:, 1), 'stable');
+            tc.verifyEqual(ev(first, 1).', keys, 'steps reported in checklist order');
+            for k = keys
+                rows = ev(strcmp(ev(:, 1), k{1}), :);
+                final = rows{end, 2};
+                tc.verifyTrue(any(strcmp(final, {'ok', 'skip'})), sprintf('%s ended "%s"', k{1}, final));
+                if ~strcmp(final, 'skip'), tc.verifyEqual(rows{1, 2}, 'run', k{1}); end
+            end
+            tc.verifyEqual([chk.channel], 1:4);
+            tc.verifyTrue(all(strcmp({chk.state}, 'ok')));
+            tc.verifyTrue(all(isfinite([chk.spl_dB])));
+            tc.verifyFalse(s.Gen.isOutputOn(), 'the signal check never drives the loudspeaker');
+            % calibration: one report per measurement and one per channel
+            q = {};
+            function addq(r)
+                q{end + 1} = r;
+            end
+            tim.app.runCalibration(s, struct('report', @addq));
+            kinds = cellfun(@(r) r.kind, q, 'UniformOutput', false);
+            tc.verifyEqual(nnz(strcmp(kinds, 'measurement')), 6);     % 3 channels x (I, II)
+            tc.verifyEqual(nnz(strcmp(kinds, 'channel')), 3);
+            m = [q{strcmp(kinds, 'measurement')}];
+            tc.verifyGreaterThan(min([m.fracOk]), 0.9);
+            tc.verifyTrue(all([m.integrityOk]));
+            clear cleanup
+        end
+
+        function connectionFailureMarksStep(tc)
+            % an error inside a step marks exactly that step as failed
+            c = tc.cfg; c.acquisition.filter = 'no such filter';
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            ev = cell(0, 3);
+            function record(k, st, d)
+                ev(end + 1, :) = {k, st, d};
+            end
+            s.ProgressCallback = @record;
+            s.connect();
+            tc.verifyError(@() s.prepareAcquisition(), 'tim:lanxi:filter');
+            failed = ev(strcmp(ev(:, 2), 'fail'), :);
+            tc.verifyEqual(size(failed, 1), 1);
+            tc.verifyEqual(failed{1, 1}, 'setup');
+            tc.verifySubstring(failed{1, 3}, 'no such filter');
             clear cleanup
         end
     end

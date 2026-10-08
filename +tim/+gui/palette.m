@@ -13,6 +13,12 @@ p.b = p.ch(2, :);
 p.c = p.ch(3, :);
 p.d = [0.902 0.624 0.000];     % orange
 p.invalid = [0.80 0.80 0.80];
+% status colours (checklists, lamps)
+p.ok = p.ch(3, :);
+p.warn = p.d;
+p.fail = p.ch(2, :);
+p.run = p.ch(1, :);
+p.idle = [0.75 0.75 0.75];
 p.grid = [0.55 0.55 0.55];
 p.lineWidth = 1.2;
 end

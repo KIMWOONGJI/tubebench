@@ -44,6 +44,12 @@ classdef MeasurementSession < handle
                                  % (default in hardware mode: command-window prompt)
         StopRequested logical = false
         InOperation logical = false  % inside a multi-measurement operation (calibration)
+        ProgressCallback = []    % @(key, state, detail): connection checklist (GUI). keys:
+                                 % gen, lanxi, idle, open, teds, setup, sens, settle, signal;
+                                 % state: run | ok | warn | fail | skip
+    end
+    properties (Access = private)
+        ProgressKey char = ''    % checklist step currently running (marked 'fail' on error)
     end
 
     methods
@@ -61,26 +67,42 @@ classdef MeasurementSession < handle
         function connect(obj)
             c = obj.Cfg;
             obj.log('Connecting (%s mode)...', c.mode);
-            switch c.mode
-                case 'simulation'
-                    obj.Rig = tim.sim.SimulatedRig(c);
-                    tr = tim.instr.MockScpiTransport(obj.Rig);
-                    obj.Http = tim.instr.MockLanXiHttp(obj.Rig);
-                    http = obj.Http;
-                    factory = @(h, p) tim.instr.RecordingStream(http.openStream(h, p));
-                case 'hardware'
-                    tr = tim.instr.ScpiTcpTransport(c.generator.host, c.generator.port, c.generator.timeout);
-                    obj.Http = tim.instr.LanXiHttp(c.lanxi.host, c.lanxi.timeout);
-                    factory = @(h, p) tim.instr.RecordingStream(tim.instr.LanXiTcpStream(h, p));
-            end
-            obj.Gen = tim.instr.Keysight33220A(tr, 'MaxVpp', c.generator.maxVpp, 'Load', c.generator.load);
-            obj.log('Generator: %s (output OFF)', obj.Gen.Identity.raw);
-            obj.Daq = tim.instr.LanXi(obj.Http, factory, 'Host', c.lanxi.host);
-            info = obj.Daq.moduleInfo();
-            obj.log('LAN-XI: %s s/n %d firmware %s, state %s', info.model, info.serial, info.firmware, info.moduleState);
-            if ~strcmp(info.moduleState, 'Idle')
-                obj.log('LAN-XI not Idle (%s): returning it to Idle.', info.moduleState);
-                obj.Daq.shutdown();
+            sim = strcmp(c.mode, 'simulation');
+            try
+                obj.progress('gen', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated instrument', ...
+                    sprintf('%s:%d (SCPI over TCP)', c.generator.host, c.generator.port)));
+                switch c.mode
+                    case 'simulation'
+                        obj.Rig = tim.sim.SimulatedRig(c);
+                        tr = tim.instr.MockScpiTransport(obj.Rig);
+                        obj.Http = tim.instr.MockLanXiHttp(obj.Rig);
+                        http = obj.Http;
+                        factory = @(h, p) tim.instr.RecordingStream(http.openStream(h, p));
+                    case 'hardware'
+                        tr = tim.instr.ScpiTcpTransport(c.generator.host, c.generator.port, c.generator.timeout);
+                        obj.Http = tim.instr.LanXiHttp(c.lanxi.host, c.lanxi.timeout);
+                        factory = @(h, p) tim.instr.RecordingStream(tim.instr.LanXiTcpStream(h, p));
+                end
+                obj.Gen = tim.instr.Keysight33220A(tr, 'MaxVpp', c.generator.maxVpp, 'Load', c.generator.load);
+                obj.log('Generator: %s (output OFF)', obj.Gen.Identity.raw);
+                obj.progress('gen', 'ok', sprintf('%s - output OFF', obj.Gen.Identity.raw));
+                obj.progress('lanxi', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated module', ...
+                    sprintf('%s (REST, Open API)', c.lanxi.host)));
+                obj.Daq = tim.instr.LanXi(obj.Http, factory, 'Host', c.lanxi.host);
+                info = obj.Daq.moduleInfo();
+                obj.log('LAN-XI: %s s/n %d firmware %s, state %s', info.model, info.serial, info.firmware, info.moduleState);
+                obj.progress('lanxi', 'ok', sprintf('%s  s/n %d  firmware %s', info.model, info.serial, info.firmware));
+                obj.progress('idle', 'run', sprintf('state %s', info.moduleState));
+                if ~strcmp(info.moduleState, 'Idle')
+                    obj.log('LAN-XI not Idle (%s): returning it to Idle.', info.moduleState);
+                    obj.Daq.shutdown();
+                    obj.progress('idle', 'ok', sprintf('was %s - returned to Idle', info.moduleState));
+                else
+                    obj.progress('idle', 'ok', 'Idle');
+                end
+            catch err
+                obj.progressFailed(err);
+                rethrow(err);
             end
             obj.Connected = true;
             obj.setStatus('connected');
@@ -93,19 +115,93 @@ classdef MeasurementSession < handle
                 'ccld', a.ccld, 'channels', 1:4, 'detectTeds', a.detectTeds, ...
                 'connector', obj.Cfg.lanxi.connector, ...
                 'names', {arrayfun(@(m) sprintf('M%d', m.position), obj.Cfg.mics, 'UniformOutput', false)});
-            obj.Daq.prepare(dc);
-            obj.Mics = tim.cal.resolveSensitivities(obj.Cfg.mics, obj.Daq.Teds, a.sensitivityPolicy);
-            for m = obj.Mics(:).'
-                obj.log('ch%d (pos M%d): %.4g mV/Pa from %s%s', m.channel, m.position, ...
-                    1e3 * m.sensitivity_VperPa, m.sensitivitySource, ...
-                    tim.app.MeasurementSession.ternary(m.serialMismatch, ' (TEDS serial differs from configuration!)', ''));
-            end
-            if strcmp(obj.Cfg.mode, 'hardware') && a.settleTime > 0
-                obj.log('Settling %.1f s (CCLD / high-pass)...', a.settleTime);
-                pause(a.settleTime);
+            try
+                obj.Daq.ProgressFcn = @(key, state, detail) obj.progress(key, state, detail);
+                obj.Daq.prepare(dc);
+                obj.progress('sens', 'run', a.sensitivityPolicy);
+                obj.Mics = tim.cal.resolveSensitivities(obj.Cfg.mics, obj.Daq.Teds, a.sensitivityPolicy);
+                parts = cell(1, numel(obj.Mics)); state = 'ok';
+                for i = 1:numel(obj.Mics)
+                    m = obj.Mics(i);
+                    obj.log('ch%d (pos M%d): %.4g mV/Pa from %s%s', m.channel, m.position, ...
+                        1e3 * m.sensitivity_VperPa, m.sensitivitySource, ...
+                        tim.app.MeasurementSession.ternary(m.serialMismatch, ' (TEDS serial differs from configuration!)', ''));
+                    parts{i} = sprintf('ch%d %.4g (%s)', m.channel, 1e3 * m.sensitivity_VperPa, m.sensitivitySource);
+                    if m.serialMismatch || ~any(strcmp(m.sensitivitySource, {'certificate', 'teds'}))
+                        state = 'warn';       % nominal value or wrong microphone
+                    end
+                end
+                obj.progress('sens', state, ['mV/Pa: ' strjoin(parts, ',  ')]);
+                if strcmp(obj.Cfg.mode, 'hardware') && a.settleTime > 0
+                    obj.log('Settling %.1f s (CCLD / high-pass)...', a.settleTime);
+                    obj.progress('settle', 'run', sprintf('%.1f s (CCLD + %s high-pass)', a.settleTime, a.filter));
+                    pause(a.settleTime);
+                    obj.progress('settle', 'ok', sprintf('%.1f s', a.settleTime));
+                else
+                    obj.progress('settle', 'skip', 'not needed (simulation)');
+                end
+            catch err
+                obj.progressFailed(err);
+                rethrow(err);
             end
             obj.Prepared = true;
             obj.setStatus('ready');
+        end
+
+        function chk = signalCheck(obj, duration)
+            %SIGNALCHECK Short recording WITHOUT excitation: level and fault
+            %   flags per channel (connection check). chk(c): channel, spl_dB,
+            %   peak_V, state ('ok' | 'fail'), text. Never drives the loudspeaker.
+            if nargin < 2, duration = 1; end
+            obj.progress('signal', 'run', sprintf('%.1f s recording, no excitation', duration));
+            try
+                m = obj.measureBackground(duration);
+            catch err
+                obj.progressFailed(err);
+                rethrow(err);
+            end
+            x = m.records{1}; info = m.channelInfo{1};
+            rangeV = sscanf(obj.Cfg.acquisition.range, '%f');
+            q = info.qualityEvents;
+            ids = 1:size(x, 2); if isfield(info, 'signalIds'), ids = info.signalIds; end
+            chk = struct('channel', {}, 'spl_dB', {}, 'peak_V', {}, 'state', {}, 'text', {});
+            for c = 1:size(x, 2)
+                v = x(:, c) - mean(x(:, c));
+                s = obj.Mics(c).sensitivity_VperPa;
+                spl = 20 * log10(sqrt(mean(v.^2)) / s / 2e-5);
+                pk = max(abs(x(:, c)));
+                flags = {};
+                if ~isempty(q)
+                    mine = [q.signalId] == ids(c);
+                    if any([q(mine).invalid]), flags{end+1} = 'INVALID (cable / CCLD fault)'; end %#ok<AGROW>
+                    if any([q(mine).clipped]), flags{end+1} = 'CLIPPED'; end %#ok<AGROW>
+                end
+                if std(x(:, c)) == 0, flags{end+1} = 'constant (dead)'; end %#ok<AGROW>
+                if ~isempty(rangeV) && pk >= 0.99 * rangeV, flags{end+1} = 'overload'; end %#ok<AGROW>
+                if isempty(flags)
+                    st = 'ok'; txt = sprintf('%.1f dB SPL', spl);
+                else
+                    st = 'fail'; txt = strjoin(flags, ', ');
+                end
+                chk(c) = struct('channel', c, 'spl_dB', spl, 'peak_V', pk, 'state', st, 'text', txt);
+            end
+            parts = arrayfun(@(k) sprintf('ch%d %s', k.channel, k.text), chk, 'UniformOutput', false);
+            if any(strcmp({chk.state}, 'fail')), st = 'fail'; else, st = 'ok'; end
+            obj.log('Signal check (no excitation): %s', strjoin(parts, ' | '));
+            obj.progress('signal', st, strjoin(parts, ',  '));
+        end
+
+        function progress(obj, key, state, detail)
+            %PROGRESS Report a connection step to ProgressCallback (GUI checklist).
+            if nargin < 4, detail = ''; end
+            if strcmp(state, 'run')
+                obj.ProgressKey = key;
+            elseif strcmp(key, obj.ProgressKey)
+                obj.ProgressKey = '';
+            end
+            if ~isempty(obj.ProgressCallback)
+                try, obj.ProgressCallback(key, state, detail); catch, end
+            end
         end
 
         %% ---- measurements -------------------------------------------------
@@ -382,6 +478,13 @@ classdef MeasurementSession < handle
     end
 
     methods (Access = private)
+        function progressFailed(obj, err)
+            % the running checklist step failed
+            if ~isempty(obj.ProgressKey)
+                obj.progress(obj.ProgressKey, 'fail', err.message);
+            end
+        end
+
         function [data, info] = guardedAcquire(obj, nTotal, onBlock, what, prevRecords, prevInfos, amplitudeVpp)
             obj.confirmExcitation(amplitudeVpp, what);
             obj.Gen.armOutput(true);       % explicit user start of this measurement

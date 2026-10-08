@@ -79,7 +79,16 @@ source forms a voltage divider:
 
 Left panel, top to bottom (it scrolls if the window is small):
 
-* **INSTRUMENTS**: mode (simulation / hardware), Load / **Save config…**, Connect + TEDS.
+* **INSTRUMENTS**: mode (simulation / hardware), Load / **Save config…**, Connect + TEDS, and a
+  row of **status lamps** (Generator, LAN-XI, ch1–ch4: grey = not connected, blue = running,
+  green = OK, orange = check, red = fault). "Connect + TEDS" opens the **Connection** tab, where
+  every step is listed while it runs, with a turning icon for the running step (it keeps turning
+  during the slow LAN-XI channel setup, > 10 s), its result and its duration: generator (SCPI,
+  output OFF), LAN-XI module, recorder Idle, open recorder, TEDS detection, channel setup →
+  streaming, microphone sensitivities, settling, and a **1 s signal check without excitation**
+  (level in dB SPL, INVALID / clipped / dead flags per channel). Below the list one card per
+  channel shows its port, TEDS type and serial, sensitivity and source, and the background level.
+  A failing step is marked red together with the error message.
 * **EXCITATION**: mode (**sweep** = broadband default; **stepped** = discrete sines for
   cross-checks), frequency range, sweep time, **amplitude in Vpk**, repetitions, **amplifier**
   (drop-down: "none (direct drive)", "power amplifier", or type your model), **gain as a
@@ -103,25 +112,36 @@ Left panel, top to bottom (it scrolls if the window is small):
   face (`xFront = 0`, `xRear = d`, `x_M2 = −L1`, `x_M1 = −L1 − s1`, `x_M3 = d + L2`,
   `x_M4 = d + L2 + s2`), and these coordinates are what is stored in the configuration file.
   Temperature and pressure are entered here too. The line below the fields shows the speed of
-  sound, the geometric frequency range and any input error (red). The **Tube setup** tab draws the
-  tube with the dimension lines (to scale when all distances are entered) and, below it, a
-  simplified **3D model** (rotate / zoom with the axes toolbar). Both are redrawn as soon as a
-  field changes; the 3D model colours each microphone by the LAN-XI channel mounted in that port.
-  Save the values with "Save config…".
+  sound, the geometric frequency range and any input error (red). The **Tube setup** tab shows a
+  **3D model** of the tube built from these values, with the dimension lines s1, L1, d, L2, s2
+  (black) and the overall lengths (grey). It is redrawn as soon as a field changes and keeps
+  your viewpoint. Buttons: **Default** (side view, slightly from above), **Side** (like a 2D
+  drawing), **Perspective**, **Top**; rotate / zoom / pan freely with the toolbar of the drawing.
+  **Section view** removes the half towards the viewer (cut faces hatched) so that the bore, the
+  specimen and the microphone tips are visible; microphones, holders and bolts are drawn whole,
+  as in a technical drawing. Each microphone carries the colour of the LAN-XI channel mounted in
+  that port. Save the values with "Save config…".
 
   The lab tube (CAD assembly `cad/transfer-impedance-tube.step`) gives s1 = 29, L1 = 41,
   d = 75 (the specimen fills the 75 mm middle section), L2 = 41 and s2 = 29 mm; these design
   values are in `config/user_config.json` and should be checked on the real tube. The parts used
-  only for the drawings (outer diameter, bore end 90 mm before M1, termination 291 mm after M4,
-  loudspeaker housing Ø135 mm at the large end, absorber at the small end) are in the
-  `tubeDrawing` section of the configuration; they do not enter any calculation.
-  `tim.cad.readStep` reads such a STEP assembly (part names, cylinders, placements) if the tube
-  is changed.
+  only for the drawing are in the `tubeDrawing` section of the configuration (CAD values: flanges
+  and specimen section Ø65 mm, tube body Ø45 mm, flanges 9 mm with 6 × M4, bore end 95 mm before
+  M1, termination 291 mm after M4, loudspeaker housing Ø135 mm at the large end, microphone
+  holders Ø22 mm, B&K 4957 Ø7 × 34.1 mm with the tip 0.25 mm behind the bore wall, absorber at
+  the small end with `absorberLength` = null until it is known). They do not enter any
+  calculation. The loudspeaker inside the housing is schematic. `tim.cad.readStep` reads such a
+  STEP assembly (part names, cylinders, planes, placements) if the tube is changed.
 * **CALIBRATION**, **RESULTS**.
 
 During a measurement or calibration the panel is locked and only **ABORT** is active. The
 **Waveforms** tab shows the four channels **live** (last 0.5 s, SPL per channel, about 5 updates
-per second). After the measurement it shows the whole record, one graph per channel. All plots
+per second). After the measurement it shows the whole record, one graph per channel. The
+waveforms are shown as **sound pressure in Pa** (voltage / sensitivity, the sensitivity and its
+source are in the title of each graph). The LAN-XI deliberately streams **volts** (module
+default transducer, sensitivity 1 V/V) and the raw data are stored in volts; the sensitivity
+(certificate > TEDS > nominal) is applied once in software, so it can never be applied twice.
+Without any sensitivity the graphs fall back to mV. All plots
 use one colour-blind-safe palette (ch1 blue, ch2 vermillion, ch3 green, ch4 purple; grey = not
 valid).
 
