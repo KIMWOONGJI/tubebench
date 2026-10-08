@@ -71,6 +71,12 @@ classdef TubeApp < handle
     end
 
     methods
+        function [geom, env, msgs] = currentGeometry(app)
+            %CURRENTGEOMETRY Geometry [m] and environment as entered in the
+            %   IMPEDANCE TUBE fields (coordinates on a 1 nm grid).
+            [geom, env, msgs] = app.readTube();
+        end
+
         function sel = ask(app, msg, title, options, defaultIdx, cancelIdx, icon)
             %ASK Operator dialog that can never hang MATLAB: non-blocking
             %   uiconfirm and a wait loop. (A blocking uiconfirm does not return
@@ -196,35 +202,46 @@ classdef TubeApp < handle
             % window fills the screen (maximised); restored size = most of the screen
             scr = get(groot, 'ScreenSize');
             W = max(1400, scr(3) - 80); Hh = max(760, scr(4) - 120);
-            app.Fig = uifigure('Name', 'Transfer-impedance tube', 'Position', [40 50 W Hh], 'Visible', visible, ...
+            app.Fig = uifigure('Name', 'Transfer impedance tube', 'Position', [40 50 W Hh], 'Visible', visible, ...
                 'CloseRequestFcn', @(src, ~) tim.gui.closeApp(src, app));   % never gets stuck
             if strcmp(visible, 'on')
                 try, app.Fig.WindowState = 'maximized'; catch, end
             end
             g = uigridlayout(app.Fig, [1 2], 'ColumnWidth', {430, '1x'});
-            nRows = 37;
-            left = uigridlayout(g, [nRows 2], 'RowHeight', repmat({24}, 1, nRows), 'ColumnWidth', {205, '1x'}, ...
-                'Scrollable', 'on', 'RowSpacing', 6);
+            % Left panel: ONE column; each row is a label or a small nested grid
+            % (rowGrid) so that related fields share a row. Fixed row heights [px]:
+            % about 720 px in total -> no scrolling in the maximised window (989 px
+            % on a 1920 x 1080 screen) nor in the smallest window (760 - 2 x 10 px).
+            % Scrollable stays on as a fallback for very small screens.
+            hd = 26; rw = 24;                        % section header (text at the bottom) / control row
+            rowH = {20, rw, rw, rw, rw, ...           %  1- 5 INSTRUMENTS: header, mode + config, connect, status, lamps
+                hd, rw, rw, rw, rw, rw, 32, 28, ...   %  6-13 EXCITATION: header, 5 field rows, drive, START/STOP
+                hd, rw, 18, rw, 46, ...               % 14-18 IMPEDANCE TUBE: header, D/T/p, names, distances, limits
+                hd, rw, rw, ...                       % 19-21 CALIBRATION
+                hd, rw};                              % 22-23 RESULTS
+            left = uigridlayout(g, [numel(rowH) 1], 'RowHeight', rowH, 'ColumnWidth', {'1x'}, ...
+                'Scrollable', 'on', 'RowSpacing', 5);
+            left.Layout.Row = 1; left.Layout.Column = 1;
             h = struct();
+            h.left = left;
             P = tim.gui.palette();
+            ex = {112, '1x', 92, 76};                % excitation rows: label, field, label, field
             r = 0;
             % ---------------- instruments
             r = r + 1; app.header(left, r, 'INSTRUMENTS');
-            r = r + 1; app.lab(left, r, 'Mode');
-            h.mode = uidropdown(left, 'Items', {'simulation', 'hardware'}); app.place(h.mode, r);
-            r = r + 1; h.loadCfg = uibutton(left, 'Text', 'Load config...', 'ButtonPushedFcn', @(~, ~) app.onLoadConfig());
-            h.loadCfg.Layout.Row = r; h.loadCfg.Layout.Column = 1;
-            h.saveCfg = uibutton(left, 'Text', 'Save config...', 'ButtonPushedFcn', @(~, ~) app.onSaveConfig()); app.place(h.saveCfg, r);
-            r = r + 1; h.connect = uibutton(left, 'Text', 'Connect + TEDS', 'ButtonPushedFcn', @(~, ~) app.onConnect());
-            h.connect.Layout.Row = r; h.connect.Layout.Column = 1;
-            h.disconnect = uibutton(left, 'Text', 'Disconnect', 'ButtonPushedFcn', @(~, ~) app.disconnect()); app.place(h.disconnect, r);
-            r = r + 1; app.lab(left, r, 'Status');
-            h.status = uilabel(left, 'Text', 'disconnected', 'FontColor', [0.6 0 0]); app.place(h.status, r);
+            r = r + 1; rg = app.rowGrid(left, r, {40, 98, '1x', '1x'});
+            uilabel(rg, 'Text', 'Mode');
+            h.mode = uidropdown(rg, 'Items', {'simulation', 'hardware'});
+            h.loadCfg = uibutton(rg, 'Text', 'Load config...', 'ButtonPushedFcn', @(~, ~) app.onLoadConfig());
+            h.saveCfg = uibutton(rg, 'Text', 'Save config...', 'ButtonPushedFcn', @(~, ~) app.onSaveConfig());
+            r = r + 1; rg = app.rowGrid(left, r, {'1x', '1x'});
+            h.connect = uibutton(rg, 'Text', 'Connect + TEDS', 'ButtonPushedFcn', @(~, ~) app.onConnect());
+            h.disconnect = uibutton(rg, 'Text', 'Disconnect', 'ButtonPushedFcn', @(~, ~) app.disconnect());
+            r = r + 1; rg = app.rowGrid(left, r, {44, '1x'});
+            uilabel(rg, 'Text', 'Status');
+            h.status = uilabel(rg, 'Text', 'disconnected', 'FontColor', [0.6 0 0]);
             % status lamps: generator, LAN-XI, the four channels (details: Connection tab)
-            r = r + 1;
-            gl = uigridlayout(left, [1 6], 'Padding', [0 0 0 0], 'ColumnSpacing', 4, ...
-                'ColumnWidth', {92, 80, '1x', '1x', '1x', '1x'});
-            gl.Layout.Row = r; gl.Layout.Column = [1 2];
+            r = r + 1; gl = app.rowGrid(left, r, {92, 80, '1x', '1x', '1x', '1x'});
             names = {'Generator', 'LAN-XI', 'ch1', 'ch2', 'ch3', 'ch4'};
             tips = {'function generator 33220A', 'LAN-XI module', 'channel 1', 'channel 2', 'channel 3', 'channel 4'};
             for i = 1:6
@@ -234,89 +251,114 @@ classdef TubeApp < handle
             end
             % ---------------- excitation
             r = r + 1; app.header(left, r, 'EXCITATION');
-            r = r + 1; app.lab(left, r, 'Mode');
-            h.exMode = uidropdown(left, 'Items', {'sweep', 'stepped'}, 'Tooltip', ...
-                'sweep: broadband measurement (default).  stepped: discrete sine frequencies - cross-check / validation'); app.place(h.exMode, r);
-            r = r + 1; app.lab(left, r, 'f start / stop [Hz]');
-            h.fRange = uieditfield(left, 'text'); app.place(h.fRange, r);
-            r = r + 1; app.lab(left, r, 'Sweep time [s]');
-            h.dur = uieditfield(left, 'numeric', 'Limits', [0.001 500]); app.place(h.dur, r);
-            r = r + 1; app.lab(left, r, 'Amplitude [Vpk]');
-            h.amp = uieditfield(left, 'numeric', 'Limits', [0.005 10], 'ValueChangedFcn', @(~, ~) app.updateDrive()); app.place(h.amp, r);
-            r = r + 1; app.lab(left, r, 'Repetitions');
-            h.reps = uieditfield(left, 'numeric', 'Limits', [1 100], 'RoundFractionalValues', 'on'); app.place(h.reps, r);
-            r = r + 1; app.lab(left, r, 'Amp model');
-            h.ampModel = uidropdown(left, 'Editable', 'on', 'Items', {'none (direct drive)', 'power amplifier'}, ...
+            r = r + 1; rg = app.rowGrid(left, r, ex);
+            uilabel(rg, 'Text', 'Mode');
+            h.exMode = uidropdown(rg, 'Items', {'sweep', 'stepped'}, 'Tooltip', ...
+                'sweep: broadband measurement (default).  stepped: discrete sine frequencies - cross-check / validation', ...
+                'ValueChangedFcn', @(~, ev) app.onExMode(ev.PreviousValue));
+            uilabel(rg, 'Text', 'Repetitions');
+            h.reps = uieditfield(rg, 'numeric', 'Limits', [1 100], 'RoundFractionalValues', 'on');
+            r = r + 1; rg = app.rowGrid(left, r, ex);
+            uilabel(rg, 'Text', 'f start / stop [Hz]');
+            h.fRange = uieditfield(rg, 'text', 'Tooltip', 'start and stop frequency in Hz, e.g. "80 5500"');
+            h.durLabel = uilabel(rg, 'Text', 'Sweep time [s]');
+            h.dur = uieditfield(rg, 'numeric', 'Limits', [0.001 500]);
+            r = r + 1; rg = app.rowGrid(left, r, ex(1:2));
+            uilabel(rg, 'Text', 'Amp model');
+            h.ampModel = uidropdown(rg, 'Editable', 'on', 'Items', {'none (direct drive)', 'power amplifier'}, ...
                 'Tooltip', 'select, or type the model of your power amplifier (typed models are added)', ...
-                'ValueChangedFcn', @(~, ~) app.onAmpModel()); app.place(h.ampModel, r);
-            r = r + 1; app.lab(left, r, 'Amp gain [x]');
-            h.ampGain = uieditfield(left, 'numeric', 'Limits', [0 Inf], 'LowerLimitInclusive', 'off', 'ValueDisplayFormat', 'x %.4g', ...
+                'ValueChangedFcn', @(~, ~) app.onAmpModel());
+            r = r + 1; rg = app.rowGrid(left, r, ex);
+            uilabel(rg, 'Text', 'Amplitude [Vpk]');
+            h.amp = uieditfield(rg, 'numeric', 'Limits', [0.005 10], 'ValueChangedFcn', @(~, ~) app.updateDrive());
+            uilabel(rg, 'Text', 'Amp gain [x]');
+            h.ampGain = uieditfield(rg, 'numeric', 'Limits', [0 Inf], 'LowerLimitInclusive', 'off', 'ValueDisplayFormat', 'x %.4g', ...
                 'Tooltip', 'voltage gain of the power amplifier as a multiplier (x10 = 20 dB); used to estimate the loudspeaker drive', ...
-                'ValueChangedFcn', @(~, ~) app.updateDrive()); app.place(h.ampGain, r);
-            r = r + 1; app.lab(left, r, 'Speaker [ohm] / limit [W]');
-            gs = uigridlayout(left, [1 2], 'Padding', [0 0 0 0], 'ColumnSpacing', 4); gs.Layout.Row = r; gs.Layout.Column = 2;
-            h.spkZ = uieditfield(gs, 'numeric', 'Limits', [0.5 1000], 'ValueChangedFcn', @(~, ~) app.updateDrive(), ...
+                'ValueChangedFcn', @(~, ~) app.updateDrive());
+            r = r + 1; rg = app.rowGrid(left, r, ex);
+            uilabel(rg, 'Text', 'Speaker [ohm]', 'Tooltip', 'nominal loudspeaker impedance');
+            h.spkZ = uieditfield(rg, 'numeric', 'Limits', [0.5 1000], 'ValueChangedFcn', @(~, ~) app.updateDrive(), ...
                 'Tooltip', 'nominal loudspeaker impedance [ohm]');
-            h.spkP = uieditfield(gs, 'numeric', 'Limits', [1e-4 1000], 'ValueChangedFcn', @(~, ~) app.updateDrive(), ...
+            uilabel(rg, 'Text', 'Power limit [W]', 'Tooltip', 'loudspeaker power limit');
+            h.spkP = uieditfield(rg, 'numeric', 'Limits', [1e-4 1000], 'ValueChangedFcn', @(~, ~) app.updateDrive(), ...
                 'Tooltip', 'power limit [W]: excitation is refused above this estimated power');
             r = r + 1; h.drive = uilabel(left, 'Text', '', 'FontSize', 11, 'WordWrap', 'on');
-            h.drive.Layout.Row = [r r + 1]; h.drive.Layout.Column = [1 2]; r = r + 1;
-            r = r + 1; h.start = uibutton(left, 'Text', 'START measurement', 'BackgroundColor', [0.75 0.9 0.75], ...
+            h.drive.Layout.Row = r; h.drive.Layout.Column = 1;
+            r = r + 1; rg = app.rowGrid(left, r, {'1x', '1x', 96});
+            h.start = uibutton(rg, 'Text', 'START measurement', 'BackgroundColor', [0.75 0.9 0.75], ...
                 'FontWeight', 'bold', 'ButtonPushedFcn', @(~, ~) app.onStart());
-            h.start.Layout.Row = r; h.start.Layout.Column = 1;
-            h.stop = uibutton(left, 'Text', 'STOP', 'BackgroundColor', [0.95 0.7 0.7], 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~, ~) app.onStop()); app.place(h.stop, r);
-            r = r + 1; h.background = uibutton(left, 'Text', 'Background noise (2 s, no excitation)', ...
-                'ButtonPushedFcn', @(~, ~) app.onBackground());
-            h.background.Layout.Row = r; h.background.Layout.Column = [1 2];
+            h.stop = uibutton(rg, 'Text', 'STOP', 'BackgroundColor', [0.95 0.7 0.7], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) app.onStop());
+            h.background = uibutton(rg, 'Text', 'Background', 'ButtonPushedFcn', @(~, ~) app.onBackground(), ...
+                'Tooltip', 'background noise: 2 s recording without excitation');
             % ---------------- tube configuration
-            r = r + 1; app.header(left, r, 'IMPEDANCE TUBE');
-            r = r + 1; app.lab(left, r, 'Inner diameter [mm]');
-            h.tubeD = uieditfield(left, 'numeric', 'Limits', [1 500], 'ValueChangedFcn', @(~, ~) app.onTubeChanged()); app.place(h.tubeD, r);
-            % distances between clearly defined points (port centres, specimen faces);
-            % empty = not measured yet. See the "Tube setup" tab for the drawing.
+            r = r + 1; app.header(left, r, 'IMPEDANCE TUBE   (lengths in mm)');
+            r = r + 1; rg = app.rowGrid(left, r, {84, '1x', 56, '1x', 50, '1x'});
+            cb = @(~, ~) app.onTubeChanged();
+            uilabel(rg, 'Text', 'Diameter [mm]', 'Tooltip', 'INNER diameter of the tube');
+            h.tubeD = uieditfield(rg, 'numeric', 'Limits', [1 500], 'ValueDisplayFormat', '%.10g', ...
+                'Tooltip', 'inner diameter of the tube [mm]', 'ValueChangedFcn', cb);
+            uilabel(rg, 'Text', 'T [degC]', 'Tooltip', 'air temperature');
+            h.temp = uieditfield(rg, 'numeric', 'Limits', [-20 60], 'Tooltip', 'air temperature [degC]', 'ValueChangedFcn', cb);
+            uilabel(rg, 'Text', 'p [kPa]', 'Tooltip', 'static air pressure');
+            h.pres = uieditfield(rg, 'numeric', 'Limits', [50 120], 'ValueDisplayFormat', '%.6g', ...
+                'Tooltip', 'static air pressure [kPa]', 'ValueChangedFcn', cb);
+            % distances between clearly defined points (port centres, specimen faces), in the
+            % order of the tube (loudspeaker on the left); empty ('?') = not measured yet.
+            % See the "Tube setup" tab for the drawing.
             tip = 'distance between microphone PORT CENTRES (centre of the port hole), in mm';
-            r = r + 1; app.lab(left, r, 's1   M1 -> M2 [mm]');
-            h.s1 = uieditfield(left, 'numeric', 'Limits', [1 1000], 'Tooltip', ['upstream spacing: ' tip], ...
-                'ValueChangedFcn', @(~, ~) app.onTubeChanged()); app.place(h.s1, r);
-            r = r + 1; app.lab(left, r, 'L1   M2 -> specimen front [mm]');
-            h.L1 = uieditfield(left, 'text', 'Placeholder', 'not measured', 'HorizontalAlignment', 'right', ...
-                'Tooltip', 'from the centre of port M2 to the FRONT face of the specimen (the face towards the loudspeaker)', ...
-                'ValueChangedFcn', @(~, ~) app.onTubeChanged()); app.place(h.L1, r);
-            r = r + 1; app.lab(left, r, 'd    specimen thickness [mm]');
-            h.dTh = uieditfield(left, 'text', 'Placeholder', 'not measured', 'HorizontalAlignment', 'right', ...
-                'Tooltip', 'from the front face to the rear face of the specimen (0 for a thin screen)', ...
-                'ValueChangedFcn', @(~, ~) app.onTubeChanged()); app.place(h.dTh, r);
-            r = r + 1; app.lab(left, r, 'L2   specimen rear -> M3 [mm]');
-            h.L2 = uieditfield(left, 'text', 'Placeholder', 'not measured', 'HorizontalAlignment', 'right', ...
-                'Tooltip', 'from the REAR face of the specimen (towards the termination) to the centre of port M3', ...
-                'ValueChangedFcn', @(~, ~) app.onTubeChanged()); app.place(h.L2, r);
-            r = r + 1; app.lab(left, r, 's2   M3 -> M4 [mm]');
-            h.s2 = uieditfield(left, 'numeric', 'Limits', [1 1000], 'Tooltip', ['downstream spacing: ' tip], ...
-                'ValueChangedFcn', @(~, ~) app.onTubeChanged()); app.place(h.s2, r);
-            r = r + 1; app.lab(left, r, 'Temp [degC] / p [kPa]');
-            ge = uigridlayout(left, [1 2], 'Padding', [0 0 0 0], 'ColumnSpacing', 4); ge.Layout.Row = r; ge.Layout.Column = 2;
-            h.temp = uieditfield(ge, 'numeric', 'Limits', [-20 60], 'ValueChangedFcn', @(~, ~) app.onTubeChanged());
-            h.pres = uieditfield(ge, 'numeric', 'Limits', [50 120], 'ValueChangedFcn', @(~, ~) app.onTubeChanged());
-            r = r + 1; h.fLimits = uilabel(left, 'Text', '', 'FontSize', 11, 'WordWrap', 'on');
-            h.fLimits.Layout.Row = [r r + 1]; h.fLimits.Layout.Column = [1 2]; r = r + 1;
+            nm = '  (empty = not measured: specimen results R, tau, Zt, TL disabled)';
+            dTips = {['s1, upstream spacing: ' tip], ...
+                ['L1: from the centre of port M2 to the FRONT face of the specimen (the face towards the loudspeaker), in mm' nm], ...
+                ['d: specimen thickness, from the front face to the rear face, in mm (0 for a thin screen)' nm], ...
+                ['L2: from the REAR face of the specimen (towards the termination) to the centre of port M3, in mm' nm], ...
+                ['s2, downstream spacing: ' tip]};
+            dNames = {'s1: M1-M2', 'L1: M2-front', 'd: thickness', 'L2: rear-M3', 's2: M3-M4'};
+            r = r + 1; rg = app.rowGrid(left, r, repmat({'1x'}, 1, 5));
+            for i = 1:5
+                uilabel(rg, 'Text', dNames{i}, 'HorizontalAlignment', 'center', 'FontSize', 11, 'Tooltip', dTips{i});
+            end
+            r = r + 1; rg = app.rowGrid(left, r, repmat({'1x'}, 1, 5));
+            h.s1 = uieditfield(rg, 'numeric', 'Limits', [1 1000], 'ValueDisplayFormat', '%.10g', ...
+                'HorizontalAlignment', 'center', 'Tooltip', dTips{1}, 'ValueChangedFcn', cb);
+            h.L1 = uieditfield(rg, 'text', 'Placeholder', '?', 'HorizontalAlignment', 'center', ...
+                'Tooltip', dTips{2}, 'ValueChangedFcn', cb);
+            h.dTh = uieditfield(rg, 'text', 'Placeholder', '?', 'HorizontalAlignment', 'center', ...
+                'Tooltip', dTips{3}, 'ValueChangedFcn', cb);
+            h.L2 = uieditfield(rg, 'text', 'Placeholder', '?', 'HorizontalAlignment', 'center', ...
+                'Tooltip', dTips{4}, 'ValueChangedFcn', cb);
+            h.s2 = uieditfield(rg, 'numeric', 'Limits', [1 1000], 'ValueDisplayFormat', '%.10g', ...
+                'HorizontalAlignment', 'center', 'Tooltip', dTips{5}, 'ValueChangedFcn', cb);
+            r = r + 1; h.fLimits = uilabel(left, 'Text', '', 'FontSize', 11, 'WordWrap', 'on', 'VerticalAlignment', 'top');
+            h.fLimits.Layout.Row = r; h.fLimits.Layout.Column = 1;
             % ---------------- calibration
             r = r + 1; app.header(left, r, 'CALIBRATION');
-            r = r + 1; h.loadCal = uibutton(left, 'Text', 'Load calibration...', 'ButtonPushedFcn', @(~, ~) app.onLoadCal());
-            h.loadCal.Layout.Row = r; h.loadCal.Layout.Column = 1;
-            h.runCal = uibutton(left, 'Text', 'Run switching cal.', 'ButtonPushedFcn', @(~, ~) app.onRunCal()); app.place(h.runCal, r);
-            r = r + 1; app.lab(left, r, 'Calibration');
-            h.calLabel = uilabel(left, 'Text', 'none (results not valid)', 'FontColor', [0.6 0 0]); app.place(h.calLabel, r);
+            r = r + 1; rg = app.rowGrid(left, r, {'1x', '1x'});
+            h.loadCal = uibutton(rg, 'Text', 'Load calibration...', 'ButtonPushedFcn', @(~, ~) app.onLoadCal());
+            h.runCal = uibutton(rg, 'Text', 'Run switching cal.', 'ButtonPushedFcn', @(~, ~) app.onRunCal());
+            r = r + 1; rg = app.rowGrid(left, r, {76, '1x'});
+            uilabel(rg, 'Text', 'Calibration');
+            h.calLabel = uilabel(rg, 'Text', 'none (results not valid)', 'FontColor', [0.6 0 0]);
             % ---------------- results
             r = r + 1; app.header(left, r, 'RESULTS');
-            r = r + 1; h.save = uibutton(left, 'Text', 'Save measurement + export', 'ButtonPushedFcn', @(~, ~) app.onSave());
-            h.save.Layout.Row = r; h.save.Layout.Column = [1 2];
-            r = r + 1; h.reprocess = uibutton(left, 'Text', 'Re-process (config/cal changed)', 'ButtonPushedFcn', @(~, ~) app.onReprocess());
-            h.reprocess.Layout.Row = r; h.reprocess.Layout.Column = [1 2];
-            assert(r <= nRows, 'layout: increase nRows');
+            r = r + 1; rg = app.rowGrid(left, r, {'1x', '1x'});
+            h.save = uibutton(rg, 'Text', 'Save measurement + export', 'ButtonPushedFcn', @(~, ~) app.onSave());
+            h.reprocess = uibutton(rg, 'Text', 'Re-process (config/cal changed)', 'ButtonPushedFcn', @(~, ~) app.onReprocess());
+            assert(r == numel(rowH), 'layout: rowH must list exactly one height per left-panel row');
 
-            % ---------------- tabs
-            tabs = uitabgroup(g);
+            % ---------------- tabs (right column) + footer: version and source code link
+            right = uigridlayout(g, [2 1], 'RowHeight', {'1x', 18}, 'RowSpacing', 2, 'Padding', [0 0 0 0]);
+            right.Layout.Row = 1; right.Layout.Column = 2;
+            foot = uigridlayout(right, [1 3], 'ColumnWidth', {'1x', 'fit', 'fit'}, 'Padding', [4 0 4 0], 'ColumnSpacing', 6);
+            foot.Layout.Row = 2; foot.Layout.Column = 1;
+            [swv, swi] = tim.app.softwareVersion();
+            h.version = uilabel(foot, 'Text', swv, 'FontSize', 10, 'FontColor', [0.45 0.45 0.45], ...
+                'Tooltip', 'software version (stored with every measurement and calibration)');
+            uilabel(foot, 'Text', 'Source code:', 'FontSize', 10, 'FontColor', [0.45 0.45 0.45]);
+            h.repoLink = uihyperlink(foot, 'Text', swi.repository, 'URL', swi.repository, 'FontSize', 10, ...
+                'Tooltip', 'opens in the system web browser - private repository: sign in to GitHub with an account that has access');
+            tabs = uitabgroup(right);
+            tabs.Layout.Row = 1; tabs.Layout.Column = 1;
             t = uitab(tabs, 'Title', 'Log');
             tg = uigridlayout(t, [1 1]);
             h.log = uitextarea(tg, 'Editable', 'off', 'FontName', 'Consolas');
@@ -413,14 +455,16 @@ classdef TubeApp < handle
         end
 
         function header(~, parent, row, txt)
-            l = uilabel(parent, 'Text', txt, 'FontWeight', 'bold');
-            l.Layout.Row = row; l.Layout.Column = [1 2];
+            % section title; the text sits at the bottom of its taller row (gap above the section)
+            l = uilabel(parent, 'Text', txt, 'FontWeight', 'bold', 'VerticalAlignment', 'bottom');
+            l.Layout.Row = row; l.Layout.Column = 1;
         end
-        function lab(~, parent, row, txt)
-            l = uilabel(parent, 'Text', txt); l.Layout.Row = row; l.Layout.Column = 1;
-        end
-        function place(~, c, row)
-            c.Layout.Row = row; c.Layout.Column = 2;
+        function rg = rowGrid(~, parent, row, widths)
+            % one row of the left panel: nested 1 x n grid; components created in it
+            % fill the cells from left to right
+            rg = uigridlayout(parent, [1 numel(widths)], 'ColumnWidth', widths, 'RowHeight', {'1x'}, ...
+                'Padding', [0 0 0 0], 'ColumnSpacing', 4);
+            rg.Layout.Row = row; rg.Layout.Column = 1;
         end
 
         %% ----------------------------------------------------------- state
@@ -434,13 +478,14 @@ classdef TubeApp < handle
             end
             % tube geometry [mm] and air
             gm = c.geometry;
-            h.tubeD.Value = 1e3 * gm.diameter;
-            % coordinates in the config -> distances s1, L1, d, L2, s2 in the GUI
+            h.tubeD.Value = app.toMm(gm.diameter);
+            % coordinates in the config -> distances s1, L1, d, L2, s2 in the GUI, on a
+            % 1 nm grid (1e3*(-0.041 - (-0.07)) alone would be 29.000000000000004)
             x = gm.micPositions;
             if all(isfinite(x))
-                h.s1.Value = 1e3 * (x(2) - x(1)); h.s2.Value = 1e3 * (x(4) - x(3));
+                h.s1.Value = app.toMm(x(2) - x(1)); h.s2.Value = app.toMm(x(4) - x(3));
             else
-                h.s1.Value = 1e3 * gm.spacingUp; h.s2.Value = 1e3 * gm.spacingDown;
+                h.s1.Value = app.toMm(gm.spacingUp); h.s2.Value = app.toMm(gm.spacingDown);
             end
             h.L1.Value = app.mm2txt(gm.xFront - x(2));
             h.dTh.Value = app.mm2txt(gm.xRear - gm.xFront);
@@ -449,9 +494,8 @@ classdef TubeApp < handle
             ls = struct('impedance_ohm', 8, 'maxPower_W', 1);
             if isfield(c, 'loudspeaker'), ls = c.loudspeaker; end
             h.spkZ.Value = ls.impedance_ohm; h.spkP.Value = ls.maxPower_W;
-            s = c.excitation.sweep;
-            h.fRange.Value = sprintf('%g %g', s.fStart, s.fStop);
-            h.dur.Value = s.duration; h.amp.Value = s.amplitudeVpp / 2; h.reps.Value = s.repetitions;
+            app.excitationToUi(h.exMode.Value);
+            h.amp.Value = c.excitation.sweep.amplitudeVpp / 2;
             h.amp.Tooltip = sprintf(['generator open-circuit peak voltage [Vpk]; safety limit %.3g Vpk ' ...
                 '(config generator.maxVpp = %.3g Vpp)'], c.generator.maxVpp / 2, c.generator.maxVpp);
             items = c.amplifier.knownModels; if ischar(items), items = {items}; end
@@ -466,8 +510,61 @@ classdef TubeApp < handle
             if isempty(app.Session), app.refreshCards(); end
         end
 
-        function v = mm2txt(~, x)
-            if isfinite(x), v = sprintf('%g', round(1e3 * x, 6)); else, v = ''; end
+        function excitationToUi(app, mode)
+            % frequency range / sweep time or number of steps / repetitions of the
+            % selected excitation mode -> fields (stepped: "Steps" instead of "Sweep time")
+            h = app.H; ex = app.Cfg.excitation;
+            if strcmp(mode, 'stepped')
+                s = ex.stepped;
+                h.durLabel.Text = 'Steps';
+                h.dur.Limits = [1 400]; h.dur.RoundFractionalValues = 'on'; h.dur.Value = s.nPoints;
+                h.dur.Tooltip = sprintf(['number of frequency steps (%s spacing); each step: %g s settling + %g s ' ...
+                    'recording'], s.spacing, s.settleTime, s.recordTime);
+            else
+                s = ex.sweep;
+                h.durLabel.Text = 'Sweep time [s]';
+                h.dur.RoundFractionalValues = 'off'; h.dur.Limits = [0.001 500]; h.dur.Value = s.duration;
+                h.dur.Tooltip = 'duration of one sweep [s]';
+            end
+            h.fRange.Value = sprintf('%g %g', s.fStart, s.fStop);
+            h.reps.Value = s.repetitions;
+        end
+
+        function uiToExcitation(app, mode)
+            % fields -> app.Cfg.excitation.(mode); errors on invalid input
+            h = app.H;
+            fr = sscanf(h.fRange.Value, '%f');
+            if numel(fr) ~= 2 || any(fr <= 0) || fr(2) <= fr(1)
+                error('tim:gui:input', 'Enter "f_start f_stop" in Hz.');
+            end
+            if strcmp(mode, 'stepped')
+                s = app.Cfg.excitation.stepped;
+                s.nPoints = round(h.dur.Value);
+            else
+                s = app.Cfg.excitation.sweep;
+                s.duration = h.dur.Value;
+            end
+            s.fStart = fr(1); s.fStop = fr(2); s.repetitions = h.reps.Value;
+            app.Cfg.excitation.(mode) = s;
+        end
+
+        function onExMode(app, previous)
+            % keep what was typed for the previous mode, then show the new mode's values
+            try
+                app.uiToExcitation(previous);
+            catch
+            end
+            app.excitationToUi(app.H.exMode.Value);
+        end
+
+        function v = toMm(~, x)
+            % metres -> millimetres on a 1 nm (1e-6 mm) grid: removes the binary
+            % residue of coordinate differences (29.000000000000004 -> 29)
+            v = round(x * 1e9) / 1e6;
+        end
+
+        function v = mm2txt(app, x)
+            if isfinite(x), v = sprintf('%.12g', app.toMm(x)); else, v = ''; end
         end
 
         function v = txt2m(~, s, name)
@@ -504,6 +601,7 @@ classdef TubeApp < handle
             else
                 geom.xFront = NaN; geom.xRear = NaN; geom.micPositions = nan(1, 4);
             end
+            geom = tim.app.roundGeometry(geom);   % d + L2 = 0.075 + 0.041 -> 0.116, not 0.11599999999999999
         end
 
         function onTubeChanged(app)
@@ -513,8 +611,8 @@ classdef TubeApp < handle
                 air = tim.acoustics.airProperties(env);
                 lim = tim.acoustics.frequencyLimits(geom.diameter, [geom.spacingUp geom.spacingDown], air);
                 known = all(isfinite(geom.micPositions)) && isfinite(geom.xFront) && isfinite(geom.xRear);
-                txt = sprintf('c = %.1f m/s.  Geometric range %.0f - %.0f Hz (s = %.1f / %.1f mm, (1,1) cut-on %.0f Hz).', ...
-                    air.c, lim.fLower, lim.fUpper, 1e3 * geom.spacingUp, 1e3 * geom.spacingDown, lim.cutOn11);
+                txt = sprintf('c = %.1f m/s.  Geometric range %.0f - %.0f Hz (s = %g / %g mm, (1,1) cut-on %.0f Hz).', ...
+                    air.c, lim.fLower, lim.fUpper, app.toMm(geom.spacingUp), app.toMm(geom.spacingDown), lim.cutOn11);
                 if ~known
                     txt = [txt ' Positions incomplete: boundary results (R, tau, Zt, TL) disabled.'];
                 end
@@ -574,16 +672,12 @@ classdef TubeApp < handle
             h = app.H;
             app.Cfg.mode = h.mode.Value;
             app.Cfg.excitation.mode = h.exMode.Value;
-            fr = sscanf(h.fRange.Value, '%f');
-            if numel(fr) ~= 2 || any(fr <= 0) || fr(2) <= fr(1)
-                error('tim:gui:input', 'Enter "f_start f_stop" in Hz.');
-            end
-            app.Cfg.excitation.sweep.fStart = fr(1); app.Cfg.excitation.sweep.fStop = fr(2);
-            app.Cfg.excitation.sweep.duration = h.dur.Value;
+            % f start/stop, sweep time or number of steps, repetitions of the selected mode
+            % (before 2026-10-09 these fields reached the sweep settings only)
+            app.uiToExcitation(h.exMode.Value);
             app.Cfg.excitation.sweep.amplitudeVpp = 2 * h.amp.Value;      % GUI in Vpk, config/generator in Vpp
             app.Cfg.excitation.stepped.amplitudeVpp = 2 * h.amp.Value;
             app.Cfg.excitation.noise.amplitudeVpp = 2 * h.amp.Value;
-            app.Cfg.excitation.sweep.repetitions = h.reps.Value;
             app.Cfg.amplifier.model = h.ampModel.Value;
             app.Cfg.amplifier.gainFactor = h.ampGain.Value;
             app.Cfg.amplifier.gain_dB = 20 * log10(h.ampGain.Value);
@@ -917,7 +1011,7 @@ classdef TubeApp < handle
             if isempty(app.Session) || ~app.Session.Prepared
                 uialert(app.Fig, 'Connect and prepare the instruments first.', 'Not ready'); return
             end
-            app.run(@() app.doBackground(), 'background recording');
+            app.run(@() app.doBackground(), 'background');
         end
         function doBackground(app)
             m = app.Session.measureBackground(2);

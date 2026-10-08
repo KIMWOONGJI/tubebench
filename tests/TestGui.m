@@ -123,6 +123,9 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(vertcat(h.lamp.Color), repmat(P.ok, 6, 1), 'all lamps green');
             tc.verifyEqual(h.card(3).state.Text, 'OK');
             tc.verifySubstring(h.connHead.Text, 'all checks passed');
+            g = app.Cfg.geometry;      % GUI round trip keeps the coordinates bit-exact
+            tc.verifyEqual(g.micPositions, c.geometry.micPositions);
+            tc.verifyEqual([g.spacingUp g.spacingDown g.xRear], [c.geometry.spacingUp c.geometry.spacingDown c.geometry.xRear]);
             feval(h.runCal.ButtonPushedFcn, h.runCal, []);
             tc.verifyEqual(numel(app.CalList.States), 1 + 3 * 2 + 1);
             tc.verifyTrue(all(strcmp(app.CalList.States, 'ok')), strjoin(app.CalList.States, ' '));
@@ -130,7 +133,80 @@ classdef TestGui < matlab.unittest.TestCase
             feval(h.start.ButtonPushedFcn, h.start, []);
             tc.verifyNotEmpty(app.LastRes);
             tc.verifyEqual(h.axW(1).YLabel.String, 'ch1 [Pa]');
+            feval(h.background.ButtonPushedFcn, h.background, []);
+            tc.verifyEqual(app.LastMeas.kind, 'background');
+            tc.verifyEqual(h.stop.Text, 'STOP', 'busy label restored');
+            tc.verifyEqual(h.start.Enable, matlab.lang.OnOffSwitchState.on, 'controls unlocked again');
             clear cleanup
+        end
+
+        function tubeFieldsAreExactDistances(tc)
+            % regression 2026-10-09: s1/s2 showed 29.000000000000004 / 28.999999999999986
+            % while editing; Save config wrote 0.11599999999999999
+            c = tim.app.defaultConfig();
+            c.geometry.xFront = 0; c.geometry.xRear = 0.075;
+            c.geometry.micPositions = [-0.070 -0.041 0.116 0.145];
+            file = fullfile(tc.tmp, 'lab.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            tc.verifyEqual([h.tubeD.Value h.s1.Value h.s2.Value], [29 29 29]);      % bit-exact
+            tc.verifyEqual({h.L1.Value, h.dTh.Value, h.L2.Value}, {'41', '75', '41'});
+            tc.verifyEqual(char(h.s1.ValueDisplayFormat), '%.10g');
+            g = app.currentGeometry();
+            tc.verifyEqual(g.micPositions, [-0.070 -0.041 0.116 0.145]);
+            tc.verifyEqual([g.spacingUp g.spacingDown g.xFront g.xRear g.diameter], [0.029 0.029 0 0.075 0.029]);
+            h.L2.Value = '41.25'; g = app.currentGeometry();
+            tc.verifyEqual(g.micPositions(3:4), [0.11625 0.14525]);
+        end
+
+        function leftPanelFitsWithoutScrolling(tc)
+            % user request 2026-10-09: no scrolling in the left panel on the lab screen
+            % (maximised 1920 x 1080 -> 989 px; restored window 960 - 20 = 940 px)
+            app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            L = app.H.left; g = L.Parent;
+            rh = L.RowHeight;
+            tc.verifyTrue(all(cellfun(@isnumeric, rh)), 'left panel uses fixed row heights only');
+            content = sum([rh{:}]) + (numel(rh) - 1) * L.RowSpacing + L.Padding(2) + L.Padding(4);
+            tc.verifyLessThanOrEqual(content, 740, sprintf('left panel content %g px (smallest window: 740 px)', content));
+            ch = L.Children; rows = zeros(1, numel(ch));
+            for i = 1:numel(ch), rows(i) = ch(i).Layout.Row; end
+            tc.verifyEqual(sort(rows), 1:numel(rh), 'one child per row, every row used');
+            W = g.ColumnWidth{1} - L.Padding(1) - L.Padding(3);
+            for i = 1:numel(ch)
+                if isa(ch(i), 'matlab.ui.container.GridLayout')
+                    cw = ch(i).ColumnWidth; fixed = cellfun(@isnumeric, cw);
+                    need = sum([cw{fixed}]) + (numel(cw) - 1) * ch(i).ColumnSpacing + 50 * sum(~fixed);
+                    tc.verifyLessThanOrEqual(need, W, sprintf('row %d too wide', ch(i).Layout.Row));
+                end
+            end
+            for n = {'mode','loadCfg','saveCfg','connect','disconnect','exMode','fRange','dur','amp','reps', ...
+                    'ampModel','ampGain','spkZ','spkP','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
+                    'temp','pres','loadCal','runCal','save','reprocess','status','drive','fLimits','calLabel'}
+                tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
+            end
+        end
+
+        function steppedFieldsFollowTheMode(tc)
+            % before 2026-10-09 f start/stop, duration and repetitions reached only the sweep
+            app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H; c = tim.app.defaultConfig();
+            tc.verifyEqual(h.durLabel.Text, 'Sweep time [s]');
+            h.exMode.Value = 'stepped'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'sweep'));
+            tc.verifyEqual(h.durLabel.Text, 'Steps');
+            tc.verifyEqual(h.dur.Value, c.excitation.stepped.nPoints);
+            h.fRange.Value = '200 3000'; h.dur.Value = 12; h.reps.Value = 2;
+            h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
+            tc.verifyEqual(h.dur.Value, c.excitation.sweep.duration);
+            s = app.Cfg.excitation.stepped;
+            tc.verifyEqual([s.fStart s.fStop s.nPoints s.repetitions], [200 3000 12 2], 'typed stepped values kept');
+        end
+
+        function windowTitleAndRepositoryLink(tc)
+            app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            tc.verifyEqual(app.Fig.Name, 'Transfer impedance tube', 'no hyphen in the window name');
+            tc.verifyClass(app.H.repoLink, 'matlab.ui.control.Hyperlink');
+            tc.verifyEqual(app.H.repoLink.URL, tim.app.repositoryUrl());
+            tc.verifySubstring(app.H.version.Text, 'transfer-impedance-tube-measurement 1.1.0');
         end
     end
 end

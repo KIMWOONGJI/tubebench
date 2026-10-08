@@ -1,5 +1,5 @@
 @echo off
-rem Double-click to start MATLAB R2022b and open the transfer-impedance tube GUI.
+rem Double-click to start MATLAB R2022b and open the transfer impedance tube GUI.
 rem   start_tubeapp.bat        -> real instruments (config\user_config.json)
 rem   start_tubeapp.bat sim    -> virtual tube (practice)
 set "ROOT=%~dp0"

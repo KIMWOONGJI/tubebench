@@ -78,6 +78,11 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             S = load(fullfile(d1, 'raw.mat'));
             tc.verifyEqual(S.meas.records, meas.records);
             tc.verifyEqual(S.meas.metadata.daq.firmware, '2.10.0.610');
+            % traceability: repository and commit of the code that produced the data
+            md = jsondecode(tim.app.readTextUtf8(fullfile(d1, 'metadata.json')));
+            tc.verifyEqual(md.softwareInfo.repository, tim.app.repositoryUrl());
+            tc.verifyTrue(strcmp(md.softwareInfo.commit, 'unknown') || ~isempty(regexp(md.softwareInfo.commit, '^[0-9a-f]{40}$', 'once')));
+            tc.verifySubstring(tim.app.readTextUtf8(fullfile(d1, 'README.txt')), ['Source: ' tim.app.repositoryUrl()]);
             T = readtable(fullfile(d1, 'results.csv'));
             tc.verifyEqual(height(T), numel(a.f));
             clear cleanup

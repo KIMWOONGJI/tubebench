@@ -1,5 +1,5 @@
 function cfg = defaultConfig()
-%DEFAULTCONFIG Default configuration of the transfer-impedance tube system.
+%DEFAULTCONFIG Default configuration of the transfer impedance tube system.
 %
 %   cfg = tim.app.defaultConfig()
 %   Edit config/user_config.json (see config/example_config.json) rather

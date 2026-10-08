@@ -38,8 +38,9 @@ if ~isempty(figs) && cfg.output.exportFigures
 end
 % read-only marker for raw data (informational; Windows attribute not changed)
 fid = fopen(fullfile(folder, 'README.txt'), 'w');
-fprintf(fid, 'Measurement %s (%s mode), software %s\nRaw data in raw.mat must not be modified.\n', ...
-    meas.timestamp, cfg.mode, tim.app.softwareVersion());
+[swv, swi] = tim.app.softwareVersion();
+fprintf(fid, 'Measurement %s (%s mode), software %s\nSource: %s (commit %s)\nRaw data in raw.mat must not be modified.\n', ...
+    meas.timestamp, cfg.mode, swv, swi.repository, swi.commit);
 if strcmp(cfg.mode, 'simulation'), fprintf(fid, 'SIMULATED DATA - not a physical measurement.\n'); end
 fclose(fid);
 end

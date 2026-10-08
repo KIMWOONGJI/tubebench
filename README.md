@@ -1,5 +1,8 @@
 # transfer-impedance-tube-measurement
 
+Repository: <https://github.com/kimwoongji/transfer-impedance-tube-measurement> (private; access by
+invitation of the owner)
+
 MATLAB R2022b application for broadband four-microphone impedance-tube measurements:
 Keysight/Agilent **33220A** generator → amplifier → loudspeaker → M1 M2 | sample | M3 M4 →
 termination, with four **B&K 4957** microphones on an **HBK LAN-XI Light 3676** (Open API).
@@ -11,6 +14,8 @@ DAQ.
 
 ## Quick start
 
+Get the code by cloning `https://github.com/kimwoongji/transfer-impedance-tube-measurement.git`
+(private repository: your GitHub account needs access) or by copying the project folder.
 Double-click **`start_tubeapp.bat`**, which starts MATLAB and opens the GUI with
 `config/user_config.json`. `start_tubeapp.bat sim` opens the GUI on a virtual tube. From the
 MATLAB command window:

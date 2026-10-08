@@ -1,5 +1,6 @@
 %% START HERE - transfer-impedance-tube-measurement
 % Four-microphone impedance tube: Keysight 33220A + HBK LAN-XI 3676 + 4x B&K 4957.
+% Repository: https://github.com/kimwoongji/transfer-impedance-tube-measurement (private)
 %
 % Run this file section by section (Ctrl+Enter in the MATLAB Editor).
 % Nothing here switches the generator output on until a section that

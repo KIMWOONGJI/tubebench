@@ -1,5 +1,5 @@
 function app = tubeapp(what)
-%TUBEAPP Start the transfer-impedance tube GUI (simplest entry point).
+%TUBEAPP Start the transfer impedance tube GUI (simplest entry point).
 %
 %   tubeapp              % real instruments: config/user_config.json
 %                        %   (falls back to config/example_config.json)
@@ -29,7 +29,7 @@ else
         error('tubeapp:config', 'Configuration file "%s" not found.', what);
     end
 end
-fprintf('Starting transfer-impedance tube GUI with %s\n', file);
+fprintf('Starting transfer impedance tube GUI with %s\n', file);
 a = tim.gui.TubeApp(file);
 if nargout > 0, app = a; end
 end

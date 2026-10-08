@@ -12,6 +12,7 @@ function cfg = loadConfig(file)
 cfg = tim.app.defaultConfig();
 if nargin < 1 || isempty(file), return; end
 u = jsondecode(tim.app.readTextUtf8(file));
+if isfield(u, 'configFile'), u = rmfield(u, 'configFile'); end   % run-time field (older files)
 [cfg, unknown] = merge(cfg, u, 'cfg');
 if ~isempty(unknown)
     warning('tim:config:unknownField', 'Unknown configuration field(s): %s', strjoin(unknown, ', '));

@@ -9,7 +9,7 @@ md.matlabRelease = version('-release');
 v = ver;
 md.toolboxes = strjoin(arrayfun(@(x) sprintf('%s %s', x.Name, x.Version), v, 'UniformOutput', false), '; ');
 md.computer = computer;
-md.software = tim.app.softwareVersion();
+[md.software, md.softwareInfo] = tim.app.softwareVersion();   % version, GitHub URL, Git commit
 md.generator = struct('identity', [], 'host', c.generator.host, 'port', c.generator.port, ...
     'maxVpp', c.generator.maxVpp, 'load', c.generator.load);
 if ~isempty(session.Gen), md.generator.identity = session.Gen.Identity; end
