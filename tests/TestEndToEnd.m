@@ -271,5 +271,28 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             bad = c; bad.excitation.sweep.amplitudeVpp = 5;
             tc.verifyError(@() tim.app.MeasurementSession(bad), 'tim:config:amplitude');
         end
+
+        function tube3DModelFollowsGeometry(tc)
+            % 3D drawing: complete and incomplete geometry, swapped channels
+            fig = figure('Visible', 'off'); cleanup = onCleanup(@() close(fig));
+            ax = axes(fig);
+            g = tc.cfg.geometry; g.xFront = 0; g.xRear = 0.075;
+            g.micPositions = [-0.070 -0.041 0.116 0.145];
+            td = tim.app.defaultConfig().tubeDrawing;
+            tim.gui.drawTube3D(ax, g, td, [2 1 3 4]);
+            sp = findobj(ax, 'Type', 'surface');
+            xmax = max(cellfun(@(X) max(X(:)), get(sp, 'XData')));
+            tc.verifyEqual(xmax, 145 + 1e3 * td.downstreamLength, 'AbsTol', 1e-9);
+            labels = cellfun(@(s) strjoin(cellstr(s), ' '), get(findobj(ax, 'Type', 'text'), 'String'), ...
+                'UniformOutput', false);
+            tc.verifyTrue(any(strcmp(labels, 'M1 ch2')), 'port M1 must show the channel mounted in it');
+            g.micPositions = nan(1, 4); g.xFront = NaN; g.xRear = NaN;
+            td.absorberLength = 0.05;
+            tim.gui.drawTube3D(ax, g, td);
+            labels = cellfun(@(s) strjoin(cellstr(s), ' '), get(findobj(ax, 'Type', 'text'), 'String'), ...
+                'UniformOutput', false);
+            tc.verifyTrue(any(strcmp(labels, 'absorber 50 mm')));
+            clear cleanup
+        end
     end
 end

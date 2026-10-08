@@ -104,8 +104,19 @@ Left panel, top to bottom (it scrolls if the window is small):
   `x_M4 = d + L2 + s2`), and these coordinates are what is stored in the configuration file.
   Temperature and pressure are entered here too. The line below the fields shows the speed of
   sound, the geometric frequency range and any input error (red). The **Tube setup** tab draws the
-  tube with the dimension lines (to scale when all distances are entered). Save the values with
-  "Save config…".
+  tube with the dimension lines (to scale when all distances are entered) and, below it, a
+  simplified **3D model** (rotate / zoom with the axes toolbar). Both are redrawn as soon as a
+  field changes; the 3D model colours each microphone by the LAN-XI channel mounted in that port.
+  Save the values with "Save config…".
+
+  The lab tube (CAD assembly `cad/transfer-impedance-tube.step`) gives s1 = 29, L1 = 41,
+  d = 75 (the specimen fills the 75 mm middle section), L2 = 41 and s2 = 29 mm; these design
+  values are in `config/user_config.json` and should be checked on the real tube. The parts used
+  only for the drawings (outer diameter, bore end 90 mm before M1, termination 291 mm after M4,
+  loudspeaker housing Ø135 mm at the large end, absorber at the small end) are in the
+  `tubeDrawing` section of the configuration; they do not enter any calculation.
+  `tim.cad.readStep` reads such a STEP assembly (part names, cylinders, placements) if the tube
+  is changed.
 * **CALIBRATION**, **RESULTS**.
 
 During a measurement or calibration the panel is locked and only **ABORT** is active. The

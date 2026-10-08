@@ -254,8 +254,11 @@ classdef TubeApp < handle
             tg = uigridlayout(t, [1 1]);
             h.chanTable = uitable(tg);
             t = uitab(tabs, 'Title', 'Tube setup');
-            tg = uigridlayout(t, [1 1]);
+            % 2D drawing with the dimension lines + 3D model, both follow the fields
+            tg = uigridlayout(t, [2 1], 'RowHeight', {'1x', '1.4x'}, 'RowSpacing', 4);
             h.axTube = uiaxes(tg); h.tubeTab = t;
+            h.axTube3D = uiaxes(tg);
+            axtoolbar(h.axTube3D, {'rotate', 'zoomin', 'zoomout', 'pan', 'restoreview'});
             % waveforms: one graph per channel (shared time axis), also used for the live view
             t = uitab(tabs, 'Title', 'Waveforms'); h.waveTab = t;
             tg = uigridlayout(t, [4 1], 'RowSpacing', 2);
@@ -398,8 +401,19 @@ classdef TubeApp < handle
                 app.H.fLimits.Text = txt;
                 if isempty(msgs), app.H.fLimits.FontColor = [0.2 0.2 0.2]; else, app.H.fLimits.FontColor = [0.75 0 0]; end
                 app.drawTube(geom, lim);
+                tim.gui.drawTube3D(app.H.axTube3D, geom, app.drawingDims(), [app.Cfg.mics.position]);
             catch err
                 app.H.fLimits.Text = ['CHECK: ' err.message]; app.H.fLimits.FontColor = [0.75 0 0];
+            end
+        end
+
+        function td = drawingDims(app)
+            % tube dimensions used only for the drawings (cfg.tubeDrawing)
+            td = tim.app.defaultConfig().tubeDrawing;
+            if isfield(app.Cfg, 'tubeDrawing')
+                for f = fieldnames(app.Cfg.tubeDrawing).'
+                    td.(f{1}) = app.Cfg.tubeDrawing.(f{1});
+                end
             end
         end
 
@@ -407,6 +421,7 @@ classdef TubeApp < handle
             % Drawing of the impedance tube with the dimension lines s1, L1, d,
             % L2, s2 (to scale when all distances are entered).
             ax = app.H.axTube; cla(ax); hold(ax, 'on'); P = tim.gui.palette();
+            td = app.drawingDims();
             D = 1e3 * geom.diameter;
             s1 = 1e3 * geom.spacingUp; s2 = 1e3 * geom.spacingDown;
             known = all(isfinite(geom.micPositions)) && isfinite(geom.xFront) && isfinite(geom.xRear);
@@ -420,13 +435,27 @@ classdef TubeApp < handle
             end
             % coordinates: x = 0 at the specimen front face
             xF = 0; xR = dd; x = [-L1 - s1, -L1, dd + L2, dd + L2 + s2];
-            x0 = x(1) - max(60, 0.4 * L1); x1 = x(4) + max(60, 0.4 * L2);
-            % tube, loudspeaker, termination, specimen
+            % tube ends: real lengths (cfg.tubeDrawing); long sections are drawn
+            % shortened with break marks so that the measurement region stays readable
+            lUp = 1e3 * td.upstreamLength; lDn = 1e3 * td.downstreamLength;
+            show = max(60, 0.4 * max(L1, L2));
+            x0 = x(1) - min(lUp, show); x1 = x(4) + min(lDn, show);
+            % tube, loudspeaker (large end), termination with absorber (small end), specimen
             patch(ax, [x0 x1 x1 x0], [-D/2 -D/2 D/2 D/2], [0.95 0.95 0.95], 'EdgeColor', [0.35 0.35 0.35], 'LineWidth', 1);
             patch(ax, [x0 - 25, x0, x0, x0 - 25], [-D/2 - 8, -D/2, D/2, D/2 + 8], [0.55 0.55 0.55], 'EdgeColor', 'none');
             text(ax, x0 - 12, -D/2 - 14, 'loudspeaker', 'HorizontalAlignment', 'center', 'FontSize', 12);
             plot(ax, [x1 x1], [-D/2 D/2], 'k-', 'LineWidth', 3);
-            text(ax, x1, -D/2 - 14, 'termination', 'HorizontalAlignment', 'center', 'FontSize', 12);
+            text(ax, x1, -D/2 - 14, 'termination (absorber)', 'HorizontalAlignment', 'center', 'FontSize', 12);
+            if lUp > show
+                app.breakMark(ax, x0 + 0.2 * (x(1) - x0), D);
+                text(ax, x0 + 0.6 * (x(1) - x0), 0, {'bore end', sprintf('-> M1 %g mm', round(lUp, 3))}, ...
+                    'FontSize', 10, 'HorizontalAlignment', 'center', 'Color', [0.35 0.35 0.35]);
+            end
+            if lDn > show
+                app.breakMark(ax, x1 - 0.2 * (x1 - x(4)), D);
+                text(ax, x1 - 0.6 * (x1 - x(4)), 0, {'M4 -> end', sprintf('%g mm', round(lDn, 3))}, ...
+                    'FontSize', 10, 'HorizontalAlignment', 'center', 'Color', [0.35 0.35 0.35]);
+            end
             patch(ax, [xF max(xR, xF + 1.5) max(xR, xF + 1.5) xF], [-D/2 -D/2 D/2 D/2], [0.85 0.72 0.45], 'EdgeColor', [0.45 0.35 0.15]);
             text(ax, (xF + xR) / 2, 0, 'specimen', 'Rotation', 90, 'HorizontalAlignment', 'center', 'FontSize', 11);
             text(ax, xF, -D/2 - 5, 'front ', 'HorizontalAlignment', 'right', 'FontSize', 11, 'Color', [0.35 0.35 0.35]);
@@ -459,6 +488,13 @@ classdef TubeApp < handle
                     lim.fLower, lim.fUpper)}, 'FontWeight', 'normal');
             end
             hold(ax, 'off');
+        end
+
+        function breakMark(~, ax, xc, D)
+            % pair of slanted lines: tube section drawn shortened
+            for dx = [-2 2]
+                plot(ax, xc + dx + [-3 3], [-D/2 - 4, D/2 + 4], '-', 'Color', [0.3 0.3 0.3], 'LineWidth', 1);
+            end
         end
 
         function dimLine(~, ax, xa, xb, y, label)

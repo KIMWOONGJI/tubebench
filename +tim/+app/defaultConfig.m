@@ -58,6 +58,20 @@ cfg.geometry = struct('diameter', 0.029, ...
     'xFront', NaN, 'xRear', NaN, ...    % sample front/rear faces [m] (NOT YET PROVIDED)
     'note', 'Enter measured positions; boundary-plane quantities are disabled until then.');
 
+% Dimensions used ONLY for the drawings (2D / 3D) of the tube, not for the
+% analysis. Values from the lab CAD assembly (cad/transfer-impedance-tube.step,
+% SolidWorks 2024 AP214 "Assy_SIT", read 2026-10-08 with tim.cad.readStep).
+cfg.tubeDrawing = struct( ...
+    'outerDiameter', 0.065, ...          % tube outer diameter [m] (r 32.5 mm)
+    'portDiameter', 0.0064, ...          % hole between holder and bore [m] (r 3.2 mm)
+    'upstreamLength', 0.090, ...         % loudspeaker end of the bore -> M1 [m]
+    'downstreamLength', 0.291, ...       % M4 -> termination face [m]
+    'speakerHousingDiameter', 0.135, ... % large end: loudspeaker housing [m]
+    'speakerHousingLength', 0.080, ...
+    'absorberLength', NaN, ...           % absorber at the small end [m] (NaN = not specified)
+    'micLength', 0.034, ...              % 4957 + holder protruding from the bore wall [m]
+    'source', 'CAD Assy_SIT (SolidWorks 2024, AP214), 2026-10-08');
+
 % ---------------- environment ----------------
 cfg.environment = struct('temperature_C', 20, 'pressure_Pa', 101325, 'relativeHumidity', 50, ...
     'c_override', [], 'rho_override', []);
