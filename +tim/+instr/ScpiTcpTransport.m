@@ -62,6 +62,12 @@ classdef ScpiTcpTransport < handle
             tf = ~isempty(obj.Client);
         end
 
+        function setTimeout(obj, timeout)
+            %SETTIMEOUT Read / write time-out [s] (short when closing the app).
+            obj.Timeout = timeout;
+            if ~isempty(obj.Client), obj.Client.Timeout = timeout; end
+        end
+
         function close(obj)
             obj.Client = [];   % tcpclient closes when cleared
         end

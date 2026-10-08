@@ -77,7 +77,8 @@ source forms a voltage divider:
 
 ### GUI overview (`tubeapp`)
 
-Left panel, top to bottom (it scrolls if the window is small):
+Left panel, top to bottom (compact: related fields share a row; it fits a 1920 × 1080 screen
+without scrolling and scrolls only in a very small window):
 
 * **INSTRUMENTS**: mode (simulation / hardware), Load / **Save config…**, Connect + TEDS, and a
   row of **status lamps** (Generator, LAN-XI, ch1–ch4: grey = not connected, blue = running,
@@ -90,14 +91,16 @@ Left panel, top to bottom (it scrolls if the window is small):
   channel shows its port, TEDS type and serial, sensitivity and source, and the background level.
   A failing step is marked red together with the error message.
 * **EXCITATION**: mode (**sweep** = broadband default; **stepped** = discrete sines for
-  cross-checks), frequency range, sweep time, **amplitude in Vpk**, repetitions, **amplifier**
-  (drop-down: "none (direct drive)", "power amplifier", or type your model), **gain as a
-  multiplier** (×10 = 20 dB), and the **loudspeaker impedance and power limit**. The line below
-  shows the estimated loudspeaker voltage, current and power for the current settings, in red if a
-  limit is exceeded. Excitation is refused above the power limit, and with an amplifier whose gain
-  is not entered.
-* **IMPEDANCE TUBE**: inner diameter and five **distances in mm**, measured between port
-  **centres** and specimen **faces**:
+  cross-checks), frequency range, sweep time (**Steps** in stepped mode), **amplitude in Vpk**,
+  repetitions, **amplifier** (drop-down: "none (direct drive)", "power amplifier", or type your
+  model), **gain as a multiplier** (×10 = 20 dB), and the **loudspeaker impedance and power
+  limit**. The line below shows the estimated loudspeaker voltage, current and power for the
+  current settings, in red if a limit is exceeded. Excitation is refused above the power limit,
+  and with an amplifier whose gain is not entered. START, STOP and **Background** (2 s without
+  excitation) share one row.
+* **IMPEDANCE TUBE**: inner diameter, temperature and pressure on one row, then the five
+  **distances in mm** on one row in the order of the tube ("?" = not measured), measured between
+  port **centres** and specimen **faces**:
 
   | Field | From → to |
   |---|---|
@@ -110,7 +113,9 @@ Left panel, top to bottom (it scrolls if the window is small):
   Leave L1, d or L2 empty while they are not measured. Acquisition and the relative spectra still
   work, but specimen results (R, τ, Zt, TL) are disabled. Internally x = 0 is the specimen front
   face (`xFront = 0`, `xRear = d`, `x_M2 = −L1`, `x_M1 = −L1 − s1`, `x_M3 = d + L2`,
-  `x_M4 = d + L2 + s2`), and these coordinates are what is stored in the configuration file.
+  `x_M4 = d + L2 + s2`), and these coordinates are what is stored in the configuration file
+  (on a 1 nm grid: without this, binary floating point would show s1 = 29.000000000000004 mm
+  while editing and write 0.11599999999999999 instead of 0.116 to the file).
   Temperature and pressure are entered here too. The line below the fields shows the speed of
   sound, the geometric frequency range and any input error (red). The **Tube setup** tab shows a
   **3D model** of the tube built from these values, with the dimension lines s1, L1, d, L2, s2
@@ -146,7 +151,23 @@ use one colour-blind-safe palette (ch1 blue, ch2 vermillion, ch3 green, ch4 purp
 valid).
 
 The noise excitation is available from scripts only (`s.measure('noise')`): the swept sine
-covers its purpose.
+covers its purpose. In **stepped** mode the fields f start / stop, **Steps** (instead of the
+sweep time) and Repetitions set the stepped sine. Its record holds one tone per step, so the
+PSD of the record would be a line spectrum (one spike per step): the **Spectrum** tab therefore
+shows the **level of every step** (sine fit of the settled part, dB SPL, dotted = noise in the
+fit bandwidth), and all results are drawn with **markers at the step frequencies** (also in the
+saved figures and `spectra.csv`: `level<c>_dB_SPL`, `noise<c>_dB_SPL`).
+
+**Closing the window**: a "Closing" dialog appears at once and shows the steps (generator output
+OFF, LAN-XI back to Idle with 2 s time-outs, so a switched-off instrument cannot delay it). If a
+measurement or calibration is running, it is stopped first (output OFF at once) and the window
+closes as soon as the action has stopped; a second close request closes immediately.
+
+The window title is "Transfer impedance tube"; the bottom line shows the software version (with
+the Git commit) and a link to the repository
+(<https://github.com/kimwoongji/transfer-impedance-tube-measurement>, private). The version, the
+repository and the commit are also stored with every measurement (`metadata.json`, field
+`softwareInfo`, and `README.txt`) and calibration.
 
 ## 3. Excitation modes
 
@@ -194,7 +215,7 @@ res2 = tim.app.processMeasurement(S.meas, cfg2, cal);
 | `R` | complex pressure reflection coefficient at the front face | `valid.validR` |
 | `tau` | forward wave at the rear face / incident wave at the front face | `valid.validTau` (needs `|Rterm| ≤ 0.1`) |
 | `Rterm` | reflection of the downstream termination, at the rear face | diagnostic |
-| `thin.Zt`, `thin.Zt_norm` | thin-element transfer impedance `(pL−pR)/u` [Pa·s/m], normalised by ρc | `valid.validThinZt` (velocity mismatch ≤ 10 %) |
+| `thin.Zt`, `thin.Zt_norm` | thin-element transfer impedance `(pL−pR)/u` [Pa·s/m], normalised by ρc (only meaningful for a thin element, k·d ≪ 1; for the 75 mm lab specimen section the GUI and the saved figures show a note instead of the curves) | `valid.validThinZt` (velocity mismatch ≤ 10 %) |
 | `thin.velocityMismatch` | `|uL−uR|/max` | – |
 | `thin.TL_dB` | transmission loss from Zt: `20·log10|1+Zt/(2ρc)|` (anechoic-equivalent, termination independent) | `valid.validThinZt` |
 | `power.TL_tau_dB` | `−20·log10|τ|` from the measured τ | `valid.validTau` |

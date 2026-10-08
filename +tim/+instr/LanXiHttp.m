@@ -28,6 +28,11 @@ classdef LanXiHttp < handle
             obj.Host = host; obj.Timeout = timeout;
         end
 
+        function setTimeout(obj, timeout)
+            %SETTIMEOUT Default request time-out [s] (short when closing the app).
+            obj.Timeout = timeout;
+        end
+
         function [data, status, raw] = request(obj, method, path, body, timeout)
             import matlab.net.http.*
             import matlab.net.http.field.*

@@ -30,16 +30,18 @@ run examples/demo_simulation.m   % full simulated workflow + example plots
 
 Configuration: `config/example_config.json` → copy to `config/user_config.json`.
 
-## Status (2026-10-08)
+## Status (2026-10-09)
 
-* **Software**: complete. 75 automated tests (simulation and recorded hardware fixtures); see
+* **Software**: complete. 102 automated tests (simulation and recorded hardware fixtures); see
   `tests/last_test_report.txt`.
 * **Hardware**: network, identification, the LAN-XI recorder state machine and binary streaming
   are verified on the real instruments. The generator output, the microphone chain, TEDS,
   calibration and the acoustic validation (Tests A–G) are **pending**; see
   `docs/hardware_status.md`.
-* **Geometry**: microphone and sample positions are not yet provided, so boundary quantities are
-  disabled until they are entered.
+* **Geometry**: CAD design values of the lab tube (s1 29, L1 41, d 75, L2 41, s2 29 mm; the
+  specimen fills the 75 mm middle section) are in `config/user_config.json`; verify them with
+  calipers. The switching calibration is done with the EMPTY 75 mm section mounted and ends with an
+  automatic empty-tube check (Test E).
 
 ## Structure
 
@@ -51,13 +53,14 @@ config/                 example_config.json (user_config.json = your settings)
 +tim/+acq               checkIntegrity, voltsToPascal
 +tim/+dsp               sweepResponse, sineResponse, welchResponse, detectExcitation, estimateSweepLaw
 +tim/+cal               switchingCorrection, buildCalibration, interpolateCalibration,
-                        applyCalibration, resolveSensitivities
+                        applyCalibration, resolveSensitivities, calibrationContext
 +tim/+acoustics         airProperties, wavenumber, decomposeWaves, fieldAt, analyzeFourMic,
                         validityMasks, transferMatrix, frequencyLimits
 +tim/+sim               SimulatedRig, tubeModel, lanxiEncode
 +tim/+app               MeasurementSession, runCalibration, processMeasurement, plot*, save*, config
 +tim/+val               hardware validation procedures (Tests A–E)
-+tim/+gui               TubeApp (uifigure GUI)
++tim/+gui               TubeApp (uifigure GUI), drawTube3D (3D tube model), Checklist, icon
++tim/+cad               readStep (STEP assembly reader used for the tube dimensions)
 tests/                  matlab.unittest suites + fixtures (real LAN-XI responses and stream)
 examples/               demo_simulation.m, hardware_commissioning.m, output/ (example plots)
 docs/                   see below

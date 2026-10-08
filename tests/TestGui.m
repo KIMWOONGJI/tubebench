@@ -155,6 +155,47 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.CalDrawCount, 1, 'no redraw when nothing changed');
         end
 
+        function closeShowsStepsAndDisconnects(tc)
+            % user request 2026-10-09: closing was slow without feedback. The
+            % window disappears at once, a small window shows the steps, the
+            % instruments are released and everything is deleted.
+            c = tim.app.defaultConfig(); c.mode = 'simulation';
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
+            s = app.Session; fig = app.Fig;
+            tc.assertTrue(s.Connected);
+            t0 = tic;
+            tim.gui.closeApp(fig, app);
+            tc.verifyLessThan(toc(t0), 10);
+            tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
+            tc.verifyFalse(s.Connected, 'instruments released');
+            tc.verifyEmpty(findall(groot, 'Type', 'figure', 'Name', 'Closing - Transfer impedance tube'), 'closing window deleted');
+        end
+
+        function closeDuringMeasurementStopsFirst(tc)
+            % a close request while a measurement runs stops it first, then closes
+            c = tim.app.defaultConfig(); c.mode = 'simulation';
+            c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 3; c.excitation.sweep.repetitions = 4;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
+            s = app.Session; fig = app.Fig;
+            closer = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) tim.gui.closeApp(fig, app));
+            tc.addTeardown(@() delete(closer));
+            start(closer);
+            t0 = tic;
+            feval(app.H.start.ButtonPushedFcn, app.H.start, []);   % returns when stopped + closed
+            tc.verifyLessThan(toc(t0), 20);
+            tc.verifyTrue(s.StopRequested, 'the running measurement was stopped first');
+            tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
+            tc.verifyFalse(s.Connected);
+            tc.verifyEmpty(findall(groot, 'Type', 'figure', 'Name', 'Closing - Transfer impedance tube'));
+        end
+
         function appSimulationWorkflow(tc)
             % hidden app window: connect (checklist + cards), switching
             % calibration (step list), measurement (waveforms in Pa)

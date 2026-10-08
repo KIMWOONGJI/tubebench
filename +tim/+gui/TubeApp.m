@@ -31,6 +31,8 @@ classdef TubeApp < handle
         CalDirty logical = true % geometry / config / TEDS changed: redraw the calibration model
         CalDrawCount double = 0 % number of 3D calibration draws (diagnostics / tests)
         PulseTimer = []         % highlights the calibration ports while the operator works
+        CloseAfterBusy logical = false  % window close requested during a running action
+        ClosingWin = []         % "Closing ..." progress dialog (steps of the shutdown)
     end
 
     methods
@@ -74,6 +76,30 @@ classdef TubeApp < handle
     end
 
     methods
+        function unlockUi(app)
+            %UNLOCKUI Restore the controls after a busy action (used by the run wrapper).
+            app.setBusy(false);
+        end
+
+        function closeRequest(app)
+            %CLOSEREQUEST Window close (tim.gui.closeApp). A "Closing" dialog appears
+            %   at once in the window and shows the shutdown steps (its bar keeps
+            %   moving while MATLAB waits for an instrument). During a running
+            %   action STOP is requested first and the window closes when the
+            %   action has stopped; a second request closes at once.
+            if app.Busy && ~app.CloseAfterBusy
+                app.CloseAfterBusy = true;
+                if ~isempty(app.Session)
+                    app.Session.requestStop();
+                    try, app.Session.Gen.outputOff(); catch, end
+                end
+                app.closingDialog({'Stopping the running measurement / calibration ...', ...
+                    'Generator output is OFF. The window closes as soon as the action has stopped.'});
+                return
+            end
+            app.closeNow();
+        end
+
         function [geom, env, msgs] = currentGeometry(app)
             %CURRENTGEOMETRY Geometry [m] and environment as entered in the
             %   IMPEDANCE TUBE fields (coordinates on a 1 nm grid).
@@ -94,7 +120,7 @@ classdef TubeApp < handle
             uiconfirm(app.Fig, msg, title, 'Options', options, 'DefaultOption', defaultIdx, ...
                 'CancelOption', cancelIdx, 'Icon', icon, 'CloseFcn', @(~, ev) setAnswer(ev.SelectedOption));
             while isempty(answer)
-                if ~isvalid(app.Fig) || (~isempty(app.Session) && app.Session.StopRequested)
+                if ~isvalid(app) || ~isvalid(app.Fig) || (~isempty(app.Session) && app.Session.StopRequested)
                     answer = options{cancelIdx};
                     break
                 end
@@ -685,11 +711,12 @@ classdef TubeApp < handle
             end
             if ~isempty(busyWhat)
                 app.setBusy(true, busyWhat);
-                unlock = onCleanup(@() app.setBusy(false));
+                unlock = onCleanup(@() safeUnlock(app));
             end
             try
                 fn();
             catch err
+                if ~isvalid(app), return; end     % closed meanwhile (second close request)
                 if any(strcmp(err.identifier, {'tim:session:stopped', 'tim:gui:abort'}))
                     app.log('%s aborted by the operator: %s', busyWhat, err.message);
                     msg = sprintf('%s aborted. Generator output is OFF.', busyWhat);
@@ -701,9 +728,13 @@ classdef TubeApp < handle
                 if ~isempty(app.Session) && ~isempty(app.Session.Gen)
                     try, app.Session.Gen.outputOff(); catch, end
                 end
-                if isvalid(app.Fig)            % window may have been closed meanwhile
+                if isvalid(app.Fig) && ~app.CloseAfterBusy     % window may be closing
                     uialert(app.Fig, msg, 'Stopped', 'Icon', icon);
                 end
+            end
+            if isvalid(app) && app.CloseAfterBusy          % close requested while busy
+                clear unlock
+                app.closeNow();
             end
         end
 
@@ -1518,11 +1549,48 @@ classdef TubeApp < handle
             hv = plot(ax, f, yv, '-', 'Color', c, 'LineWidth', P.lineWidth + 0.3, mc{:});
         end
 
-        function onClose(app)
-            app.disconnect();
-            delete(app.Fig);
+        function closingDialog(app, msg)
+            % "Closing" progress dialog inside the (already rendered) window:
+            % appears at once; its indeterminate bar is animated by the window
+            % itself, so it keeps moving while MATLAB waits for an instrument
+            if isempty(app.Fig) || ~isvalid(app.Fig) || ~strcmp(app.Fig.Visible, 'on'), return; end
+            if isempty(app.ClosingWin) || ~isvalid(app.ClosingWin)
+                app.ClosingWin = uiprogressdlg(app.Fig, 'Title', 'Closing Transfer impedance tube', ...
+                    'Message', msg, 'Indeterminate', 'on', 'Icon', 'info');
+            else
+                app.ClosingWin.Message = msg;
+            end
+            drawnow;
+        end
+
+        function closeNow(app)
+            % shut down with short time-outs and delete the app; every step is
+            % shown in the closing dialog
+            app.stopPulse();
+            s = app.Session;
+            done = {};
+            if ~isempty(s) && ~isempty(s.Gen)
+                app.closingDialog([done, {'Switching the generator output OFF ...'}]);
+                try, s.Gen.outputOff(); catch, end
+                done{end + 1} = 'Generator output OFF.';
+            end
+            if ~isempty(s)
+                app.closingDialog([done, {'Returning the LAN-XI to Idle (2 s time-out per request) ...'}]);
+                try, s.close(true); catch, end
+                app.Session = [];
+                done{end + 1} = 'Instruments disconnected.';
+            end
+            app.closingDialog([done, {'Closing the window ...'}]);
+            fig = app.Fig;
+            delete(app);                         % deletes the main window and the dialog
+            if isvalid(fig), delete(fig); end
         end
     end
+end
+
+function safeUnlock(app)
+% end of a busy action: restore the controls unless the app was closed meanwhile
+if isvalid(app), app.unlockUi(); end
 end
 
 function [x, y] = calPath(s, xa, xb, y0, yl)

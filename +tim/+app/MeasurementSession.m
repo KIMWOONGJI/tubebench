@@ -461,7 +461,21 @@ classdef MeasurementSession < handle
             obj.checkStop();
         end
 
-        function close(obj)
+        function close(obj, fast)
+            %CLOSE Generator output off + local, LAN-XI back to Idle. close(true)
+            %   uses short time-outs (2 s) so that closing the app never waits
+            %   long for an instrument that does not answer (switched off).
+            if nargin < 2, fast = false; end
+            if fast
+                for h = {obj.Http, obj.Gen}
+                    try
+                        t = h{1};
+                        if isa(t, 'tim.instr.Keysight33220A'), t = t.Transport; end
+                        if ~isempty(t) && ismethod(t, 'setTimeout'), t.setTimeout(2); end
+                    catch
+                    end
+                end
+            end
             if ~isempty(obj.Gen)
                 try, obj.Gen.close(); catch, end
             end
