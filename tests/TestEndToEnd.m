@@ -231,6 +231,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             end
             tc.verifyError(@() tim.app.runCalibration(s, struct('prompt', @prompt)), 'tim:session:stopped');
             tc.verifyLessThanOrEqual(nStep, 3, 'no further step after the abort');
+            tc.verifyEqual(s.Rig.Sample.type, tc.cfg.simulation.Sample.type, 'specimen restored after the abort');
             tc.verifyFalse(s.Gen.isOutputOn());
             tc.verifyFalse(s.InOperation);
             tc.verifyEmpty(dir(fullfile(tc.cfg.output.calibrationDir, '*.mat')), 'nothing saved');
@@ -350,9 +351,75 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             kinds = cellfun(@(r) r.kind, q, 'UniformOutput', false);
             tc.verifyEqual(nnz(strcmp(kinds, 'measurement')), 6);     % 3 channels x (I, II)
             tc.verifyEqual(nnz(strcmp(kinds, 'channel')), 3);
+            tc.verifyEqual(nnz(strcmp(kinds, 'verification')), 1);
+            vq = q{strcmp(kinds, 'verification')};
+            tc.verifyTrue(vq.check.passed, vq.check.text);
             m = [q{strcmp(kinds, 'measurement')}];
             tc.verifyGreaterThan(min([m.fracOk]), 0.9);
             tc.verifyTrue(all([m.integrityOk]));
+            clear cleanup
+        end
+
+        function calibrationUsesEmptySection(tc)
+            % user request 2026-10-09: calibrate with the original 75 mm section
+            % mounted EMPTY (tube continuous, same port positions); the geometry
+            % (d = 75 mm) must be reflected in the calibration record and checks.
+            c = tc.cfg;
+            g = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
+                'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.075, 'note', 'lab');
+            c.geometry = g; c.simulation.Geometry = rmfield(g, 'note');
+            c.simulation.Sample = struct('type', 'porous', 'sigma', 1e4);
+            c.simulation.Termination = struct('R', 0.05, 'x', 0.436);
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            types = {}; msgs = {};
+            function prompt(msg, mapping)
+                types{end + 1} = s.Rig.Sample.type; msgs{end + 1} = msg;
+                s.setMicPositionsForSimulation(mapping);
+            end
+            [cal, file] = tim.app.runCalibration(s, struct('prompt', @prompt));
+            tc.verifyTrue(all(strcmp(types(1:end - 1), 'air')), 'empty section during the calibration steps');
+            tc.verifyEqual(types{end}, 'porous', 'specimen mounted again before the last prompt');
+            tc.verifyEqual(s.Rig.Sample.type, 'porous');
+            tc.verifyEqual(msgs{end}, tim.app.msg('en', 'calMountSpecimen'));
+            tc.verifySubstring(msgs{1}, 'EMPTY specimen section (75 mm)');
+            tc.verifyEqual(cal.meta.tube.specimenSection, 'empty');
+            tc.verifyEqual(cal.meta.tube.sectionLength_m, 0.075, 'AbsTol', 1e-12);
+            tc.verifyTrue(cal.meta.emptyCheck.performed);
+            tc.verifyTrue(cal.meta.emptyCheck.passed, cal.meta.emptyCheck.text);
+            tc.verifyEqual(cal.meta.emptyCheck.gap_m, 0.075, 'AbsTol', 1e-12);
+            S = load(file, 'cal');
+            tc.verifyEqual(S.cal.meta.tube.sectionLength_m, 0.075, 'AbsTol', 1e-12);
+            % measurement with the 75 mm specimen
+            res = tim.app.processMeasurement(s.measure('sweep'), c, cal);
+            tc.verifyTrue(res.calibration.context.geometryMatch);
+            tc.verifyEmpty(res.calibration.context.warnings);
+            a = res.analysis; v = a.valid.valid;
+            truth = s.Rig.trueResponse(a.f).model;
+            tc.verifyLessThan(median(abs(a.R(v) - truth.R(v))), 0.01);
+            tc.verifyLessThan(median(abs(a.tau(v) - truth.tau(v))), 0.01);
+            tc.verifyLessThan(nnz(a.valid.validThinZt), 0.02 * numel(a.f), 'thin model not for 75 mm');
+            clear cleanup
+        end
+
+        function emptyCheckDetectsRemovedSection(tc)
+            % if the section were taken out and the tubes joined, M3/M4 move 75 mm:
+            % the empty-section check (Test E) must fail with the 75 mm geometry
+            c = tc.cfg;
+            g = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
+                'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.075, 'note', 'lab');
+            c.geometry = g;
+            sg = rmfield(g, 'note'); sg.micPositions(3:4) = [0.041 0.070]; sg.xRear = 0;
+            c.simulation.Geometry = sg;
+            c.simulation.Termination = struct('R', 0.05, 'x', 0.436);
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            cal = tim.app.runCalibration(s);
+            tc.verifyTrue(cal.meta.emptyCheck.performed);
+            tc.verifyFalse(cal.meta.emptyCheck.passed, cal.meta.emptyCheck.text);
+            tc.verifyGreaterThan(cal.meta.emptyCheck.tauPhaseError_deg_rms, 10);
             clear cleanup
         end
 

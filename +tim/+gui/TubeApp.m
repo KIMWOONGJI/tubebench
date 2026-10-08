@@ -177,6 +177,13 @@ classdef TubeApp < handle
 
         function showCal(app, cal)
             app.H.calLabel.Text = cal.version; app.H.calLabel.FontColor = [0 0.5 0];
+            if isfield(cal, 'meta') && isfield(cal.meta, 'emptyCheck') && cal.meta.emptyCheck.performed
+                if cal.meta.emptyCheck.passed
+                    app.H.calLabel.Text = [cal.version '  (Test E passed)'];
+                else
+                    app.H.calLabel.Text = [cal.version '  (Test E FAILED)']; app.H.calLabel.FontColor = [0.75 0.45 0];
+                end
+            end
             ax = app.H.axCal; cla(ax, 'reset'); hold(ax, 'on');
             P = tim.gui.palette(); col = P.ch; leg = {}; hl = gobjects(0);
             for k = 1:4
@@ -1081,7 +1088,9 @@ classdef TubeApp < handle
             % operator steps (same order as tim.app.runCalibration): preparation
             % checklist, per channel config I (+ repeat) + config II, return mics
             c = app.Cfg; ref = c.analysis.refChannel; ab = c.calibration.positions;
-            keys = {'prep'}; labels = {'Prepare: specimen REMOVED, absorbing end'};
+            dSec = c.geometry.xRear - c.geometry.xFront; secTxt = '';
+            if isfinite(dSec) && dSec > 0, secTxt = sprintf('%g mm ', round(1e3 * dSec, 3)); end
+            keys = {'prep'}; labels = {sprintf('Prepare: EMPTY %ssection, absorbing end', secTxt)};
             for k = setdiff(1:4, ref)
                 keys{end + 1} = sprintf('ch%d_I', k); %#ok<AGROW>
                 labels{end + 1} = sprintf('ch%d  config I    (ch%d in M%d, ch%d in M%d)', k, ref, ab(1), k, ab(2)); %#ok<AGROW>
@@ -1092,7 +1101,10 @@ classdef TubeApp < handle
                 keys{end + 1} = sprintf('ch%d_II', k); %#ok<AGROW>
                 labels{end + 1} = sprintf('ch%d  config II   (interchanged)', k); %#ok<AGROW>
             end
-            keys{end + 1} = 'done'; labels{end + 1} = 'Return the microphones to M1-M4';
+            doneLbl = 'Return the microphones to M1-M4';
+            if c.calibration.verifyEmptySection, doneLbl = [doneLbl ' + empty-tube check']; end
+            keys{end + 1} = 'done'; labels{end + 1} = doneLbl;
+            keys{end + 1} = 'mount'; labels{end + 1} = 'Replace the empty section by the specimen section';
             app.CalKeys = keys; app.CalList.rebuild(keys, labels);
             app.CalStep = 0; app.CalSteps = numel(keys);
             app.CalMap = zeros(1, 4); app.CalMap([c.mics.channel]) = [c.mics.position];
@@ -1137,8 +1149,14 @@ classdef TubeApp < handle
             else
                 app.Session.setMicPositionsForSimulation(mapping);
             end
-            if any(strcmp(key, {'prep', 'done'}))
+            if any(strcmp(key, {'prep', 'mount'}))
                 app.CalList.set(key, 'ok', 'confirmed');
+            elseif strcmp(key, 'done')
+                if app.Cfg.calibration.verifyEmptySection
+                    app.CalList.set(key, 'run', 'microphones back; empty-tube check (Test E) ...');
+                else
+                    app.CalList.set(key, 'ok', 'confirmed');
+                end
             else
                 app.CalList.set(key, 'run', 'measuring (swept sine) ...');
             end
@@ -1169,6 +1187,16 @@ classdef TubeApp < handle
                     app.CalList.appendDetail(key, txt);
                     if q.nValid < 0.9 * q.Nf && strcmp(app.CalList.state(key), 'ok')
                         app.CalList.set(key, 'warn');
+                    end
+                case 'verification'          % empty-section check (Test E), 'done' row
+                    k = q.check;
+                    if ~k.performed
+                        st = 'ok'; if startsWith(k.text, 'skipped'), st = 'warn'; end
+                        app.CalList.set(key, st, ['confirmed; empty-tube check ' k.text]);
+                    elseif k.passed
+                        app.CalList.set(key, 'ok', k.text);
+                    else
+                        app.CalList.set(key, 'warn', k.text);
                     end
             end
         end
@@ -1268,6 +1296,7 @@ classdef TubeApp < handle
             if ~strcmp(app.LastMeas.kind, 'background')
                 app.LastRes = tim.app.processMeasurement(app.LastMeas, app.Cfg, cal);
                 app.log('%s', app.LastRes.summary);
+                for w = app.LastRes.calibration.context.warnings, app.log('CALIBRATION: %s', w{1}); end
                 app.plotRes();
                 if strcmp(app.LastMeas.kind, 'stepped'), app.plotSpectrum(app.LastMeas, app.LastRes); end
             end

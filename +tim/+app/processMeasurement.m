@@ -59,6 +59,12 @@ f = sp.f(:);
 [Hcal, calValid, calInfo] = tim.cal.applyCalibration(f, sp.H, cal, ref);
 res.calibration = struct('applied', ~isempty(cal), 'info', calInfo, 'version', 'none');
 if ~isempty(cal), res.calibration.version = cal.version; end
+% calibration set-up vs this measurement (empty section, port distances, temperature, mode)
+res.calibration.context = tim.cal.calibrationContext(cal, cfg);
+if ~isempty(res.calibration.context.warnings)
+    if ~isfield(res.diagnostics, 'warnings'), res.diagnostics.warnings = {}; end
+    res.diagnostics.warnings = [res.diagnostics.warnings, res.calibration.context.warnings];
+end
 res.Hchannel = Hcal;
 
 % ---- channel -> position

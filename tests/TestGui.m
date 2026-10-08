@@ -127,8 +127,9 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(g.micPositions, c.geometry.micPositions);
             tc.verifyEqual([g.spacingUp g.spacingDown g.xRear], [c.geometry.spacingUp c.geometry.spacingDown c.geometry.xRear]);
             feval(h.runCal.ButtonPushedFcn, h.runCal, []);
-            tc.verifyEqual(numel(app.CalList.States), 1 + 3 * 2 + 1);
+            tc.verifyEqual(numel(app.CalList.States), 1 + 3 * 2 + 1 + 1);
             tc.verifyTrue(all(strcmp(app.CalList.States, 'ok')), strjoin(app.CalList.States, ' '));
+            tc.verifySubstring(app.CalList.Details(end - 1).Text, 'passed', 'Test E verdict on the done row');
             tc.verifySubstring(h.calLabel.Text, 'CAL-');
             feval(h.start.ButtonPushedFcn, h.start, []);
             tc.verifyNotEmpty(app.LastRes);

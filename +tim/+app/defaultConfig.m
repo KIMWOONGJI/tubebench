@@ -108,6 +108,7 @@ cfg.analysis = struct('refChannel', 1, 'fMin', 120, 'fMax', 4500, 'df', 2, ...
 cfg.calibration = struct('file', '', ...      % path of the complex calibration MAT file
     'positions', [1 2], ...                   % tube ports a,b used for switching
     'repeatConfigI', true, ...
+    'verifyEmptySection', true, ...           % Test E sweep with the EMPTY section after the switching steps
     'coherenceMin', 0.98, 'snrMin_dB', 20);
 
 % ---------------- output ----------------

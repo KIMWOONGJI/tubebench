@@ -19,6 +19,38 @@ classdef TestCalibration < matlab.unittest.TestCase
     end
 
     methods (Test)
+        function calibrationContextChecks(tc)
+            % calibration set-up (empty 75 mm section) vs measurement set-up
+            cfg = tim.app.defaultConfig(); cfg.mode = 'hardware';
+            g = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
+                'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.075);
+            cfg.geometry = g;
+            cal = struct('version', 'CAL-X', 'meta', struct('mode', 'hardware', ...
+                'tube', struct('specimenSection', 'empty', 'sectionLength_m', 0.075, 'geometry', g, ...
+                'environment', cfg.environment), 'emptyCheck', struct('performed', true, 'passed', true)));
+            c = tim.cal.calibrationContext(cal, cfg);
+            tc.verifyTrue(c.known); tc.verifyTrue(c.geometryMatch); tc.verifyEmpty(c.warnings);
+            tc.verifyEqual(c.sectionLength_m, 0.075);
+            m = cfg; m.geometry.micPositions(3:4) = m.geometry.micPositions(3:4) - 0.075;   % section taken out
+            c = tim.cal.calibrationContext(cal, m);
+            tc.verifyFalse(c.geometryMatch); tc.verifyNumElements(c.warnings, 1);
+            m = cfg; m.geometry.xRear = 0.020;                % thinner specimen, same ports
+            c = tim.cal.calibrationContext(cal, m);
+            tc.verifyTrue(c.geometryMatch); tc.verifyEmpty(c.warnings);
+            m = cfg; m.environment.temperature_C = cfg.environment.temperature_C + 4; m.mode = 'simulation';
+            c = tim.cal.calibrationContext(cal, m);
+            tc.verifyFalse(c.modeMatch); tc.verifyEqual(c.temperatureDiff_K, 4, 'AbsTol', 1e-12);
+            tc.verifyNumElements(c.warnings, 2);
+            old = rmfield(cal, 'meta'); old.meta = struct('mode', 'hardware');   % before the empty-section procedure
+            c = tim.cal.calibrationContext(old, cfg);
+            tc.verifyFalse(c.known); tc.verifyNumElements(c.warnings, 1);
+            c = tim.cal.calibrationContext([], cfg);
+            tc.verifyEmpty(c.warnings);
+            bad = cal; bad.meta.emptyCheck.passed = false;
+            c = tim.cal.calibrationContext(bad, cfg);
+            tc.verifyFalse(c.emptyCheckPassed); tc.verifyNumElements(c.warnings, 1);
+        end
+
         function exactSwitching(tc)
             [cref, ck, pa, pb] = tc.scenario(25);
             HI = (ck .* pb) ./ (cref .* pa);

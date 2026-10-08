@@ -94,8 +94,33 @@ classdef TestAcoustics < matlab.unittest.TestCase
             tc.verifyGreaterThan(median(rA.thin.velocityMismatch), 0.10);
         end
 
+        function emptySection75mm(tc)
+            % lab tube: EMPTY 75 mm specimen section mounted (calibration / Test E).
+            % tau = exp(-j k d); the thin-element model gives a spurious reactance
+            % Zt/rho c = 2j tan(kd/2) and is rejected by the velocity-mismatch mask.
+            g = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
+                'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.075);
+            air = tim.acoustics.airProperties(tc.env);
+            k = tim.acoustics.wavenumber(tc.f, air, 0.029, 'iso10534');
+            m = tim.sim.tubeModel(tc.f, g, tc.env, struct('type', 'air'), struct('R', 0, 'x', 0.6));
+            r = tim.acoustics.analyzeFourMic(tc.f, m.p, g, tc.env, struct('calValid', true(size(tc.f))));
+            tc.verifyEqual(r.tau, exp(-1j * k * 0.075), 'AbsTol', 1e-10);
+            i = tc.f == 1000;
+            tc.verifyEqual(abs(r.tau(i)), 0.99539, 'AbsTol', 2e-4);
+            tc.verifyEqual(rad2deg(angle(r.tau(i))), -78.65, 'AbsTol', 0.1);
+            band = tc.f >= 120 & tc.f <= 4500;
+            tc.verifyLessThan(max(r.power.TL_tau_dB(band)), 0.09);
+            tc.verifyEqual(r.thin.Zt_norm, 2j * tan(k * 0.075 / 2), 'RelTol', 1e-8);
+            tc.verifyFalse(any(r.valid.validThinZt(band)), 'thin-element model rejected for 75 mm');
+            % reflecting end: tau unchanged, R = Rterm exp(-2jkd)
+            m2 = tim.sim.tubeModel(tc.f, g, tc.env, struct('type', 'air'), struct('R', 0.7, 'x', 0.4));
+            r2 = tim.acoustics.analyzeFourMic(tc.f, m2.p, g, tc.env, struct());
+            tc.verifyEqual(r2.tau, exp(-1j * k * 0.075), 'AbsTol', 1e-10);
+            tc.verifyEqual(r2.R, r2.Rterm .* exp(-2j * k * 0.075), 'AbsTol', 1e-10);
+        end
+
         function emptyTube(tc)
-            % Test E: sample removed -> air section between the faces
+            % Test E: empty specimen section mounted -> air section between the faces
             g = tc.geom; g.xRear = 0.05;
             m = tim.sim.tubeModel(tc.f, g, tc.env, struct('type', 'air'), struct('R', 0, 'x', 0.6));
             r = tim.acoustics.analyzeFourMic(tc.f, m.p, g, tc.env, struct());

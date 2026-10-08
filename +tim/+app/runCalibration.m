@@ -11,18 +11,28 @@ function [cal, file, raw] = runCalibration(session, opts)
 %     II  : interchange the two microphones (each keeps its own cable /
 %           preamplifier / DAQ channel!)                           -> measure
 %   The remaining microphones stay in the other ports (their signals are
-%   recorded but unused). The TEST SPECIMEN IS REMOVED and the tube is
+%   recorded but unused). The EMPTY specimen section (the middle part,
+%   lab: 75 mm, SIT-PT-003, without specimen) is mounted, so the tube is
+%   continuous and every port keeps its measurement position; the tube is
 %   terminated anechoically (or with an absorber) so that no pressure node
-%   falls on a calibration port; a first prompt shows this checklist.
-%   See docs/calibration_procedure.md.
+%   falls on a calibration port. A first prompt shows this checklist.
+%   After the switching measurements (cfg.calibration.verifyEmptySection)
+%   one sweep with the microphones in their measurement ports is evaluated
+%   as Test E (empty section: tau = exp(-j k d)), stored in
+%   cal.meta.emptyCheck; cal.meta.tube records the set-up (section, length,
+%   geometry, environment). The last prompt asks to mount the specimen
+%   section again. In simulation the virtual rig models the empty section
+%   (sample 'air') during the calibration and gets its specimen back
+%   afterwards, also after an error or STOP. See docs/calibration_procedure.md.
 %
 %   opts.prompt(msg, mapping): called before each configuration. In
 %   hardware mode the default prints the instruction and waits for ENTER.
 %   In simulation mode the default moves the microphones in the virtual rig.
 %   opts.report(q): (optional) called after every measurement with its
 %   quality (q.kind = 'measurement': channel, config, fracOk, coherence
-%   and SNR medians) and after every channel (q.kind = 'channel': nValid,
-%   Nf, repeatability) - used by the GUI step list.
+%   and SNR medians), after every channel (q.kind = 'channel': nValid,
+%   Nf, repeatability) and after the empty-section check (q.kind =
+%   'verification', q.check) - used by the GUI step list.
 %   Every raw measurement is returned in raw and saved with the calibration.
 
 if nargin < 2, opts = struct(); end
@@ -42,13 +52,22 @@ end
 report = @(q) [];
 if isfield(opts, 'report'), report = opts.report; end
 a = cfg.analysis;
+g = cfg.geometry;
+dSec = g.xRear - g.xFront;                      % empty section = specimen section (lab: 75 mm)
+secTxt = '';
+if isfinite(dSec) && dSec > 0, secTxt = sprintf(' (%g mm)', round(1e3 * dSec, 3)); end
+verify = ~isfield(cfg.calibration, 'verifyEmptySection') || cfg.calibration.verifyEmptySection;
 session.beginOperation();                       % STOP between steps stays pending
 opGuard = onCleanup(@() session.endOperation());
-% step 0: preparation checklist (test specimen removed, anechoic/absorbing
-% termination, ports sealed); microphones in their measurement ports
+if strcmp(cfg.mode, 'simulation') && ~isempty(session.Rig)
+    specimen = session.setSimulationSample(struct('type', 'air'));          % operator mounts the empty section
+    restoreSpecimen = onCleanup(@() session.setSimulationSample(specimen));  % also on error / STOP
+end
+% step 0: preparation checklist (EMPTY specimen section mounted, anechoic /
+% absorbing termination, ports sealed); microphones in their measurement ports
 home0 = zeros(1, 4); home0([cfg.mics.channel]) = [cfg.mics.position];
-prompt(tim.app.msg(lang, 'calPrepare', ab(1), ab(2)), home0);
-session.log('%s', tim.app.msg(lang, 'calPrepare', ab(1), ab(2)));
+prompt(tim.app.msg(lang, 'calPrepare', secTxt, ab(1), ab(2)), home0);
+session.log('%s', tim.app.msg(lang, 'calPrepare', secTxt, ab(1), ab(2)));
 results = cell(1, 4);
 raw = struct('channel', {}, 'config', {}, 'meas', {}, 'spectra', {});
 for k = chans
@@ -95,16 +114,63 @@ for k = chans
         'repeatability', r.repeatability, 'text', msg));
 end
 home = zeros(1, 4); home([cfg.mics.channel]) = [cfg.mics.position];
+session.throwIfStopped();
 prompt(tim.app.msg(lang, 'calDone'), home);
 meta = struct('mics', session.Mics, 'positions', ab, 'refChannel', ref, ...
     'excitation', cfg.excitation.sweep, 'mode', cfg.mode, 'software', tim.app.softwareVersion());
+meta.tube = struct('specimenSection', 'empty', 'sectionLength_m', dSec, 'geometry', g, ...
+    'environment', cfg.environment, 'note', ['Calibrated with the EMPTY specimen section mounted (no specimen): ' ...
+    'tube continuous, port positions as in the measurement.']);
 cal = tim.cal.buildCalibration(sp.I.f, results, ref, meta);
+chk = struct('performed', false, 'passed', false, 'text', 'disabled (calibration.verifyEmptySection = false)');
+if verify
+    [chk, mE] = emptySectionCheck(session, cfg, cal);
+    if ~isempty(mE)
+        raw(end+1) = struct('channel', 0, 'config', 'emptyCheck', 'meas', mE, 'spectra', []);
+    end
+end
+cal.meta.emptyCheck = chk;
+report(struct('kind', 'verification', 'check', chk));
 d = tim.app.outputDir(cfg, 'calibration');
 if ~exist(d, 'dir'), mkdir(d); end
 file = tim.app.uniqueName(fullfile(d, [cal.version '.mat']));
 save(file, 'cal', 'raw', '-v7.3');
 session.Calibration = cal;
 session.log('Calibration %s saved to %s', cal.version, file);
+% back to the measurement set-up (the calibration is already saved: an abort here loses nothing)
+clear restoreSpecimen                              % simulation: the specimen section is mounted again
+try
+    prompt(tim.app.msg(lang, 'calMountSpecimen'), home);
+    session.log('%s', tim.app.msg(lang, 'calMountSpecimen'));
+catch err
+    session.log('Last step not confirmed (%s): mount the specimen section before measuring.', err.message);
+end
+end
+
+function [chk, m] = emptySectionCheck(session, cfg, cal)
+% Test E with the EMPTY section and the microphones in their measurement ports:
+% tau = exp(-j k_c d), R = Rterm exp(-2j k_c d). Checks the port coordinates
+% (s1, s2, M2->M3 = L1 + d + L2) and the calibration; not the L1/d/L2 split.
+m = []; g = cfg.geometry;
+chk = struct('performed', false, 'passed', false, 'text', '');
+if ~(all(isfinite(g.micPositions)) && isfinite(g.xFront) && isfinite(g.xRear))
+    chk.text = 'skipped: geometry incomplete (enter L1, d, L2)';
+elseif ~all(any(cal.valid, 1))
+    chk.text = 'skipped: not all channels calibrated';
+end
+if ~isempty(chk.text), session.log('Empty-section check %s', chk.text); return; end
+session.throwIfStopped();
+session.log('Empty-section check (Test E): one sweep, empty section, microphones in their measurement ports.');
+m = session.measure('sweep');
+res = tim.app.processMeasurement(m, cfg, cal);
+r = tim.val.testDE_reference(res, 'empty', struct());
+chk = r; chk.performed = true; chk.measurementTimestamp = m.timestamp;
+verdict = 'FAILED - check s1, L1 + d + L2 (M2->M3), s2, leaks, and that the EMPTY section is mounted';
+if r.passed, verdict = 'passed'; end
+chk.text = sprintf(['Test E, empty %g mm section: %s (|tau| error %.3f, tau phase error %.2f deg rms, ' ...
+    'R consistency %.3f, %d valid bins)'], round(1e3 * r.gap_m, 3), verdict, r.tauMagError_median, ...
+    r.tauPhaseError_deg_rms, r.RconsistencyError_median, r.validBins);
+session.log('%s', chk.text);
 end
 
 function hardwarePrompt(msg, lang)

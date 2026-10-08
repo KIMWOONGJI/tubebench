@@ -429,6 +429,16 @@ classdef MeasurementSession < handle
             obj.Rig.MicPosOfChannel = mapping;
         end
 
+        function prev = setSimulationSample(obj, sample)
+            %SETSIMULATIONSAMPLE Simulation only: exchange the specimen of the virtual
+            %   rig, e.g. struct('type','air') = EMPTY specimen section (air column of
+            %   length xRear - xFront, tim.sim.tubeModel). Returns the previous sample.
+            if isempty(obj.Rig), error('tim:session:sim', 'Only available in simulation mode.'); end
+            prev = obj.Rig.Sample;
+            obj.Rig.Sample = sample;          % setter marks the FIR for re-design
+            obj.log('Simulation: specimen section -> "%s".', sample.type);
+        end
+
         %% ---- shutdown -------------------------------------------------------
         function requestStop(obj)
             obj.StopRequested = true;
