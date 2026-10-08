@@ -1,0 +1,99 @@
+function cfg = defaultConfig()
+%DEFAULTCONFIG Default configuration of the transfer-impedance tube system.
+%
+%   cfg = tim.app.defaultConfig()
+%   Edit config/user_config.json (see config/example_config.json) rather
+%   than this file; tim.app.loadConfig merges a JSON file onto these defaults.
+%   All quantities in SI units. NaN = "not provided" (never invented).
+
+cfg = struct();
+cfg.formatVersion = 1;
+cfg.mode = 'simulation';                % 'simulation' | 'hardware'
+cfg.projectName = 'transfer-impedance-tube-measurement';
+cfg.ui = struct('language', 'en');      % operator prompts in MATLAB: 'en' (default) | 'ko'
+
+% ---------------- instruments ----------------
+cfg.generator = struct('host', '169.254.2.20', 'port', 5025, 'timeout', 5, ...
+    'maxVpp', 0.5, ...                  % SAFETY LIMIT for amplifier/loudspeaker [Vpp]
+    'load', 'INF');                     % 'INF' (high-Z amplifier input) | '50'
+% Power amplifier between 33220A and loudspeaker. Its gain is set BY HAND
+% on the amplifier (not remote controlled); record it here (or in the GUI /
+% s.setAmplifier) - it is stored with every measurement and confirmed by
+% the operator before the loudspeaker is driven.
+cfg.amplifier = struct('model', '', ...
+    'gainFactor', NaN, ...              % voltage gain as a multiplier (x10 -> 10); 1 for direct drive; NaN = unknown
+    'gainSetting', '', ...              % free text, e.g. knob position as written on the amplifier
+    'gain_dB', NaN, ...                 % = 20*log10(gainFactor), kept for the metadata
+    'knownModels', {{'none (direct drive)', 'power amplifier'}}, ...  % GUI drop-down items (typed models are added)
+    'confirmBeforeExcitation', true);   % ask operator before driving the loudspeaker (hardware mode)
+% Loudspeaker data: used to estimate the electrical drive (voltage, current,
+% power) from generator amplitude x amplifier gain, and to REFUSE excitation
+% above maxPower_W (sine/sweep mean power, P = Vpk^2 / (2 Z)).
+cfg.loudspeaker = struct('impedance_ohm', 8, 'ratedPower_W', 25, 'maxPower_W', 1.0);
+cfg.lanxi = struct('host', '169.254.64.156', 'timeout', 10, ...
+    'connector', 'BNC');                % 'BNC' | 'LEMO' (3676 supports both; must match cabling)
+
+% ---------------- acquisition ----------------
+cfg.acquisition = struct('sampleRate', 16384, ...  % 4096|8192|16384|32768|65536 (3676)
+    'range', '10 Vpeak', ...            % '1 Vpeak' | '10 Vpeak'
+    'filter', '0.7 Hz', ...             % high-pass, see module supportedFilters
+    'ccld', true(1, 4), ...
+    'detectTeds', true, ...
+    'settleTime', 3, ...                % s after configuration (CCLD + high-pass settling)
+    'maxPeakFraction', 0.8, ...         % warn above this fraction of the input range
+    'sensitivityPolicy', 'certificate>teds>nominal');
+
+% ---------------- microphones ----------------
+% channel  = LAN-XI input; position = tube port (1..4 = M1..M4, M1 nearest the loudspeaker)
+m = struct('channel', {1, 2, 3, 4}, 'position', {1, 2, 3, 4}, 'model', 'B&K 4957', ...
+    'serial', '', 'nominalSensitivity_VperPa', 11.2e-3, ...
+    'certificateSensitivity_VperPa', NaN, 'certificateDate', '');
+cfg.mics = m;
+
+% ---------------- geometry ----------------
+% x axis along the tube, increasing from the loudspeaker towards the termination.
+cfg.geometry = struct('diameter', 0.029, ...
+    'micPositions', nan(1, 4), ...      % axial coordinates of M1..M4 [m]  (NOT YET PROVIDED)
+    'spacingUp', 0.029, 'spacingDown', 0.029, ...
+    'xFront', NaN, 'xRear', NaN, ...    % sample front/rear faces [m] (NOT YET PROVIDED)
+    'note', 'Enter measured positions; boundary-plane quantities are disabled until then.');
+
+% ---------------- environment ----------------
+cfg.environment = struct('temperature_C', 20, 'pressure_Pa', 101325, 'relativeHumidity', 50, ...
+    'c_override', [], 'rho_override', []);
+
+% ---------------- excitation ----------------
+cfg.excitation.mode = 'sweep';          % 'sweep' | 'stepped' | 'noise'
+cfg.excitation.sweep = struct('fStart', 80, 'fStop', 5500, 'duration', 5, 'spacing', 'LOG', ...
+    'amplitudeVpp', 0.2, 'repetitions', 4, 'preRoll', 1.0, 'postRoll', 1.0);
+cfg.excitation.stepped = struct('fStart', 120, 'fStop', 4500, 'nPoints', 40, 'spacing', 'log', ...
+    'amplitudeVpp', 0.2, 'settleTime', 0.3, 'recordTime', 0.5, 'nBlocks', 4, 'repetitions', 1);
+cfg.excitation.noise = struct('amplitudeVpp', 0.2, 'duration', 20, 'nfft', 8192, 'preRoll', 1.0);
+
+% ---------------- analysis ----------------
+cfg.analysis = struct('refChannel', 1, 'fMin', 120, 'fMax', 4500, 'df', 2, ...
+    'lossModel', 'iso10534', 'velocityRef', 'mean', 'condMax', 40, ...
+    'phaseUncertainty_rad', 0.002, 'maxPhaseSensitivity', 0.05, ...
+    'coherenceMin', 0.98, 'snrMin_dB', 20, 'validatedBands', zeros(0, 2), ...
+    'lowerFraction', 0.01, 'upperFraction', 0.40, 'passivityTol', 0.05, ...
+    'velocityMismatchMax', 0.10, 'anechoicRmax', 0.1);
+
+% ---------------- calibration ----------------
+cfg.calibration = struct('file', '', ...      % path of the complex calibration MAT file
+    'positions', [1 2], ...                   % tube ports a,b used for switching
+    'repeatConfigI', true, ...
+    'coherenceMin', 0.98, 'snrMin_dB', 20);
+
+% ---------------- output ----------------
+cfg.output = struct('dataDir', 'data', 'calibrationDir', 'calibration', ...
+    'saveRawStream', true, 'exportCsv', true, 'exportFigures', true, ...
+    'figureFormats', {{'png', 'pdf'}});
+
+% ---------------- simulation (virtual rig, used only in simulation mode) ----
+sg = struct('diameter', 0.029, 'micPositions', [-0.150, -0.121, 0.071, 0.100], ...
+    'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.010);
+cfg.simulation = struct('Geometry', sg, ...
+    'Sample', struct('type', 'porous', 'sigma', 2e4), ...
+    'Termination', struct('R', 0.05, 'x', 0.6), ...
+    'NoisePa', 2e-3, 'GenClockPpm', 35, 'Seed', 1);
+end

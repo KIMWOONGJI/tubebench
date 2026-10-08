@@ -1,0 +1,19 @@
+{
+  "R_median": 0.0021321475840920465,
+  "R_max": 0.017987776092258444,
+  "tau_median": 0.0026913964139704842,
+  "tau_max": 0.018037480770664711,
+  "validBins": 2191,
+  "bins": 2191,
+  "summary": "2191 bins: 2191 measured, 2191 geometry-permitted, 2191 quality-OK, 2191 valid, 0 experimentally validated. Rejections in band: velocityMismatch=2079.",
+  "sweepLaw": {
+    "startTime_s": 1.108467695703288,
+    "duration_s": 3.0027831336915471,
+    "rate": 1.4088519044483367,
+    "residual": 0.0087729693848056841,
+    "nFrames": 188,
+    "spacing": "LOG",
+    "nominalDuration_s": 3,
+    "durationError": 0.00092771123051571536
+  }
+}

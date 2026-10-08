@@ -1,0 +1,55 @@
+﻿{
+   "license" : "permanentLicense",
+   "module" : {
+      "frontpanel" : {
+         "serial" : 106184,
+         "type" : {
+            "model" : "",
+            "number" : "2100",
+            "prefix" : "UA",
+            "variant" : "040"
+         },
+         "version" : {
+            "hardware" : "2.0.0.0"
+         }
+      },
+      "serial" : 110283,
+      "type" : {
+         "model" : "B",
+         "number" : "3676",
+         "prefix" : "",
+         "variant" : "040"
+      },
+      "version" : {
+         "firmware" : "2.10.0.610",
+         "hardware" : "4.0.0.0"
+      }
+   },
+   "moduleState" : "Idle",
+   "numberOfInputChannels" : 4,
+   "numberOfOutputChannels" : 0,
+   "preampInputSupported" : false,
+   "sdCardInserted" : false,
+   "supportedBridgeCompletion" : [],
+   "supportedBridgeSupply" : [],
+   "supportedConnectors" : [ "BNC", "LEMO" ],
+   "supportedDestinations" : [ "sd", "socket", "multiSocket", "socketUdp" ],
+   "supportedFilters" : [
+      "DC",
+      "0.1 Hz 10%",
+      "0.7 Hz",
+      "1.0 Hz 10%",
+      "7.0 Hz",
+      "22.4 Hz",
+      "Intensity"
+   ],
+   "supportedHatsChannelPairs" : [],
+   "supportedMaxBridgeCurrent" : 0.0,
+   "supportedMaxBridgeVoltage" : 0.0,
+   "supportedOutputRanges" : [],
+   "supportedQuarterCompletionImpedance" : [],
+   "supportedRanges" : [ "1 Vpeak", "10 Vpeak" ],
+   "supportedRemoteSenseWiring" : [],
+   "supportedSampleRates" : [ 65536, 32768, 16384, 8192, 4096 ]
+}
+

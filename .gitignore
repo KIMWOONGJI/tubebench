@@ -1,0 +1,13 @@
+# measurement output (raw data are archived separately, never in git)
+data/
+calibration/**/*.mat
+examples/output/data/
+examples/output/calibration/
+examples/output/*.mat
+# personal configuration
+config/user_config.json
+# MATLAB
+*.asv
+*.autosave
+slprj/
+tests/last_test_report.txt

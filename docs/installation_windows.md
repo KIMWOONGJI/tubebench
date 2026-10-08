@@ -1,0 +1,115 @@
+# Windows installation and set-up guide
+
+## 1. Summary: what is required
+
+| Component | Required? | Status on the lab PC (checked 2026-10-08) |
+|---|---|---|
+| Windows 10/11 (64-bit) | yes | Windows 11 Education 10.0.22631 |
+| MATLAB R2022b | yes | **R2022b Update 2** (9.13.0.2105380) installed |
+| Signal Processing Toolbox | yes (`pwelch`, `cpsd`, `butter`, `filtfilt`, `spectrogram`, `hann`, `freqz`) | installed |
+| Instrument Control Toolbox | **not strictly** (see below), recommended | installed |
+| NI-VISA / Keysight IO Libraries | **no** | not needed (raw TCP socket) |
+| NI-DAQmx | **no** | not used (the DAQ is the HBK LAN-XI) |
+| HBK BK Connect / LAN-XI drivers / SDK | **no** | not needed (Open API = HTTP + TCP) |
+| Python, Java, C++ runtimes | **no** | – |
+| Git | optional (version control) | **not installed** (see section 6) |
+
+The software needs **no additional drivers, SDKs, runtimes or add-ons**:
+
+* The 33220A is driven by SCPI over a raw TCP socket (port 5025) using MATLAB's `tcpclient`.
+  `tcpclient` is part of base MATLAB since R2014b, and `writeline`/`readline` since R2020b. The
+  Instrument Control Toolbox is therefore not strictly required, though it was available during
+  development.
+* The LAN-XI is driven by HTTP REST (`matlab.net.http`, base MATLAB) plus a TCP data socket
+  (`tcpclient`). This is the documented LAN-XI Open API (BE 1872). The module's firmware
+  2.10.0.610 is newer than 2.10.0.344, which HBK requires for license-free Open API use.
+* `matlab.unittest` (tests) and `uifigure` (GUI) are part of base MATLAB R2022b.
+
+Verify the toolboxes in MATLAB:
+
+```matlab
+ver                                  % lists installed products
+license('test', 'Signal_Toolbox')    % must return 1
+exist('tcpclient')                   % must return 2 (or 8)
+```
+
+## 2. Network
+
+Both instruments use **link-local (169.254.x.x) addresses** and answered from this PC:
+
+| Instrument | IP | Port(s) | Verified |
+|---|---|---|---|
+| 33220A | 169.254.2.20 | TCP 5025 (SCPI socket) | ping, `*IDN?` |
+| LAN-XI 3676 | 169.254.64.156 | TCP 80 (REST), TCP data port reported by `/rest/rec/destination/socket` (typically 1536) | ping, REST, streaming |
+
+Nothing was changed on the network, firewall, IP configuration or instrument firmware, and no such
+change is needed for the present set-up.
+
+Possible issues and remedies (each requires **your** decision; the software never changes them):
+
+* **Windows Firewall** blocks MATLAB: Windows asks the first time MATLAB opens a connection. Allow
+  MATLAB on the network profile of the instrument adapter. Only outgoing connections are used; no
+  inbound rule is needed.
+* **Several network adapters with link-local addresses** (e.g. Wi-Fi plus the instrument switch):
+  if connections become intermittent, give the instrument adapter a static address in a dedicated
+  subnet. This would also change the instruments' addresses and needs your explicit approval.
+* **LAN-XI already in use**: only one Open API client at a time. Close BK Connect / PULSE.
+  According to the Open API manual a power cycle may be needed after BK Connect has used the
+  module.
+* **33220A holds one socket session**: close other programs (Keysight IO, web control) that may
+  hold port 5025.
+
+## 3. Installing this software
+
+1. Copy the folder `transfer-impedance-tube-measurement` to any location, e.g.
+   `C:\Users\<you>\Desktop\wj\transfer-impedance-tube-measurement`. Do not rename the `+tim`
+   folder.
+2. Start MATLAB R2022b, `cd` into the folder and run `addpath(pwd)` (done automatically by
+   `start_here.m` and `run_tests.m`). The `+tim` package needs only the project root on the path.
+3. Copy `config/example_config.json` to `config/user_config.json` and edit it (see the user guide).
+
+## 4. Verification
+
+```matlab
+cd <project folder>
+results = run_tests();          % ~3–5 min, simulation only; report in tests/last_test_report.txt
+```
+
+All tests must pass. Then, in hardware mode, run section H0/H1 of
+`examples/hardware_commissioning.m`. The instruments are identified and 2 s of data are acquired
+without excitation.
+
+Network-only check from PowerShell (read-only):
+
+```powershell
+Test-Connection 169.254.2.20 -Count 2
+Test-Connection 169.254.64.156 -Count 2
+Invoke-WebRequest -UseBasicParsing http://169.254.64.156/rest/rec/onchange
+```
+
+## 5. Compatibility notes
+
+* Developed and tested with MATLAB **R2022b Update 2** on Windows 11. Functions used: `arguments`
+  blocks (R2019b+), `tcpclient` with `writeline/readline/configureTerminator` (R2020b+),
+  `exportgraphics` (R2020a+), `uigridlayout` (R2018b+), `matlab.net.http` (R2016b+).
+  `jsonencode(...,'PrettyPrint',true)` needs R2021a+.
+* MATLAB's `fileread` uses the system code page (CP949 on Korean Windows). JSON files are therefore
+  read with an explicit UTF-8 reader (`tim.app.readTextUtf8`).
+* MATLAB warns "PUT/POST message should have a body" for the body-less Open API commands. That
+  specific warning (`MATLAB:http:BodyExpectedFor`) is silenced inside the HTTP client.
+* The LAN-XI Open API reference implementation by HBK (MATLAB, MIT licence) was developed with
+  firmware 2.10.0.501. This project re-implements the protocol and was tested against 2.10.0.610.
+
+## 6. Git (optional, for version control)
+
+Git is **not installed** on this PC (`git` is not on PATH and not present in the default
+locations). It is not needed to run the software. To install it, with your approval:
+
+* Purpose: version control of the code and configuration.
+* Official download: https://git-scm.com/download/win (Git for Windows, current 64-bit
+  installer). Alternatively `winget install --id Git.Git -e` (winget v1.29 is present on this PC).
+* Installation: run the installer with the default options ("Git from the command line and also
+  from 3rd-party software").
+* Verification: open a new terminal and run `git --version`.
+* Then, in the project folder: `git init`, `git add .`, `git commit -m "Initial import"`. The
+  provided `.gitignore` excludes measurement data and calibrations.
