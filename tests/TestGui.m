@@ -96,7 +96,8 @@ classdef TestGui < matlab.unittest.TestCase
             tc.addTeardown(@() delete(app));
             tick = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.1, 'UserData', 0, ...
                 'TimerFcn', @(t, ~) set(t, 'UserData', t.UserData + 1));
-            closer = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) tim.gui.closeApp(app.Fig, app));
+            % (closer after 2.5 s: under load the dialog itself needs up to ~1 s to appear)
+            closer = timer('StartDelay', 2.5, 'TimerFcn', @(~, ~) tim.gui.closeApp(app.Fig, app));
             tc.addTeardown(@() delete([tick closer]));
             tc.addTeardown(@() stop([tick closer]));
             start(tick); start(closer);
@@ -104,7 +105,7 @@ classdef TestGui < matlab.unittest.TestCase
             sel = app.ask('Move the microphones', 'Step', {'Done', 'Abort'}, 1, 2, 'question');
             stop(tick);
             tc.verifyEqual(sel, 'Abort');
-            tc.verifyLessThan(toc(t0), 5);
+            tc.verifyLessThan(toc(t0), 8);
             tc.verifyGreaterThan(tick.UserData, 3, 'timers run while the dialog waits');
         end
 

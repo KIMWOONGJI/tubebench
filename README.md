@@ -32,7 +32,7 @@ Configuration: `config/example_config.json` → copy to `config/user_config.json
 
 ## Status (2026-10-09)
 
-* **Software**: complete. 102 automated tests (simulation and recorded hardware fixtures); see
+* **Software**: complete. 97 automated tests (simulation and recorded hardware fixtures); see
   `tests/last_test_report.txt`.
 * **Hardware**: network, identification, the LAN-XI recorder state machine and binary streaming
   are verified on the real instruments. The generator output, the microphone chain, TEDS,
