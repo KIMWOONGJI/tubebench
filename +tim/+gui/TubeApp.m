@@ -32,7 +32,9 @@ classdef TubeApp < handle
         CalDrawCount double = 0 % number of 3D calibration draws (diagnostics / tests)
         PulseTimer = []         % highlights the calibration ports while the operator works
         CloseAfterBusy logical = false  % window close requested during a running action
+        Closing logical = false % closeNow running: further close requests are ignored
         ClosingWin = []         % "Closing ..." progress dialog (steps of the shutdown)
+        ClosingLog cell = {}    % texts shown in the closing dialog (also when hidden: tests)
     end
 
     methods
@@ -87,14 +89,16 @@ classdef TubeApp < handle
             %   moving while MATLAB waits for an instrument). During a running
             %   action STOP is requested first and the window closes when the
             %   action has stopped; a second request closes at once.
+            if app.Closing, return; end               % already closing (repeated click)
             if app.Busy && ~app.CloseAfterBusy
                 app.CloseAfterBusy = true;
                 if ~isempty(app.Session)
+                    app.Session.log('Closing: window close requested while busy - STOP requested first.');
                     app.Session.requestStop();
                     try, app.Session.Gen.outputOff(); catch, end
                 end
-                app.closingDialog({'Stopping the running measurement / calibration ...', ...
-                    'Generator output is OFF. The window closes as soon as the action has stopped.'});
+                app.closingDialog({'Stopping the running action ...', ...
+                    [app.outputOffText() ' The window closes as soon as the action has stopped.']});
                 return
             end
             app.closeNow();
@@ -113,6 +117,11 @@ classdef TubeApp < handle
             %   2026-10-09.) Timers keep running while it waits (pulsing
             %   ports). Closing the window or STOP returns the cancel option.
             if nargin < 7, icon = 'question'; end
+            % STOP already pending (e.g. pressed during the microphone animation)
+            % or window gone: do not open a dialog that nobody would close
+            if ~isvalid(app) || ~isvalid(app.Fig) || (~isempty(app.Session) && app.Session.StopRequested)
+                sel = options{cancelIdx}; return
+            end
             answer = '';
             function setAnswer(s)
                 answer = s;
@@ -500,20 +509,21 @@ classdef TubeApp < handle
             % frequency range / sweep time or number of steps / repetitions of the
             % selected excitation mode -> fields (stepped: "Steps" instead of "Sweep time")
             h = app.H; ex = app.Cfg.excitation;
+            if strcmp(mode, 'stepped'), s = ex.stepped; else, s = ex.sweep; end
+            % frequency range and repetitions first: a failure below cannot leave
+            % a mixture of sweep and stepped values (limits: validateConfig)
+            h.fRange.Value = sprintf('%g %g', s.fStart, s.fStop);
+            h.reps.Value = min(max(s.repetitions, 1), 100);
             if strcmp(mode, 'stepped')
-                s = ex.stepped;
                 h.durLabel.Text = 'Steps';
-                h.dur.Limits = [1 400]; h.dur.RoundFractionalValues = 'on'; h.dur.Value = s.nPoints;
+                h.dur.Limits = [1 400]; h.dur.RoundFractionalValues = 'on'; h.dur.Value = min(max(s.nPoints, 1), 400);
                 h.dur.Tooltip = sprintf(['number of frequency steps (%s spacing); each step: %g s settling + %g s ' ...
                     'recording'], s.spacing, s.settleTime, s.recordTime);
             else
-                s = ex.sweep;
                 h.durLabel.Text = 'Sweep time [s]';
-                h.dur.RoundFractionalValues = 'off'; h.dur.Limits = [0.001 500]; h.dur.Value = s.duration;
+                h.dur.RoundFractionalValues = 'off'; h.dur.Limits = [0.001 500]; h.dur.Value = min(max(s.duration, 0.001), 500);
                 h.dur.Tooltip = 'duration of one sweep [s]';
             end
-            h.fRange.Value = sprintf('%g %g', s.fStart, s.fStop);
-            h.reps.Value = s.repetitions;
         end
 
         function uiToExcitation(app, mode)
@@ -706,10 +716,16 @@ classdef TubeApp < handle
             % input and button is disabled except the STOP button, which is
             % relabelled "ABORT <busyWhat>".
             if nargin < 3, busyWhat = ''; end
-            if app.Busy
-                return      % an action is already running (no re-entrance)
+            if app.Busy || app.Closing
+                return      % an action is already running / the window closes (no re-entrance)
             end
             if ~isempty(busyWhat)
+                % the stop flag is cleared ONCE here, before the first drawnow: a
+                % STOP / window close arriving between this click and the first
+                % measurement is not lost (requirePrepared keeps it while in an operation)
+                op = app.Session;
+                if ~isempty(op), op.beginOperation(); end
+                opEnd = onCleanup(@() endOp(op));
                 app.setBusy(true, busyWhat);
                 unlock = onCleanup(@() safeUnlock(app));
             end
@@ -717,24 +733,38 @@ classdef TubeApp < handle
                 fn();
             catch err
                 if ~isvalid(app), return; end     % closed meanwhile (second close request)
+                if ~isempty(app.Session) && ~isempty(app.Session.Gen)
+                    try, app.Session.Gen.outputOff(); catch, end
+                end
                 if any(strcmp(err.identifier, {'tim:session:stopped', 'tim:gui:abort'}))
                     app.log('%s aborted by the operator: %s', busyWhat, err.message);
-                    msg = sprintf('%s aborted. Generator output is OFF.', busyWhat);
+                    msg = sprintf('%s aborted. %s', busyWhat, app.outputOffText());
                     icon = 'info';
                 else
                     app.log('ERROR: %s', err.message);
                     msg = err.message; icon = 'error';
-                end
-                if ~isempty(app.Session) && ~isempty(app.Session.Gen)
-                    try, app.Session.Gen.outputOff(); catch, end
                 end
                 if isvalid(app.Fig) && ~app.CloseAfterBusy     % window may be closing
                     uialert(app.Fig, msg, 'Stopped', 'Icon', icon);
                 end
             end
             if isvalid(app) && app.CloseAfterBusy          % close requested while busy
-                clear unlock
-                app.closeNow();
+                clear unlock opEnd
+                if isvalid(app), app.closeNow(); end
+            end
+        end
+
+        function txt = outputOffText(app)
+            % read back OUTP? (1 s time-out): never claim "OFF" without confirmation
+            txt = 'Generator output OFF (confirmed).';
+            s = app.Session;
+            if isempty(s) || isempty(s.Gen), txt = 'Generator not connected.'; return; end
+            try
+                if str2double(s.Gen.Transport.query('OUTP?', 1)) ~= 0
+                    txt = 'Generator output could NOT be switched off - switch the 33220A output off at the instrument!';
+                end
+            catch
+                txt = 'Generator output could NOT be confirmed OFF - check the 33220A output at the instrument!';
             end
         end
 
@@ -746,7 +776,7 @@ classdef TubeApp < handle
             h = app.H;
             names = {'mode', 'loadCfg', 'saveCfg', 'connect', 'disconnect', 'exMode', 'fRange', 'dur', 'amp', 'reps', ...
                 'ampModel', 'ampGain', 'spkZ', 'spkP', 'start', 'background', 'tubeD', 's1', 'L1', 'dTh', 'L2', 's2', ...
-                'temp', 'pres', 'loadCal', 'runCal', 'save', 'reprocess'};
+                'temp', 'pres', 'loadCal', 'runCal', 'save', 'reprocess', 'secChk', 'dimChk'};   % 3D redraw (~1 s) would stall the stream
             if tf
                 app.Busy = true;
                 app.EnableState = struct();
@@ -767,6 +797,10 @@ classdef TubeApp < handle
                 app.Busy = false;
                 if ~isempty(app.Session) && app.Session.Prepared
                     app.setStatus(sprintf('ready (%s)', app.Cfg.mode), true);
+                elseif ~isempty(app.Session)
+                    app.setStatus('not ready (connection incomplete)', false);
+                else
+                    app.setStatus('disconnected', false);
                 end
             end
             drawnow;
@@ -826,13 +860,20 @@ classdef TubeApp < handle
             app.run(@() app.doLoadConfig(fullfile(p, f)));
         end
         function doLoadConfig(app, file)
-            app.Cfg = tim.app.loadConfig(file);
+            cfg = tim.app.loadConfig(file);
+            if ~isempty(app.Session)
+                % the connected session keeps its own configuration (mode, mics,
+                % calibration settings): a new configuration needs a new connection
+                app.disconnect();
+                app.log('Disconnected: a new configuration was loaded - press Connect + TEDS again.');
+            end
+            app.Cfg = cfg;
             app.refreshFromCfg();
             app.log('Loaded configuration %s', file);
         end
 
         function onConnect(app)
-            app.run(@() app.doConnect());
+            app.run(@() app.doConnect(), 'connection');   % locked: no second Connect / START meanwhile
         end
         function doConnect(app)
             app.readCfgFromUi();
@@ -854,9 +895,12 @@ classdef TubeApp < handle
                     {yes, tim.app.msg(L, 'cancel')}, 2, 2, 'warning'), yes);
             end
             app.Session = s;
+            s.beginOperation();                        % ABORT during the connection stays pending
+            opEnd = onCleanup(@() endOp(s));
             s.connect();
             s.prepareAcquisition();
             chk = s.signalCheck(1);                    % 1 s without excitation: level / fault flags per channel
+            clear opEnd
             app.setStatus(sprintf('ready (%s)', app.Cfg.mode), true);
             m = s.Mics;
             app.H.chanTable.Data = table([m.channel].', [m.position].', {m.model}.', ...
@@ -1073,9 +1117,12 @@ classdef TubeApp < handle
             app.syncSession();
             % operator steps (same order as tim.app.runCalibration): preparation
             % checklist, per channel config I (+ repeat) + config II, return mics
-            c = app.Cfg; ref = c.analysis.refChannel; ab = c.calibration.positions;
-            dSec = c.geometry.xRear - c.geometry.xFront; secTxt = '';
-            if isfinite(dSec) && dSec > 0, secTxt = sprintf('%g mm ', round(1e3 * dSec, 3)); end
+            % the session's configuration is what runCalibration uses (same steps)
+            c = app.Session.Cfg; ref = c.analysis.refChannel; ab = c.calibration.positions;
+            dSec = NaN;
+            if isfield(c, 'tubeDrawing') && isfield(c.tubeDrawing, 'specimenSectionLength'), dSec = c.tubeDrawing.specimenSectionLength; end
+            secTxt = '';
+            if isscalar(dSec) && isfinite(dSec) && dSec > 0, secTxt = sprintf('%g mm ', round(1e3 * dSec, 3)); end
             keys = {'prep'}; labels = {sprintf('Prepare: EMPTY %ssection, absorbing end', secTxt)};
             for k = setdiff(1:4, ref)
                 keys{end + 1} = sprintf('ch%d_I', k); %#ok<AGROW>
@@ -1139,11 +1186,8 @@ classdef TubeApp < handle
             if any(strcmp(key, {'prep', 'mount'}))
                 app.CalList.set(key, 'ok', 'confirmed');
             elseif strcmp(key, 'done')
-                if app.Cfg.calibration.verifyEmptySection
-                    app.CalList.set(key, 'run', 'microphones back; empty-tube check (Test E) ...');
-                else
-                    app.CalList.set(key, 'ok', 'confirmed');
-                end
+                % the result (or why there is no check) arrives with the 'verification' report
+                app.CalList.set(key, 'run', 'microphones back; saving / empty-tube check (Test E) ...');
             else
                 app.CalList.set(key, 'run', 'measuring (swept sine) ...');
             end
@@ -1177,9 +1221,9 @@ classdef TubeApp < handle
                     end
                 case 'verification'          % empty-section check (Test E), 'done' row
                     k = q.check;
-                    if ~k.performed
-                        st = 'ok'; if startsWith(k.text, 'skipped'), st = 'warn'; end
-                        app.CalList.set(key, st, ['confirmed; empty-tube check ' k.text]);
+                    if ~k.performed      % disabled on purpose = ok; skipped / aborted / error = warn
+                        st = 'warn'; if contains(k.text, 'disabled'), st = 'ok'; end
+                        app.CalList.set(key, st, ['calibration saved; empty-tube check ' k.text]);
                     elseif k.passed
                         app.CalList.set(key, 'ok', k.text);
                     else
@@ -1461,8 +1505,9 @@ classdef TubeApp < handle
             % pole at kd = pi (2.29 kHz). Its curves are then not drawn (they
             % would hide TL_tau); the velocity-mismatch mask rejects them anyway.
             thick = false; txt = '';
-            if isfield(a.boundary, 'thickness') && a.boundary.available
-                kd = max(real(a.k)) * a.boundary.thickness;
+            m = a.valid.measured;                % in-band bins only (stepped steps may lie outside)
+            if isfield(a.boundary, 'thickness') && a.boundary.available && any(m)
+                kd = max(real(a.k(m))) * a.boundary.thickness;
                 thick = kd > 1;
                 txt = sprintf(['Thin-element model not applicable: d = %g mm (k d up to %.1f). ' ...
                     'Use R / tau (anechoic termination) or the transfer matrix.'], round(1e3 * a.boundary.thickness, 3), kd);
@@ -1553,6 +1598,8 @@ classdef TubeApp < handle
             % "Closing" progress dialog inside the (already rendered) window:
             % appears at once; its indeterminate bar is animated by the window
             % itself, so it keeps moving while MATLAB waits for an instrument
+            msg = cellstr(msg);
+            app.ClosingLog = [app.ClosingLog, msg(:).'];
             if isempty(app.Fig) || ~isvalid(app.Fig) || ~strcmp(app.Fig.Visible, 'on'), return; end
             if isempty(app.ClosingWin) || ~isvalid(app.ClosingWin)
                 app.ClosingWin = uiprogressdlg(app.Fig, 'Title', 'Closing Transfer impedance tube', ...
@@ -1566,21 +1613,26 @@ classdef TubeApp < handle
         function closeNow(app)
             % shut down with short time-outs and delete the app; every step is
             % shown in the closing dialog
+            if app.Closing, return; end
+            app.Closing = true;
             app.stopPulse();
             s = app.Session;
             done = {};
             if ~isempty(s) && ~isempty(s.Gen)
                 app.closingDialog([done, {'Switching the generator output OFF ...'}]);
                 try, s.Gen.outputOff(); catch, end
-                done{end + 1} = 'Generator output OFF.';
+                done{end + 1} = app.outputOffText();
+                s.log('Closing: %s', done{end});
             end
             if ~isempty(s)
                 app.closingDialog([done, {'Returning the LAN-XI to Idle (2 s time-out per request) ...'}]);
                 try, s.close(true); catch, end
                 app.Session = [];
                 done{end + 1} = 'Instruments disconnected.';
+                s.log('Closing: %s', done{end});
             end
             app.closingDialog([done, {'Closing the window ...'}]);
+            if ~isempty(s), s.log('Closing: window deleted.'); end
             fig = app.Fig;
             delete(app);                         % deletes the main window and the dialog
             if isvalid(fig), delete(fig); end
@@ -1591,6 +1643,11 @@ end
 function safeUnlock(app)
 % end of a busy action: restore the controls unless the app was closed meanwhile
 if isvalid(app), app.unlockUi(); end
+end
+
+function endOp(s)
+% end of an operation on a session that may have been closed / deleted meanwhile
+if ~isempty(s) && isvalid(s), s.endOperation(); end
 end
 
 function [x, y] = calPath(s, xa, xb, y0, yl)

@@ -112,7 +112,9 @@ H = zeros(nF, 4); coh = zeros(nF, 4); snr = zeros(nF, 4); fHat = zeros(nF, 1); s
 amp = nan(nF, 4);                       % fitted tone amplitude per step and channel [V peak]
 nR = numel(meas.records);
 for k = 1:nF
-    Hs = zeros(nR, 4); cs = zeros(nR, 4); ss = zeros(nR, 4); fh = nan(nR, 1); es = zeros(nR, 4);
+    % SNR NaN for a skipped repetition (min ignores NaN): otherwise 0 dB would make the
+    % noise level equal to the tone level; coherence 0 still invalidates the step
+    Hs = zeros(nR, 4); cs = zeros(nR, 4); ss = nan(nR, 4); fh = nan(nR, 1); es = zeros(nR, 4);
     as = nan(nR, 4);
     for r = 1:nR
         idx = tim.app.steppedSegment(meas, r, k);

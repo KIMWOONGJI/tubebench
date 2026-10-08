@@ -3,7 +3,8 @@
 ## 1. First steps
 
 1. Read `installation_windows.md`, then run `run_tests` once. All tests must pass.
-2. `copy config\example_config.json config\user_config.json` and edit:
+2. Only if `config\user_config.json` does not exist yet (it is local, not in Git):
+   `copy config\example_config.json config\user_config.json`. Then edit:
    * `"mode"`: `"simulation"` to practise, `"hardware"` for real measurements.
    * `"generator.maxVpp"`: **safety limit** of the generator amplitude (Vpp) for your
      amplifier/loudspeaker. Every excitation amplitude is checked against it, both in software
@@ -129,7 +130,12 @@ without scrolling and scrolls only in a very small window):
 
   The lab tube (CAD assembly `cad/transfer-impedance-tube.step`) gives s1 = 29, L1 = 41,
   d = 75 (the specimen fills the 75 mm middle section), L2 = 41 and s2 = 29 mm; these design
-  values are in `config/user_config.json` and should be checked on the real tube. The parts used
+  values are in `config/user_config.json` and should be checked on the real tube.
+  `user_config.json` is a **local file** (excluded from Git, so a fresh clone does not have
+  it): on another PC copy the file, or create it from `example_config.json` and enter the values
+  in the IMPEDANCE TUBE fields (tube Ø 29 mm, M1..M4 at −70, −41, 116, 145 mm, xFront 0,
+  xRear 75 mm) and save with "Save config…". Never overwrite an existing `user_config.json` with
+  the example. The parts used
   only for the drawing are in the `tubeDrawing` section of the configuration (CAD values: flanges
   and specimen section Ø65 mm, tube body Ø45 mm, flanges 9 mm with 6 × M4, bore end 95 mm before
   M1, termination 291 mm after M4, loudspeaker housing Ø135 mm at the large end, microphone
@@ -167,7 +173,10 @@ The window title is "Transfer impedance tube"; the bottom line shows the softwar
 the Git commit) and a link to the repository
 (<https://github.com/kimwoongji/transfer-impedance-tube-measurement>, private). The version, the
 repository and the commit are also stored with every measurement (`metadata.json`, field
-`softwareInfo`, and `README.txt`) and calibration.
+`softwareInfo`, and `README.txt`) and calibration (`cal.meta.softwareInfo`). The commit is read
+from the `.git` folder; **local changes that are not committed are not detected**, so commit
+before measuring if the code was edited (otherwise the stored commit does not describe the code
+that ran). Without a `.git` folder (copied project) the commit is "unknown".
 
 ## 3. Excitation modes
 

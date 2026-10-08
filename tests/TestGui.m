@@ -172,7 +172,10 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyLessThan(toc(t0), 10);
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
             tc.verifyFalse(s.Connected, 'instruments released');
-            tc.verifyEmpty(findall(groot, 'Type', 'figure', 'Name', 'Closing - Transfer impedance tube'), 'closing window deleted');
+            % the steps shown in the closing dialog are also logged by the session
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output OFF (confirmed).')));
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Instruments disconnected.')));
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: window deleted.')));
         end
 
         function closeDuringMeasurementStopsFirst(tc)
@@ -194,7 +197,10 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyTrue(s.StopRequested, 'the running measurement was stopped first');
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
             tc.verifyFalse(s.Connected);
-            tc.verifyEmpty(findall(groot, 'Type', 'figure', 'Name', 'Closing - Transfer impedance tube'));
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: window close requested while busy - STOP requested first.')));
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Instruments disconnected.')));
+            % stopped inside the acquisition (partial data saved), not completed
+            tc.verifyTrue(any(contains(s.LogLines, 'stopped by user')), strjoin(s.LogLines, newline));
         end
 
         function appSimulationWorkflow(tc)
@@ -264,10 +270,14 @@ classdef TestGui < matlab.unittest.TestCase
             h = app.H;
             tc.assertEqual(h.exMode.Value, 'stepped');
             feval(h.connect.ButtonPushedFcn, h.connect, []);
+            % values typed in the GUI (different from the configuration) must be used
+            h.dur.Value = 5; h.fRange.Value = '300 3000'; h.reps.Value = 2;
             feval(h.start.ButtonPushedFcn, h.start, []);
             tc.assertNotEmpty(app.LastRes);
             fk = app.LastMeas.settings.frequencies(:);
-            tc.verifyEqual(numel(fk), 6, 'GUI Steps field used');
+            tc.verifyEqual(numel(fk), 5, 'GUI Steps field used');
+            tc.verifyEqual(fk([1 end]).', [300 3000], 'RelTol', 1e-9, 'GUI frequency range used');
+            tc.verifyNumElements(app.LastMeas.records, 2, 'GUI repetitions used');
             L = findobj(h.axSpec, 'Type', 'line', 'Marker', 'o');
             tc.verifyNumElements(L, 4);
             for i = 1:numel(L)

@@ -64,6 +64,10 @@ switch key
         t.ko = '교정 측정 완료: 모든 마이크를 측정 위치(설정된 채널→포트)로 되돌리세요. 빈 시편 섹션은 아직 그대로 두세요 (빈 관 검증 1회 측정).';
         t.en = ['Calibration measurements finished: return all microphones to their measurement ports (channel -> position as configured). ' ...
             'Keep the EMPTY section mounted for now (one empty-tube check sweep follows).'];
+    case 'calDoneNoCheck'      % reason
+        t.ko = '교정 측정 완료: 모든 마이크를 측정 위치(설정된 채널→포트)로 되돌리세요. 빈 관 검증은 하지 않습니다 (%s).';
+        t.en = ['Calibration measurements finished: return all microphones to their measurement ports (channel -> position as configured). ' ...
+            'No empty-tube check will be made (%s).'];
     case 'calMountSpecimen'
         t.ko = '교정 완료: 빈 시편 섹션을 시편이 든 시편 섹션으로 교체하세요 (같은 방향, 플랜지 밀봉). 형상(L1, d, L2)은 설정값 그대로입니다.';
         t.en = ['Calibration complete: replace the EMPTY section by the specimen section (same orientation, flanges sealed). ' ...

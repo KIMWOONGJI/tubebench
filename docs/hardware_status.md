@@ -136,7 +136,10 @@ See `validation_procedure.md` for the exact steps and pass criteria. The script
 4. H3 generator output at low level (sine 1 kHz, 0.05 Vpp) with the amplifier gain set low; overload margin
 5. H4 sweep timing (trigger latency, pre/post margins)
 6. H5 Test B single frequency (SNR, repeatability, clock offset)
-7. H6 Test C switching calibration and consistency
-8. H7 measure and enter the geometry, then Test D (rigid plug) and Test E (empty tube)
-9. H8 Test G stepped vs sweep
-10. Enter the experimentally validated bands in `cfg.analysis.validatedBands`
+7. H5b measure the geometry (calipers) and enter it **before** the calibration (the calibration
+   stores the port distances and its automatic Test E uses them)
+8. H6 Test C switching calibration with the EMPTY 75 mm section (ends with the automatic Test E,
+   `cal.meta.emptyCheck`) and consistency
+9. H7 Test D (rigid plug) and Test E repeated (plug removed, EMPTY section kept mounted)
+10. H8 Test G stepped vs sweep
+11. Enter the experimentally validated bands in `cfg.analysis.validatedBands`

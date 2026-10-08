@@ -423,6 +423,69 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function stopBeforeMeasurementIsKept(tc)
+            % review 2026-10-09: a STOP / window close between the START click and
+            % the first measurement was cleared by requirePrepared -> sweep played
+            s = tim.app.MeasurementSession(tc.cfg);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            s.beginOperation();                 % what the GUI does when START is clicked
+            s.requestStop();                    % STOP / close processed before measure()
+            tc.verifyError(@() s.measure('sweep'), 'tim:session:stopped');
+            tc.verifyFalse(s.Gen.isOutputOn());
+            s.endOperation();
+            m = s.measure('sweep');             % a new stand-alone measurement works again
+            tc.verifyTrue(m.integrityOk);
+            % nested operations: only the outermost clears the stop flag
+            s.beginOperation(); s.requestStop(); s.beginOperation();
+            tc.verifyTrue(s.StopRequested, 'inner beginOperation keeps a pending STOP');
+            s.endOperation(); tc.verifyTrue(s.InOperation); s.endOperation(); tc.verifyFalse(s.InOperation);
+            clear cleanup
+        end
+
+        function stopDuringEmptyCheckKeepsCalibration(tc)
+            % review 2026-10-09: STOP or an error during the automatic Test E lost
+            % the whole (already measured) calibration
+            s = tim.app.MeasurementSession(tc.cfg);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            done = tim.app.msg('en', 'calDone');
+            function prompt(msg, mapping)
+                s.setMicPositionsForSimulation(mapping);
+                if strcmp(msg, done), s.requestStop(); end    % ABORT while the check sweep starts
+            end
+            [cal, file] = tim.app.runCalibration(s, struct('prompt', @prompt));
+            tc.verifyTrue(isfile(file), 'calibration saved');
+            tc.verifyFalse(cal.meta.emptyCheck.performed);
+            tc.verifySubstring(cal.meta.emptyCheck.text, 'aborted');
+            S = load(file, 'cal');
+            tc.verifyEqual(S.cal.C, cal.C);
+            tc.verifySubstring(S.cal.meta.emptyCheck.text, 'aborted', 'saved file holds the final check result');
+            tc.verifyEqual(s.Calibration.version, cal.version, 'new calibration active');
+            tc.verifyFalse(s.Gen.isOutputOn());
+            clear cleanup
+        end
+
+        function noEmptyCheckPromptWhenDisabled(tc)
+            % the operator is not promised a check sweep that does not follow
+            c = tc.cfg; c.calibration.verifyEmptySection = false;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            msgs = {};
+            function prompt(msg, mapping)
+                msgs{end + 1} = msg; s.setMicPositionsForSimulation(mapping);
+            end
+            cal = tim.app.runCalibration(s, struct('prompt', @prompt));
+            tc.verifyTrue(any(contains(msgs, 'No empty-tube check will be made (disabled')));
+            tc.verifyFalse(any(strcmp(msgs, tim.app.msg('en', 'calDone'))));
+            tc.verifySubstring(cal.meta.emptyCheck.text, 'disabled');
+            tc.verifyEqual(cal.meta.tube.sectionLength_m, c.tubeDrawing.specimenSectionLength);
+            tc.verifyEqual(cal.meta.tube.specimenThickness_m, c.geometry.xRear - c.geometry.xFront, 'AbsTol', 1e-12);
+            tc.verifyEqual(cal.meta.softwareInfo.repository, tim.app.repositoryUrl());
+            clear cleanup
+        end
+
         function connectionFailureMarksStep(tc)
             % an error inside a step marks exactly that step as failed
             c = tc.cfg; c.acquisition.filter = 'no such filter';

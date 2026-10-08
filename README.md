@@ -28,11 +28,15 @@ edit start_here.m           % step-by-step script entry point (no GUI)
 run examples/demo_simulation.m   % full simulated workflow + example plots
 ```
 
-Configuration: `config/example_config.json` → copy to `config/user_config.json`.
+Configuration: `config/example_config.json` → copy to `config/user_config.json` (only if it
+does not exist yet). `user_config.json` holds the settings of this PC, including the lab-tube
+geometry, and is excluded from Git: copy it to a new PC or re-enter the geometry
+(`docs/user_guide.md`). The stored software commit does not see uncommitted local changes -
+commit before measuring with edited code.
 
 ## Status (2026-10-09)
 
-* **Software**: complete. 97 automated tests (simulation and recorded hardware fixtures); see
+* **Software**: complete. 100 automated tests (simulation and recorded hardware fixtures); see
   `tests/last_test_report.txt`.
 * **Hardware**: network, identification, the LAN-XI recorder state machine and binary streaming
   are verified on the real instruments. The generator output, the microphone chain, TEDS,

@@ -109,8 +109,15 @@ the calibration equations together with all other equations used.
 
 While the calibration (or any measurement) runs, the GUI is **locked**: every input and button
 is disabled except the STOP button, which reads **"ABORT calibration"**. Pressing it switches the
-generator output off and stops the calibration; nothing is saved. Between the steps the dialog
-also offers "Abort".
+generator output off and stops the calibration. Between the steps the dialog also offers "Abort".
+What is kept depends on when you abort:
+
+* during the CONFIG I / II steps: **nothing is saved** (the calibration is incomplete);
+* during the empty-tube check (step 4): the calibration was **already saved** before the check
+  sweep; it is kept, becomes the active calibration and records
+  `cal.meta.emptyCheck.text = 'aborted by the operator (STOP) - calibration saved ...'`
+  (an instrument error during the check is recorded the same way);
+* at the last prompt (step 5, mount the specimen): the calibration and its check are saved.
 
 ### Step by step (`[cal, file] = tim.app.runCalibration(s)` or the GUI button)
 
@@ -131,6 +138,10 @@ For every k ≠ ref (default k = 2, 3, 4) the program prompts:
    it cannot check how the 157 mm split into L1 / d / L2. If the section had been taken out, the
    tau phase error is about 79° at 1 kHz and the check fails. The result is stored in
    `cal.meta.emptyCheck` (and shown in the GUI); a failed check only warns - `C_k` is still valid.
+   The calibration file is written **before** the check sweep and written again (same file) with
+   the result. When the check cannot run (disabled, or no complete port coordinates / face
+   positions / calibration) the prompt says so ("No empty-tube check will be made (...)") instead
+   of announcing a sweep, and `cal.meta.emptyCheck.text` gives the reason.
 5. **Replace the empty section by the specimen section** (same orientation, flanges sealed).
 
 The calibration is saved as `calibration/CAL-yyyyMMdd-HHmmss.mat` (never overwritten). The file

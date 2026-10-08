@@ -27,6 +27,8 @@ function r = testDE_reference(res, kind, opts)
 %       / 4.5 kHz, TL ~ 0.01-0.09 dB. tim.app.runCalibration performs this
 %       check automatically (cal.meta.emptyCheck).
 %       Reported: |tau| error, tau phase error, R-consistency error, TL.
+%       Evaluated on measured & geometry & quality OK bins, WITHOUT the
+%       passivity screen (|tau| > 1 errors must count, not be dropped).
 %   Pass criteria are applied only in the VALID band of res.
 
 a = res.analysis; v = a.valid.valid & a.boundary.available;
@@ -43,6 +45,9 @@ switch kind
         r.passed = nnz(v) > 0 && r.magDeficit_median < 0.05 && r.magDeficit_median > -0.02 && r.phaseError_deg_rms < 3;
         r.criteria = '|R| deficit after removing propagation: -0.02 .. 0.05 (median); phase error < 3 deg rms';
     case 'empty'
+        % bins: measured, geometry and quality OK - WITHOUT the passivity screen,
+        % which would silently drop over-unity |tau| errors (one-sided check)
+        v = a.valid.geometryOK & a.valid.qualityOK & a.boundary.available;
         d = a.boundary.thickness;
         texp = exp(-1j * k * d);
         dt = a.tau ./ texp;
@@ -53,7 +58,8 @@ switch kind
             'tauPhaseError_deg_rms', rms(rad2deg(angle(dt(v)))), ...
             'RconsistencyError_median', median(abs(a.R(v) - Rexp(v))), ...
             'absR_median', median(abs(a.R(v))), 'absRterm_median', median(abs(a.Rterm(v))), ...
-            'TLtau_dB_median', median(a.power.TL_tau_dB(v)), 'TLexpected_dB_median', median(TLexp(v)));
+            'TLtau_dB_median', median(a.power.TL_tau_dB(v)), 'TLexpected_dB_median', median(TLexp(v)), ...
+            'nonPassiveBins', nnz(a.valid.flags.nonPassive & v));
         r.passed = nnz(v) > 0 && r.tauMagError_median < 0.02 && r.tauPhaseError_deg_rms < 2 && ...
             r.RconsistencyError_median < 0.02;
         r.criteria = ['||tau|-1| < 0.02, tau phase error < 2 deg rms, |R - Rterm e^{-2jkd}| < 0.02 ' ...

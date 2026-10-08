@@ -37,6 +37,16 @@ end
 if sw.fStop > 0.45 * fs
     error('tim:config:sweep', 'Sweep stop frequency above 0.45*fs.');
 end
+assert(sw.repetitions >= 1 && sw.repetitions <= 100, 'tim:config:repetitions', 'Sweep repetitions must be 1..100.');
+st = cfg.excitation.stepped;
+if st.fStop > 0.45 * fs
+    error('tim:config:stepped', 'Stepped stop frequency (%g Hz) above 0.45*fs (%g Hz).', st.fStop, 0.45 * fs);
+end
+assert(st.nPoints >= 1 && st.nPoints <= 400 && st.repetitions >= 1 && st.repetitions <= 100, 'tim:config:stepped', ...
+    'Stepped sine: nPoints must be 1..400 and repetitions 1..100.');
+if st.fStart < cfg.analysis.fMin || st.fStop > cfg.analysis.fMax
+    report{end+1} = 'Stepped frequencies outside the analysis band are always flagged not valid.';
+end
 g = cfg.geometry;
 if any(~isfinite(g.micPositions))
     report{end+1} = 'Microphone positions not provided: only pair-local results will be available.';

@@ -55,10 +55,27 @@ for fq = [250 1000 3000]
         mat2str(r.scatter_dB, 2), mat2str(r.scatter_deg, 2), r.clockOffset_ppm);
 end
 
+%% H5b - geometry BEFORE the calibration (no excitation)
+% The calibration stores the port distances and the empty-section length, and
+% its automatic empty-tube check (Test E) uses the face positions. So:
+% 1) Measure the axial positions of M1..M4 and of the specimen-section faces
+%    (calipers) and enter them in the GUI (IMPEDANCE TUBE) or in
+%    config/user_config.json (geometry.micPositions, xFront, xRear;
+%    tubeDrawing.specimenSectionLength = length of the EMPTY section, 0.075 m).
+% 2) Reload and reconnect if the file was changed:
+%      s.close(); cfg = tim.app.loadConfig(fullfile(root, 'config', 'user_config.json'));
+%      s = tim.app.MeasurementSession(cfg); s.connect(); s.prepareAcquisition();
+disp(cfg.geometry)
+
 %% H6 - Test C: switching calibration (interactive, LOUDSPEAKER ON) + consistency
-% Absorbing sample in the holder (docs/calibration_procedure.md).
+% EMPTY specimen section mounted (no specimen, no absorber inside it); absorbing
+% material only at the termination (docs/calibration_procedure.md).
+% runCalibration ends with the automatic empty-tube check (Test E), stored in
+% cal.meta.emptyCheck; the calibration is saved before that check.
 [cal, calFile] = tim.app.runCalibration(s);
 tim.app.plotCalibration(cal);
+report.H6_emptyCheck = cal.meta.emptyCheck;
+disp(cal.meta.emptyCheck)
 % Independent consistency check with channels 1/2 interchanged:
 input('Microphones in measurement ports. ENTER to measure A ...', 's');
 mA = s.measure('sweep');
@@ -69,17 +86,16 @@ report.H6 = tim.val.testC_calibrationConsistency(cal, mA, mB, cfg, [1 2]);
 report.H6.calFile = calFile;
 disp(report.H6)
 
-%% H7 - geometry, Test D (rigid plug) and Test E (empty tube)  (LOUDSPEAKER ON)
-% 1) Measure the axial positions of M1..M4 and of the sample faces and enter
-%    them in config/user_config.json (geometry.micPositions, xFront, xRear).
-% 2) Reload: cfg = tim.app.loadConfig(...) and create a new session.
-% Test D: rigid plug with its face L metres downstream of xFront.
+%% H7 - Test D (rigid plug) and Test E repeated (empty section)  (LOUDSPEAKER ON)
+% Geometry as entered in H5b. Test D: rigid plug with its face L metres
+% downstream of xFront.
 L = 0.0;   % <-- enter the measured value
 input('Insert the rigid plug. ENTER ...', 's');
 resD = tim.app.processMeasurement(s.measure('sweep'), cfg, cal);
 report.H7_D = tim.val.testDE_reference(resD, 'rigid', struct('L', L));
 disp(report.H7_D)
-input('Remove the plug and the sample (empty tube, normal termination). ENTER ...', 's');
+input(['Remove the plug; keep the EMPTY 75 mm section mounted (do not join the tubes ' ...
+    'directly), normal termination. ENTER ...'], 's');
 resE = tim.app.processMeasurement(s.measure('sweep'), cfg, cal);
 report.H7_E = tim.val.testDE_reference(resE, 'empty', struct());
 disp(report.H7_E)

@@ -50,6 +50,8 @@ classdef MeasurementSession < handle
     end
     properties (Access = private)
         ProgressKey char = ''    % checklist step currently running (marked 'fail' on error)
+        OperationDepth double = 0  % nested beginOperation calls (GUI action > calibration)
+        Closed logical = false   % close() done: never shut the module down twice
     end
 
     methods
@@ -193,7 +195,17 @@ classdef MeasurementSession < handle
 
         function progress(obj, key, state, detail)
             %PROGRESS Report a connection step to ProgressCallback (GUI checklist).
+            %   A STOP requested meanwhile aborts the connection at the start of
+            %   the next step (own steps; steps reported by LanXi.prepare
+            %   cannot throw through its callback guard).
             if nargin < 4, detail = ''; end
+            if strcmp(state, 'run') && obj.StopRequested
+                obj.ProgressKey = '';
+                if ~isempty(obj.ProgressCallback)
+                    try, obj.ProgressCallback(key, 'fail', 'stopped by the operator'); catch, end
+                end
+                error('tim:session:stopped', 'Connection stopped by user.');
+            end
             if strcmp(state, 'run')
                 obj.ProgressKey = key;
             elseif strcmp(key, obj.ProgressKey)
@@ -445,15 +457,22 @@ classdef MeasurementSession < handle
         end
 
         function beginOperation(obj)
-            %BEGINOPERATION Start a multi-measurement operation (calibration):
-            %   clears the stop flag once; a later STOP stays pending until
-            %   endOperation, even between measurements.
-            obj.StopRequested = false;
+            %BEGINOPERATION Start an operation (GUI action, calibration): the
+            %   OUTERMOST call clears the stop flag once; a later STOP stays
+            %   pending until the matching endOperation, even between
+            %   measurements. Nestable (the GUI wraps every action, the
+            %   calibration nests inside), so a STOP / window close that arrives
+            %   between the START click and the first measurement is not lost.
+            if obj.OperationDepth == 0
+                obj.StopRequested = false;
+            end
+            obj.OperationDepth = obj.OperationDepth + 1;
             obj.InOperation = true;
         end
 
         function endOperation(obj)
-            obj.InOperation = false;
+            obj.OperationDepth = max(0, obj.OperationDepth - 1);
+            obj.InOperation = obj.OperationDepth > 0;
         end
 
         function throwIfStopped(obj)
@@ -466,6 +485,8 @@ classdef MeasurementSession < handle
             %   uses short time-outs (2 s) so that closing the app never waits
             %   long for an instrument that does not answer (switched off).
             if nargin < 2, fast = false; end
+            if obj.Closed, return; end         % e.g. the destructor of an already closed session
+            obj.Closed = true;
             if fast
                 for h = {obj.Http, obj.Gen}
                     try

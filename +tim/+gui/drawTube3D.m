@@ -104,8 +104,14 @@ if cal                                            % calibration: the section is 
     blue = [0.15 0.42 0.72];
     plot3(ax, [xF xR xR xF xF], -0.3 * ones(1, 5), [-rb -rb rb rb -rb], '--', 'Color', blue, ...
         'LineWidth', 1.2, 'Tag', 'specimenOutline');
-    if known && xR - xF >= 1, t1 = sprintf('EMPTY %g mm section', round(xR - xF, 3)); else, t1 = 'EMPTY specimen section'; end
-    text(ax, (xF + xR) / 2, 0, -ro - 4, {t1, '(no specimen)'}, 'HorizontalAlignment', 'center', ...
+    if known && xR - xF >= 1
+        t1 = {sprintf('EMPTY %g mm section', round(xR - xF, 3)), '(no specimen)'};
+    elseif known
+        t1 = {'thin specimen removed', '(empty tube at the joint)'};
+    else
+        t1 = {'EMPTY specimen section', '(no specimen)'};
+    end
+    text(ax, (xF + xR) / 2, 0, -ro - 4, t1, 'HorizontalAlignment', 'center', ...
         'VerticalAlignment', 'top', 'FontSize', 10, 'FontWeight', 'bold', 'Color', blue, 'Tag', 'emptyLabel');
 end
 % downstream tube: joint flanges and body; extension; end cap

@@ -186,8 +186,9 @@ end
 function [thick, txt] = thickSpecimen(a)
 % thin-element model meaningless for k d > 1 (lab specimen section d = 75 mm)
 thick = false; txt = '';
-if isfield(a, 'boundary') && isfield(a.boundary, 'thickness') && a.boundary.available
-    kd = max(real(a.k)) * a.boundary.thickness;
+m = a.valid.measured;                    % in-band bins only (stepped steps may lie outside)
+if isfield(a, 'boundary') && isfield(a.boundary, 'thickness') && a.boundary.available && any(m)
+    kd = max(real(a.k(m))) * a.boundary.thickness;
     thick = kd > 1;
     txt = sprintf(['Thin-element model not applicable: d = %g mm (k d up to %.1f). ' ...
         'Use R / tau (anechoic termination) or the transfer matrix.'], round(1e3 * a.boundary.thickness, 3), kd);
