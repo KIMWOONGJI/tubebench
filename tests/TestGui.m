@@ -50,7 +50,13 @@ classdef TestGui < matlab.unittest.TestCase
             g = c.geometry; g.xFront = 0; g.xRear = 0.075;
             g.micPositions = [-0.070 -0.041 0.116 0.145];
             td = c.tubeDrawing;
-            tim.gui.drawTube3D(ax, g, td, [2 1 3 4]);
+            M = tim.gui.drawTube3D(ax, g, td, [2 1 3 4]);
+            tc.verifyClass(M.micGroup(1), 'matlab.graphics.primitive.Transform');
+            tc.verifyEqual(M.micGroup(1).Matrix, eye(4));
+            tc.verifyEqual(M.portX, [-70 -41 116 145], 'AbsTol', 1e-9);
+            tc.verifyEqual(M.micX0, [-41 -70 116 145], 'AbsTol', 1e-9, 'micX0(c) = port of channel c');
+            tc.verifyNotEmpty(findobj(M.micGroup(2), 'Tag', 'mic1'), 'channel 2 (port M1) is in its own group');
+            tc.verifyEmpty(findobj(ax, 'Tag', 'portGlow'), 'no glow in the Tube setup');
             term = findobj(ax, 'Tag', 'termination');
             tc.verifyEqual(unique(term.XData(:)), 145 + 1e3 * td.downstreamLength - 0.05, 'AbsTol', 1e-9);
             spec = findobj(ax, 'Tag', 'specimen');
@@ -102,6 +108,53 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyGreaterThan(tick.UserData, 3, 'timers run while the dialog waits');
         end
 
+        function tube3DCalibrationMode(tc)
+            % calibration diagram = Tube setup model with the EMPTY section,
+            % absorber, glowing calibration ports, movable microphone groups
+            fig = figure('Visible', 'off'); tc.addTeardown(@() close(fig));
+            ax = axes(fig);
+            c = tim.app.defaultConfig(); g = c.geometry; g.xFront = 0; g.xRear = 0.075;
+            g.micPositions = [-0.070 -0.041 0.116 0.145]; td = c.tubeDrawing;      % absorberLength NaN
+            lbl = {{'ch1 (ref)', 's/n 111'}, {'ch2'}, {'ch3'}, {'ch4'}};
+            M = tim.gui.drawTube3D(ax, g, td, [1 2 3 4], struct('mode', 'calibration', ...
+                'highlightPorts', [1 2], 'micLabels', {lbl}));
+            tc.verifyEmpty(findobj(ax, 'Tag', 'specimen'), 'no specimen during the calibration');
+            sec = findobj(ax, 'Tag', 'specimenSection');
+            xs = cell2mat(cellfun(@(X) X(:), get(sec, 'XData'), 'UniformOutput', false));
+            tc.verifyEqual([min(xs) max(xs)], [0 75], 'AbsTol', 1e-9, 'empty 75 mm section mounted');
+            tc.verifyTrue(any(strcmp(labels(ax), 'EMPTY 75 mm section (no specimen)')));
+            tc.verifyNotEmpty(findobj(ax, 'Tag', 'absorber'), 'schematic absorber in calibration mode');
+            glow = findobj(ax, 'Tag', 'portGlow'); tc.verifyEqual(numel(glow), 4);
+            xg = cellfun(@(X) mean(X(:)), get(glow, 'XData'));
+            tc.verifyEqual(unique(round(xg)).', [-70 -41]);
+            L = labels(ax);
+            tc.verifyTrue(any(strcmp(L, 'ch1 (ref) s/n 111')));
+            tc.verifyTrue(any(strcmp(L, 'M1 (a)'))); tc.verifyTrue(any(strcmp(L, 'M2 (b)')));
+            tc.verifyEqual(M.micLabel(1).Parent, M.micGroup(1));
+            tc.verifyEmpty(findobj(ax, 'Tag', 'dim_s1'), 'no dimension lines');
+            n0 = numel(findobj(ax));
+            M.micGroup(1).Matrix = makehgtform('translate', [M.portX(3) - M.micX0(1), 0, M.lift(1)]);
+            tc.verifyEqual(numel(findobj(ax)), n0, 'moving = transform only');
+            tc.verifyGreaterThan(ax.ZLim(2), M.zHandle + M.lift(end));
+        end
+
+        function calibrationDiagramDrawnOnDemand(tc)
+            c = tim.app.defaultConfig();
+            c.geometry.xFront = 0; c.geometry.xRear = 0.075;
+            c.geometry.micPositions = [-0.070 -0.041 0.116 0.145];
+            file = fullfile(tc.tmp, 'lab.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            ax = app.H.axCalSetup;
+            tc.verifyEmpty(ax.Children, 'not drawn at start-up');
+            tc.verifySubstring(strjoin(cellstr(app.H.calText.Text), ' '), 'Run switching cal.');
+            app.drawCalSetup([], '', '');
+            tc.verifyEqual(app.CalDrawCount, 1);
+            tc.verifyEqual(numel(findobj(ax, 'Type', 'hgtransform')), 4);
+            tc.verifyEqual(app.H.cal3D.portX, [-70 -41 116 145], 'AbsTol', 1e-9);
+            app.drawCalSetup([], '', '');
+            tc.verifyEqual(app.CalDrawCount, 1, 'no redraw when nothing changed');
+        end
+
         function appSimulationWorkflow(tc)
             % hidden app window: connect (checklist + cards), switching
             % calibration (step list), measurement (waveforms in Pa)
@@ -130,6 +183,17 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(numel(app.CalList.States), 1 + 3 * 2 + 1 + 1);
             tc.verifyTrue(all(strcmp(app.CalList.States, 'ok')), strjoin(app.CalList.States, ' '));
             tc.verifySubstring(app.CalList.Details(end - 1).Text, 'passed', 'Test E verdict on the done row');
+            hc = app.H; M = hc.cal3D; ax = hc.axCalSetup;
+            tc.verifyEqual(app.CalDrawCount, 1, '3D model drawn once per calibration; steps move transforms');
+            tc.verifyEmpty(findobj(ax, 'Tag', 'specimen'));
+            tc.verifyEqual(numel(findobj(ax, 'Tag', 'portGlow')), 2 * numel(c.calibration.positions));
+            tc.verifyEqual(app.CalDrawn, [1 2 3 4], 'microphones returned to M1-M4');
+            for ch = 1:4
+                T = M.micGroup(ch).Matrix;
+                tc.verifyEqual(M.micX0(ch) + T(1, 4), M.portX(ch), 'AbsTol', 1e-9);
+                tc.verifyEqual(T(2:3, 4), [0; 0], 'AbsTol', 1e-9, 'lowered back into the port');
+            end
+            tc.verifyEqual(M.glow(1).FaceAlpha, 0.35, 'AbsTol', 1e-12, 'glow at rest');
             tc.verifySubstring(h.calLabel.Text, 'CAL-');
             feval(h.start.ButtonPushedFcn, h.start, []);
             tc.verifyNotEmpty(app.LastRes);

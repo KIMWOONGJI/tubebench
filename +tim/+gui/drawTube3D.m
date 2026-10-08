@@ -1,13 +1,13 @@
-function drawTube3D(ax, geom, drawing, mapping, opts)
+function out = drawTube3D(ax, geom, drawing, mapping, opts)
 %DRAWTUBE3D Dimension-driven 3D model of the impedance tube.
 %
-%   tim.gui.drawTube3D(ax, geom, drawing)
-%   tim.gui.drawTube3D(ax, geom, drawing, mapping, opts)
+%   M = tim.gui.drawTube3D(ax, geom, drawing)
+%   M = tim.gui.drawTube3D(ax, geom, drawing, mapping, opts)
 %   tim.gui.drawTube3D(ax, 'view', name)       % only change the view
 %
 %     geom      cfg.geometry (bore diameter, port and specimen positions [m])
 %     drawing   cfg.tubeDrawing (parts of the lab CAD assembly, drawing only)
-%     mapping   mapping(c) = port of DAQ channel c (default 1:4)
+%     mapping   mapping(c) = port of DAQ channel c (default 1:4; 0 = not mounted)
 %     opts.section     true (default): half section - the half towards the
 %                      viewer is removed, cut faces are hatched; the bore,
 %                      the specimen and the microphone tips are visible
@@ -15,6 +15,25 @@ function drawTube3D(ax, geom, drawing, mapping, opts)
 %                      (black) and the overall lengths (grey)
 %     opts.view        'keep' (default: keep the user's rotation), or
 %                      'default' | 'side' | 'perspective' | 'top' | [az el]
+%     opts.mode        'setup' (default) | 'calibration': the specimen section
+%                      is mounted EMPTY (no specimen), absorbing termination,
+%                      fixed port names, channel labels travel with the
+%                      microphones, no dimension lines, room above the tube
+%                      for lifted microphones
+%     opts.highlightPorts  ports with a yellow glow (calibration ports a, b)
+%     opts.micLabels   1x4 cell, label of DAQ channel c (calibration mode)
+%     opts.absorberLength  [m] absorber drawn in calibration mode when
+%                      drawing.absorberLength is not given (schematic, 0.06)
+%
+%   Output M (units: mm, the drawing's data units):
+%     M.micGroup(c)  hgtransform holding the microphone of DAQ channel c
+%                    (body, plug, cable, label); identity Matrix after drawing.
+%                    Move channel c to port p, lifted by dz:
+%                    M.micGroup(c).Matrix = makehgtform('translate', [M.portX(p) - M.micX0(c), 0, dz])
+%     M.micLabel(c), M.micX0(c) (port x it was drawn at), M.portX (M1..M4),
+%     M.glow (glow surfaces, FaceAlpha can be pulsed), M.lift (1x4 travel
+%     heights: the first clears every microphone), M.zHandle (plug top),
+%     M.labelSide(p) (-1 left / +1 right), M.labelGap, M.mapping.
 %
 %   x = tube axis (x = 0 at the specimen FRONT face, increasing towards the
 %   termination), z = up (microphones), y = depth (side view seen from -y).
@@ -23,12 +42,16 @@ function drawTube3D(ax, geom, drawing, mapping, opts)
 %   bolts are drawn whole (not sectioned), as in a technical drawing.
 %   Nothing drawn here is used by the analysis.
 
+out = struct();
 if ischar(geom) && strcmp(geom, 'view')
     setView(ax, drawing); return
 end
 if nargin < 4 || isempty(mapping), mapping = 1:4; end
 if nargin < 5, opts = struct(); end
 opts = fillOpts(opts);
+cal = strcmp(opts.mode, 'calibration');
+if cal, opts.dimensions = false; end         % the lifted microphones travel through that space
+hiP = opts.highlightPorts(:).'; hiP = hiP(hiP >= 1 & hiP <= 4);
 P = tim.gui.palette();
 td = drawing;
 mm = @(v) 1e3 * v;
@@ -73,9 +96,17 @@ S = shell(S, max(xF - tf, xS + tSF), xF, rb, ro, metal, [], 'tube');
 % specimen section (the specimen fills it) and the specimen
 if xR - xF >= 1
     S = shell(S, xF, xR, rb, ro, metal, [], 'specimenSection');
-    S = solid(S, xF, xR, rb - 0.05, porous([0.86 0.70 0.42]), 'specimen');
-else                                              % thin screen between two flanges
+    if ~cal, S = solid(S, xF, xR, rb - 0.05, porous([0.86 0.70 0.42]), 'specimen'); end
+elseif ~cal                                       % thin screen between two flanges
     S = solid(S, xF - 0.4, xF + 0.4, rb, porous([0.86 0.70 0.42]), 'specimen');
+end
+if cal                                            % calibration: the section is mounted EMPTY
+    blue = [0.15 0.42 0.72];
+    plot3(ax, [xF xR xR xF xF], -0.3 * ones(1, 5), [-rb -rb rb rb -rb], '--', 'Color', blue, ...
+        'LineWidth', 1.2, 'Tag', 'specimenOutline');
+    if known && xR - xF >= 1, t1 = sprintf('EMPTY %g mm section', round(xR - xF, 3)); else, t1 = 'EMPTY specimen section'; end
+    text(ax, (xF + xR) / 2, 0, -ro - 4, {t1, '(no specimen)'}, 'HorizontalAlignment', 'center', ...
+        'VerticalAlignment', 'top', 'FontSize', 10, 'FontWeight', 'bold', 'Color', blue, 'Tag', 'emptyLabel');
 end
 % downstream tube: joint flanges and body; extension; end cap
 S = shell(S, xR, xR + tf, rb, ro, metal, [], 'tube');
@@ -84,7 +115,8 @@ S = shell(S, max(xJ - tf, xR + tf), xJ, rb, ro, metal, [], 'tube');
 S = shell(S, xJ, xT, rb, ro, metal, [], 'tube');
 S = solid(S, xT, xT + tc, ro, metal, 'endCap');
 annulus(S, xT - 0.05, 0, rb, [0.55 0.57 0.60], 'termination');   % termination face
-la = mm(td.absorberLength);
+la = mm(td.absorberLength); laGiven = isscalar(la) && isfinite(la) && la > 0;
+if cal && ~laGiven, la = mm(opts.absorberLength); end
 if isscalar(la) && isfinite(la) && la > 0
     S = solid(S, xT - la, xT - 0.1, rb - 0.1, porous([0.55 0.72 0.52]), 'absorber');
 end
@@ -98,18 +130,50 @@ ang = (0:5) * pi / 3;
 bolts(S, xF - tf, -1, rbc, ang); bolts(S, xR + tf, +1, rbc, ang);
 bolts(S, xJ - tf, -1, rbc, ang); bolts(S, xT + tc, +1, rbc, ang);
 housingBolts(S, xS + tSF, (rSF + rH) / 2 - 2.5, (0:3) * pi / 2);
-% microphone holders, microphones (coloured by the DAQ channel in the port), cables
+% microphone holders, microphones (coloured by the DAQ channel in the port), cables;
+% each channel's microphone + label in its own hgtransform (moved without redraw)
+out.micGroup = gobjects(1, 4); out.micLabel = gobjects(1, 4); out.micX0 = nan(1, 4);
+out.portLabel = gobjects(1, 4); out.labelSide = [-1 1 -1 1]; out.labelGap = 6;
 zTop = 0;
 for p = 1:4
     c = find(mapping == p, 1);
-    col = [0.5 0.5 0.5]; lbl = sprintf('M%d', p);
-    if ~isempty(c), col = P.ch(c, :); lbl = {sprintf('M%d', p), sprintf('ch%d', c)}; end
+    col = [0.5 0.5 0.5]; if ~isempty(c), col = P.ch(c, :); end
     S = holder(S, x(p), rb, rB, rHo, hHo, rM, metal);
-    zc = microphone(S, x(p), rM, zTip, lM, col, sprintf('mic%d', p));
+    [zc, hm] = microphone(S, x(p), rM, zTip, lM, col, sprintf('mic%d', p));
     zTop = max(zTop, zc);
-    text(ax, x(p) + 5.5, 0, zTip + lM + 12, lbl, 'Color', col, 'FontWeight', 'bold', 'FontSize', 11, ...
-        'VerticalAlignment', 'middle', 'Tag', sprintf('label%d', p));
+    if cal       % port name fixed below the tube; the channel label moves with the microphone
+        pl = sprintf('M%d', p); k = find(hiP == p, 1);
+        if ~isempty(k), pl = sprintf('M%d (%c)', p, 'a' + k - 1); end
+        out.portLabel(p) = text(ax, x(p), 0, -rB - 3, pl, 'HorizontalAlignment', 'center', ...
+            'VerticalAlignment', 'top', 'FontWeight', 'bold', 'FontSize', 10, 'Tag', sprintf('portLabel%d', p));
+        if isempty(c)
+            lbl = 'plug';
+        elseif numel(opts.micLabels) >= c && ~isempty(opts.micLabels{c})
+            lbl = opts.micLabels{c};
+        else
+            lbl = sprintf('ch%d', c);
+        end
+        s = out.labelSide(p); ha = {'right', 'left'};
+        ht = text(ax, x(p) + s * out.labelGap, 0, zTip + lM + 10, lbl, 'Color', col, 'FontWeight', 'bold', ...
+            'FontSize', 10, 'HorizontalAlignment', ha{(s > 0) + 1}, 'VerticalAlignment', 'middle', 'Tag', 'chLabel');
+    else         % Tube setup
+        lbl = sprintf('M%d', p); if ~isempty(c), lbl = {sprintf('M%d', p), sprintf('ch%d', c)}; end
+        ht = text(ax, x(p) + 5.5, 0, zTip + lM + 12, lbl, 'Color', col, 'FontWeight', 'bold', 'FontSize', 11, ...
+            'VerticalAlignment', 'middle', 'Tag', sprintf('label%d', p));
+    end
+    if ~isempty(c)
+        g = hgtransform('Parent', ax, 'Tag', sprintf('micGroup%d', c));
+        set([hm, ht], 'Parent', g);
+        out.micGroup(c) = g; out.micLabel(c) = ht; out.micX0(c) = x(p);
+    end
 end
+out.glow = gobjects(0);
+for p = hiP
+    out.glow = [out.glow, portGlow(ax, x(p), rHo + 2.5, rB - 2, rB + hHo + 12, rM + 1)];
+end
+out.portX = x; out.mapping = mapping;
+out.zHandle = zTip + lM + 18;                        % plug top
+out.lift = (zTop - zTip + 4) + 22 * (0:3);           % the first lift clears every microphone and cable
 % hatch and outline of the cut faces (one line object each)
 if S.section && ~isempty(S.hatch)
     plot3(ax, S.hatch(:, 1), S.hatch(:, 2), S.hatch(:, 3), '-', 'Color', [0.45 0.47 0.52], 'LineWidth', 0.5);
@@ -121,7 +185,11 @@ end
 
 % ---------------------------------------------------------------- annotation
 text(ax, xH0 + lH / 2, 0, rH + 9, 'loudspeaker (large end)', 'HorizontalAlignment', 'center', 'FontSize', 11);
-if isscalar(la) && isfinite(la) && la > 0
+if cal && laGiven
+    tl = {'absorbing termination', sprintf('absorber %g mm', round(la, 3))};
+elseif cal
+    tl = {'absorbing / anechoic termination', '(absorber schematic)'};
+elseif laGiven
     tl = {'termination', sprintf('absorber %g mm', round(la, 3))};
 else
     tl = {'termination', '(absorber side)'};
@@ -155,7 +223,11 @@ hold(ax, 'off');
 axis(ax, 'equal');
 ax.XLim = [xH0 - 20, xT + tc + 20];
 ax.YLim = [-rH - 5, max(rH, 70) + 5];
-ax.ZLim = [min(-rH, -ro - 42) - 8, zTop + 52];
+if cal
+    ax.ZLim = [-rH - 8, zTop + out.lift(end) + 8];
+else
+    ax.ZLim = [min(-rH, -ro - 42) - 8, zTop + 52];
+end
 ax.Visible = 'off'; ax.Projection = 'orthographic';
 delete(findobj(ax, 'Type', 'light'));
 light('Parent', ax, 'Position', [-0.35 -1 0.9], 'Style', 'infinite', 'Color', [1 1 1]);
@@ -172,7 +244,8 @@ end
 
 % ====================================================================== parts
 function o = fillOpts(o)
-d = struct('section', true, 'dimensions', true, 'view', 'keep');
+d = struct('section', true, 'dimensions', true, 'view', 'keep', 'mode', 'setup', ...
+    'highlightPorts', [], 'micLabels', {{}}, 'absorberLength', 0.06);
 for f = fieldnames(d).'
     if ~isfield(o, f{1}), o.(f{1}) = d.(f{1}); end
 end
@@ -313,34 +386,47 @@ for c0 = (ceil((a - z1) / sp) * sp):sp:(b - z0)
 end
 end
 
-function zTop = microphone(S, xc, r, z0, len, col, tag)
+function [zTop, h] = microphone(S, xc, r, z0, len, col, tag)
 % B&K 4957 (whole, not sectioned): grille, body, channel colour band,
-% SMB plug and cable bent away from the viewer
+% SMB plug and cable bent away from the viewer; h = all graphics objects
 ax = S.ax;
-vcyl(ax, xc, r * 0.97, z0, z0 + 1.5, [0.35 0.36 0.38], tag);              % protection grid
-vcyl(ax, xc, r, z0 + 1.5, z0 + len - 9, [0.82 0.83 0.85], tag);           % body
-vcyl(ax, xc, r + 0.15, z0 + len - 9, z0 + len - 2, col, tag);             % channel colour
-vcyl(ax, xc, r, z0 + len - 2, z0 + len, [0.82 0.83 0.85], tag);
+h = vcyl(ax, xc, r * 0.97, z0, z0 + 1.5, [0.35 0.36 0.38], tag);              % protection grid
+h = [h, vcyl(ax, xc, r, z0 + 1.5, z0 + len - 9, [0.82 0.83 0.85], tag)];      % body
+h = [h, vcyl(ax, xc, r + 0.15, z0 + len - 9, z0 + len - 2, col, tag)];        % channel colour
+h = [h, vcyl(ax, xc, r, z0 + len - 2, z0 + len, [0.82 0.83 0.85], tag)];
 zp = z0 + len;
-vcyl(ax, xc, 3.45, zp, zp + 18, [0.12 0.12 0.13], [tag '_cable']);        % SMB plug
-vcyl(ax, xc, 3.6, zp + 3, zp + 7, col, [tag '_cable']);
+h = [h, vcyl(ax, xc, 3.45, zp, zp + 18, [0.12 0.12 0.13], [tag '_cable'])];   % SMB plug
+h = [h, vcyl(ax, xc, 3.6, zp + 3, zp + 7, col, [tag '_cable'])];
 Rb = 16; th = linspace(pi, pi / 2, 16).';
 path = [xc * ones(2, 1), [0; 0], [zp + 18; zp + 19]];
 path = [path; xc * ones(size(th)), Rb + Rb * cos(th), zp + 19 + Rb * sin(th)];
 path = [path; xc, Rb + 45, zp + 19 + Rb];
-tubeAlong(ax, path, 1.4, [0.1 0.1 0.1], [tag '_cable']);
+h = [h, tubeAlong(ax, path, 1.4, [0.1 0.1 0.1], [tag '_cable'])];
 zTop = zp + 19 + Rb + 1.4;
 end
 
-function vcyl(ax, xc, r, z0, z1, col, tag)
+function h = vcyl(ax, xc, r, z0, z1, col, tag)
 t = linspace(0, 2 * pi, 41);
 X = xc + [r; r] * cos(t); Y = [r; r] * sin(t); Z = [z0; z1] * ones(size(t));
-surf(ax, X, Y, Z, 'FaceColor', col, 'EdgeColor', 'none', 'FaceLighting', 'gouraud', ...
+hs = surf(ax, X, Y, Z, 'FaceColor', col, 'EdgeColor', 'none', 'FaceLighting', 'gouraud', ...
     'AmbientStrength', 0.45, 'SpecularStrength', 0.5, 'SpecularExponent', 20, 'Tag', tag);
-patch(ax, xc + r * cos(t), r * sin(t), z1 * ones(size(t)), col, 'EdgeColor', 'none', 'Tag', tag);
+hp = patch(ax, xc + r * cos(t), r * sin(t), z1 * ones(size(t)), col, 'EdgeColor', 'none', 'Tag', tag);
+h = [hs, hp];
 end
 
-function tubeAlong(ax, Pth, r, col, tag)
+function h = portGlow(ax, xc, r, z0, z1, rIn)
+% translucent yellow cylinder + ring around a calibration port (whole, also
+% in the section view); TubeApp pulses FaceAlpha while the operator works
+yel = [1 0.85 0.25]; t = linspace(0, 2 * pi, 49);
+X = xc + [r; r] * cos(t); Y = [r; r] * sin(t); Z = [z0; z1] * ones(size(t));
+h = surf(ax, X, Y, Z, 'FaceColor', yel, 'EdgeColor', 'none', 'FaceAlpha', 0.35, ...
+    'FaceLighting', 'none', 'PickableParts', 'none', 'Tag', 'portGlow');
+Xa = xc + [rIn; r] * cos(t); Ya = [rIn; r] * sin(t);
+h(2) = surf(ax, Xa, Ya, z1 * ones(size(Xa)), 'FaceColor', yel, 'EdgeColor', 'none', 'FaceAlpha', 0.35, ...
+    'FaceLighting', 'none', 'PickableParts', 'none', 'Tag', 'portGlow');
+end
+
+function h = tubeAlong(ax, Pth, r, col, tag)
 n = size(Pth, 1); a = linspace(0, 2 * pi, 17);
 X = zeros(n, numel(a)); Y = X; Z = X;
 for i = 1:n
@@ -351,7 +437,7 @@ for i = 1:n
         X(i, j) = q(1); Y(i, j) = q(2); Z(i, j) = q(3);
     end
 end
-surf(ax, X, Y, Z, 'FaceColor', col, 'EdgeColor', 'none', 'FaceLighting', 'gouraud', ...
+h = surf(ax, X, Y, Z, 'FaceColor', col, 'EdgeColor', 'none', 'FaceLighting', 'gouraud', ...
     'SpecularStrength', 0.4, 'Tag', tag);
 end
 

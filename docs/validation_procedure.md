@@ -42,14 +42,20 @@ incident wave of ≈0.4 Pa (≈ 86 dB SPL), i.e. > 40 dB SNR per 2 Hz band.
   measured distance L from `xFront`. Theory: `R = exp(−2jkL)·R_wall` with `|R_wall|` ≈ 1. The
   residual deficit is caused by tube attenuation (partly modelled) and by the plug's own losses
   and leaks.
-* **E, empty tube**: remove the sample, keep the sample holder. With the configured faces the
-  "sample" is an air gap of length d = xRear − xFront. Theory, independent of the termination:
-  `τ = exp(−jkd)` (free propagation of the forward wave) and `R = R_term·exp(−2jkd)` (field
-  continuity across the gap). `R = 0` only for an anechoic termination, and `Zt → 0` only as
-  `d → 0`. The second relation tests the consistency of the upstream and downstream
-  decompositions. Large deviations indicate wrong positions or spacing, an uncorrected channel
-  phase, or leaks. (An earlier draft of this procedure wrongly stated `R = 0`; the simulation test
-  `testEempty` exposed the error.)
+* **E, empty tube**: mount the EMPTY specimen section (lab tube: the original 75 mm part,
+  without specimen), so the tube is continuous. With the configured faces the "sample" is an air
+  column of length d = xRear − xFront = 75 mm. Theory, independent of the termination:
+  `τ = exp(−jk_c d)` (free propagation of the forward wave, lossy wavenumber) and
+  `R = R_term·exp(−2jk_c d)` (field continuity across the section). `R = 0` only for an anechoic
+  termination. For d = 75 mm: |τ| = 0.998 / 0.995 / 0.990 and phase −9.4° / −78.7° / −353.9° at
+  120 Hz / 1 kHz / 4.5 kHz, TL_τ ≈ 0.01–0.09 dB. The thin-element Zt is NOT a criterion here: for
+  75 mm the thin model gives `Zt/ρc = 2j·tan(kd/2)` (pole at 2.29 kHz) and the velocity-mismatch
+  mask rejects it. Because A2 = A1 and B2 = B1 in a continuous tube, both relations depend only on
+  the microphone coordinates (s1, s2, x3 − x2 = L1 + d + L2) and the calibration - about 1° per mm
+  at 1 kHz - not on how L1 / d / L2 are split. Large deviations indicate wrong positions or
+  spacing, a section taken out, an uncorrected channel phase, or leaks. **`runCalibration` performs
+  this test automatically** after the switching steps (`cal.meta.emptyCheck`). (An earlier draft
+  of this procedure wrongly stated `R = 0`; the simulation test `testEempty` exposed the error.)
 
 ## Recording "experimentally validated" bands
 

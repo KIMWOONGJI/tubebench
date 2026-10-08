@@ -61,14 +61,19 @@ calibrated range.
 * Ports a, b: `cfg.calibration.positions` (default [1 2], the upstream pair M1/M2). All three
   channel pairs are calibrated in the same two ports, so position-dependent mounting effects are
   identical for all channels.
-* **Remove the test specimen.** Terminate the tube anechoically, or put a highly absorbing
-  material (e.g. 50–100 mm of porous foam) at the end or in the empty sample holder. This keeps
-  the standing-wave ratio low, so no pressure minimum falls on a calibration port. Minima give
-  low-SNR, invalid bins. Mathematically the method holds with any field that is identical in
-  configurations I and II, so a reflecting set-up (or a specimen in place) still works, but bins
-  near the standing-wave nodes become invalid. The specimen is also removed so that it cannot be
-  disturbed between the configurations. The GUI and `runCalibration` show this checklist as the
-  first step.
+* **Mount the EMPTY specimen section** (lab tube: the original 75 mm middle part SIT-PT-003,
+  without specimen) in place of the specimen section. **Do not take the section out and join the
+  tubes**: M3/M4 would move 75 mm and the configured geometry would be wrong. With the empty
+  section the tube is continuous and the geometry (s1 29, L1 41, d 75, L2 41, s2 29 mm;
+  M2→M3 = L1 + d + L2 = 157 mm) is identical for the calibration, the empty-tube check and the
+  measurement.
+* Terminate the tube anechoically, or use the highly absorbing material at the small end
+  (e.g. 50–100 mm of porous foam). This keeps the standing-wave ratio low, so no pressure minimum
+  falls on a calibration port. Minima give low-SNR, invalid bins. Mathematically the method holds
+  with any field that is identical in configurations I and II, so a reflecting set-up (or a
+  specimen in place) still works, but bins near the standing-wave nodes become invalid. The
+  specimen is also out of the tube so that it cannot be disturbed between the configurations.
+  The GUI and `runCalibration` show this checklist as the first step.
 * Sealing: every port must be sealed. An unused port must hold its microphone (the other two
   microphones go to the remaining ports) or a dummy plug. Leaks change `p_b/p_a` between the
   configurations and violate the method.
@@ -81,23 +86,26 @@ calibrated range.
 
 ### In the GUI
 
-Press **"Run switching cal."**. The **Calibration** tab then shows, for every step, a diagram of
-the tube with the loudspeaker, ports M1–M4 and the sample position. The two calibration ports are
-highlighted in yellow, and coloured circles give the DAQ channel and TEDS serial of the microphone
-that must sit in each port. At every step the circles **move** from their previous ports to the
-new ones (up, across, down; dashed arrows keep the paths visible), and while the dialog waits for
-you the two calibration ports **pulse**. A dialog shows the step number ("Calibration step 4 of
-8") and the instruction. Press "Done - measure" once the microphones are in place, or "Abort".
-Closing the window also aborts (the dialog never blocks MATLAB).
+Press **"Run switching cal."**. The **Calibration** tab shows the same 3D model as the **Tube
+setup** tab, in its calibration state: the specimen section mounted **empty** (dashed outline,
+"EMPTY 75 mm section"), the absorbing termination, and the two calibration ports a and b with a
+**yellow glow**. Every microphone carries the colour and label of its DAQ channel (with "(ref)"
+and the TEDS serial). At every step the microphones that must change port are **lifted out of
+their holders, moved and lowered** into their new ports (dashed arrows keep the paths visible),
+and while the dialog waits for you the calibration ports **pulse**. The text above the model
+gives the step number ("Calibration step 4 of 9") and the instruction; a dialog asks for
+"Done - measure" or "Abort". Closing the window also aborts (the dialog never blocks MATLAB).
+The model can be rotated / zoomed with its toolbar.
 
-Next to the diagram, the **step list** shows every operator step with its state (turning icon =
+Below the model, the **step list** shows every operator step with its state (turning icon =
 running) and, after each measurement, its quality: share of the frequency bins that meet the
 coherence and SNR criteria (`calibration.coherenceMin`, `snrMin_dB`), median coherence and median
 SNR. Green ≥ 90 % of the bins, orange 50–90 %, red below 50 % or failed data integrity. After the
 config II measurement of a channel the list adds the number of valid bins of `C_k` and, with the
-repeated config I, the re-mount repeatability. After the last step the curves `|C_k|` and `∠C_k`
-are plotted in the same tab. The **Equations** tab lists the calibration equations together
-with all other equations used.
+repeated config I, the re-mount repeatability. The "return the microphones" row shows the result
+of the **empty-tube check** (Test E, below), and the last row asks to mount the specimen section
+again. The curves `|C_k|` and `∠C_k` are plotted next to the list. The **Equations** tab lists
+the calibration equations together with all other equations used.
 
 While the calibration (or any measurement) runs, the GUI is **locked**: every input and button
 is disabled except the STOP button, which reads **"ABORT calibration"**. Pressing it switches the
@@ -115,10 +123,25 @@ For every k ≠ ref (default k = 2, 3, 4) the program prompts:
    (`results{k}.repeatability`, max dB / deg).
 3. **CONFIG II**: interchange the two microphones (cables stay connected) → measurement.
 
-When it finishes, the program asks you to return all microphones to their measurement ports. The
-calibration is saved as `calibration/CAL-yyyyMMdd-HHmmss.mat` (never overwritten). The file holds
-`cal` (f, C, valid, refChannel, version, results, meta) and **all raw calibration
-measurements** (`raw`). Plot it with `tim.app.plotCalibration(cal)`.
+4. **Return the microphones** to their measurement ports; the **empty section stays mounted**.
+   With `calibration.verifyEmptySection = true` (default) one sweep is measured and evaluated as
+   **Test E** with the new calibration: for the empty section `tau = exp(-j k_c d)` (lossy
+   wavenumber, d = xRear − xFront = 75 mm) and `R = R_term exp(-2j k_c d)`. It checks the port
+   coordinates (s1, s2 and M2→M3 = L1 + d + L2) and the calibration to about 1° per mm at 1 kHz;
+   it cannot check how the 157 mm split into L1 / d / L2. If the section had been taken out, the
+   tau phase error is about 79° at 1 kHz and the check fails. The result is stored in
+   `cal.meta.emptyCheck` (and shown in the GUI); a failed check only warns - `C_k` is still valid.
+5. **Replace the empty section by the specimen section** (same orientation, flanges sealed).
+
+The calibration is saved as `calibration/CAL-yyyyMMdd-HHmmss.mat` (never overwritten). The file
+holds `cal` (f, C, valid, refChannel, version, results, meta) and **all raw calibration
+measurements** (`raw`, including the empty-tube sweep). `cal.meta.tube` records the set-up
+(specimen section 'empty', its length, the geometry and the environment). `processMeasurement`
+compares it with every measurement (`res.calibration.context`): port distances, temperature
+(> 3 K → re-calibrate), simulation vs hardware and the Test E result; differences are logged as
+warnings, nothing is invalidated. Plot the calibration with `tim.app.plotCalibration(cal)`.
+In simulation mode the virtual rig models the empty section (sample type 'air') during the
+calibration and gets its specimen back afterwards (also after STOP).
 
 ### Acceptance criteria (suggested; enter your own in the lab book)
 

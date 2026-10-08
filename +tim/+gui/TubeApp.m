@@ -26,7 +26,10 @@ classdef TubeApp < handle
         ConnList = []           % tim.gui.Checklist of the connection steps
         CalList = []            % tim.gui.Checklist of the calibration steps
         CalKeys cell = {}       % checklist key of every calibration operator step
-        CalMap = []             % microphone mapping currently shown in the calibration diagram
+        CalMap = []             % microphone mapping of the current calibration step
+        CalDrawn = []           % mapping the 3D calibration model currently shows
+        CalDirty logical = true % geometry / config / TEDS changed: redraw the calibration model
+        CalDrawCount double = 0 % number of 3D calibration draws (diagnostics / tests)
         PulseTimer = []         % highlights the calibration ports while the operator works
     end
 
@@ -101,78 +104,20 @@ classdef TubeApp < handle
         end
 
         function drawCalSetup(app, mapping, msg, stepText, fromMapping)
-            % Schematic of the tube: loudspeaker, ports M1..M4, sample holder,
-            % and which DAQ channel's microphone sits in which port
-            % (mapping(c) = port of channel c). With fromMapping the
-            % microphones are drawn where they were before this step; the move
-            % to mapping is then animated by animateCalMics.
+            % Calibration diagram = the 3D model of the Tube setup tab in its
+            % calibration state (EMPTY specimen section, absorbing termination,
+            % calibration ports a/b glowing, microphones labelled with DAQ
+            % channel + s/n; mapping(c) = port of channel c). The model is drawn
+            % once (~1 s); the steps only change the text and move the
+            % microphones (animateCalMics). With fromMapping the microphones are
+            % shown where they were before this step.
             if nargin < 5 || isempty(fromMapping), fromMapping = mapping; end
-            ax = app.H.axCalSetup; cla(ax); hold(ax, 'on');
-            axis(ax, [0 10.4 0.2 5.6]); axis(ax, 'off'); ax.DataAspectRatioMode = 'auto';
-            px = app.calPortX();                                      % schematic port positions
-            calPorts = app.Cfg.calibration.positions;
-            rectangle(ax, 'Position', [1.0 1.5 8.6 1.0], 'FaceColor', [0.93 0.93 0.93], 'EdgeColor', [0.4 0.4 0.4]);
-            patch(ax, [0.3 0.75 1.0 1.0 0.75 0.3], [1.2 1.6 1.6 2.4 2.4 2.8], [0.55 0.55 0.55], 'EdgeColor', 'none');
-            text(ax, 0.6, 0.85, 'loud-speaker', 'HorizontalAlignment', 'center', 'FontSize', 9);
-            if isempty(mapping)
-                rectangle(ax, 'Position', [5.05 1.5 0.3 1.0], 'FaceColor', [0.85 0.75 0.55], 'EdgeColor', 'none');
-                text(ax, 5.2, 1.15, 'test specimen', 'HorizontalAlignment', 'center', 'FontSize', 9);
-                plot(ax, [9.6 9.6], [1.5 2.5], 'k-', 'LineWidth', 3);
-                text(ax, 9.95, 2.0, 'termination', 'Rotation', 90, 'HorizontalAlignment', 'center', 'FontSize', 11);
-            else
-                % calibration: specimen removed, anechoic / absorbing termination
-                rectangle(ax, 'Position', [5.05 1.5 0.3 1.0], 'FaceColor', 'none', 'EdgeColor', [0.8 0.2 0.2], ...
-                    'LineStyle', '--', 'LineWidth', 1.2);
-                plot(ax, [5.05 5.35], [1.5 2.5], '-', 'Color', [0.8 0.2 0.2]);
-                plot(ax, [5.05 5.35], [2.5 1.5], '-', 'Color', [0.8 0.2 0.2]);
-                text(ax, 5.2, 1.15, 'test specimen REMOVED', 'HorizontalAlignment', 'center', 'FontSize', 9, ...
-                    'FontWeight', 'bold', 'Color', [0.8 0.2 0.2]);
-                patch(ax, [9.0 9.6 9.6 9.0], [1.5 1.5 2.5 2.5], [0.6 0.75 0.6], 'EdgeColor', 'none', 'FaceAlpha', 0.7);
-                plot(ax, [9.6 9.6], [1.5 2.5], 'k-', 'LineWidth', 3);
-                text(ax, 9.95, 2.0, 'anechoic / absorbing', 'Rotation', 90, 'HorizontalAlignment', 'center', 'FontSize', 11);
+            shown = fromMapping; if isempty(shown), shown = app.homeMapping(); end
+            M = app.H.cal3D;
+            if app.CalDirty || isempty(M) || ~all(isgraphics(M.micGroup(shown > 0))) || ~isequal(app.CalDrawn, shown)
+                app.drawCalModel(shown);
             end
-            P = tim.gui.palette(); col = P.ch;
-            hi = gobjects(0);
-            for p = 1:4
-                if ismember(p, calPorts) && ~isempty(mapping)
-                    % calibration ports a, b (pulsing while the operator moves microphones)
-                    hi(end + 1) = patch(ax, px(p) + [-0.36 0.36 0.36 -0.36], [2.5 2.5 4.85 4.85], [1 0.85 0.25], ...
-                        'EdgeColor', 'none', 'FaceAlpha', 0.35); %#ok<AGROW>
-                end
-                rectangle(ax, 'Position', [px(p) - 0.08 2.5 0.16 0.35], 'FaceColor', [0.3 0.3 0.3], 'EdgeColor', 'none');
-                text(ax, px(p), 1.95, sprintf('M%d', p), 'HorizontalAlignment', 'center', 'FontWeight', 'bold');
-            end
-            app.H.calHi = hi;
-            % microphones (one marker + number + label per DAQ channel)
-            mic = gobjects(1, 4); num = gobjects(1, 4); lab = gobjects(1, 4);
-            for c = 1:numel(fromMapping)
-                p = fromMapping(c);
-                if p < 1, continue; end
-                lbl = sprintf('ch%d', c);
-                try
-                    t = app.Session.Daq.Teds{c};
-                    if ~isempty(t), lbl = sprintf('ch%d\n%d', c, t.serialNumber); end
-                catch
-                end
-                if c == app.Cfg.analysis.refChannel, lbl = [lbl sprintf('\n(ref)')]; end %#ok<AGROW>
-                mic(c) = plot(ax, px(p), 3.15, 'o', 'MarkerSize', 22, 'MarkerFaceColor', col(c, :), 'MarkerEdgeColor', 'k');
-                num(c) = text(ax, px(p), 3.15, sprintf('%d', c), 'Color', 'w', 'FontWeight', 'bold', 'HorizontalAlignment', 'center');
-                lab(c) = text(ax, px(p), 3.95, lbl, 'HorizontalAlignment', 'center', 'FontSize', 9);
-            end
-            app.H.calMic = mic; app.H.calMicNum = num; app.H.calMicLbl = lab;
-            if isempty(mapping)
-                title(ax, {'Switching calibration: press "Run switching cal." - every step shows here which microphone goes into which port', ...
-                    'Each microphone stays on its own cable and LAN-XI input; only the microphone bodies are moved.'}, 'FontSize', 10);
-            else
-                words = strsplit(msg, ' '); wrapped = {''};
-                for w = words           % wrap long instructions (~150 characters per line)
-                    if strlength(wrapped{end}) + strlength(w{1}) > 150, wrapped{end+1} = ''; end %#ok<AGROW>
-                    wrapped{end} = strtrim([wrapped{end} ' ' w{1}]);
-                end
-                title(ax, [{stepText}, wrapped, {'yellow = calibration ports a, b;  circles = DAQ channel of the microphone in that port'}], ...
-                    'FontSize', 10, 'Interpreter', 'none');
-            end
-            hold(ax, 'off');
+            app.setCalText(mapping, msg, stepText);
         end
 
         function showCal(app, cal)
@@ -431,12 +376,17 @@ classdef TubeApp < handle
             for i = 1:numel(names)
                 t = uitab(tabs, 'Title', names{i});
                 if strcmp(keys{i}, 'axCal')
-                    % calibration tab: set-up diagram (which mic in which port, animated
-                    % moves) + list of the operator steps with their quality + curves
-                    tg = uigridlayout(t, [2 1], 'RowHeight', {320, '1x'}, 'RowSpacing', 4);
-                    top = uigridlayout(tg, [1 2], 'ColumnWidth', {'1x', 720}, 'Padding', [0 0 0 0]);
-                    h.axCalSetup = uiaxes(top);
-                    pcal = uipanel(top, 'Title', 'Calibration steps (quality of every measurement)', 'FontWeight', 'bold');
+                    % calibration tab: step instruction, 3D set-up (the Tube setup model
+                    % in its calibration state, animated microphone moves), list of the
+                    % operator steps with their quality, C_k curves
+                    tg = uigridlayout(t, [3 2], 'RowHeight', {58, '3x', '2x'}, 'ColumnWidth', {700, '1x'}, ...
+                        'RowSpacing', 4, 'ColumnSpacing', 6);
+                    h.calText = uilabel(tg, 'Text', '', 'WordWrap', 'on', 'FontSize', 12, 'VerticalAlignment', 'top');
+                    h.calText.Layout.Row = 1; h.calText.Layout.Column = [1 2];
+                    h.axCalSetup = uiaxes(tg); h.axCalSetup.Layout.Row = 2; h.axCalSetup.Layout.Column = [1 2];
+                    axtoolbar(h.axCalSetup, {'rotate', 'zoomin', 'zoomout', 'pan', 'restoreview'});
+                    pcal = uipanel(tg, 'Title', 'Calibration steps (quality of every measurement)', 'FontWeight', 'bold');
+                    pcal.Layout.Row = 3; pcal.Layout.Column = 1;
                     app.CalList = tim.gui.Checklist(pcal, {}, {}, ...
                         struct('LabelWidth', 245, 'RowHeight', 21, 'FontSize', 11));
                     h.calTab = t;
@@ -444,12 +394,15 @@ classdef TubeApp < handle
                     tg = uigridlayout(t, [1 1]);
                 end
                 h.(keys{i}) = uiaxes(tg);
+                if strcmp(keys{i}, 'axCal'), h.axCal.Layout.Row = 3; h.axCal.Layout.Column = 2; end
             end
             h.tabs = tabs;
+            tabs.SelectionChangedFcn = @(~, ev) app.onTabChanged(ev);
             t = uitab(tabs, 'Title', 'Equations');
             tim.gui.equationsPanel(t);
+            h.cal3D = []; h.calPaths = gobjects(0); h.calHi = gobjects(0);
             app.H = h;
-            app.drawCalSetup([], '', '');
+            app.setCalText([], '', '');      % the 3D model is drawn when the tab is opened or at the first step
         end
 
         function k = connKeys(~)
@@ -613,6 +566,7 @@ classdef TubeApp < handle
 
         function onTubeChanged(app)
             % live check of the tube entries: limits, consistency, drawing
+            app.CalDirty = true;                 % calibration model follows the geometry
             [geom, env, msgs] = app.readTube();
             try
                 air = tim.acoustics.airProperties(env);
@@ -635,7 +589,7 @@ classdef TubeApp < handle
                         sprintf('Geometric range %.0f - %.0f Hz.', lim.fLower, lim.fUpper)];
                 end
                 app.H.tubeInfo.Text = info;
-                tim.gui.drawTube3D(app.H.axTube3D, geom, app.drawingDims(), [app.Cfg.mics.position], ...
+                tim.gui.drawTube3D(app.H.axTube3D, geom, app.drawingDims(), app.homeMapping(), ...
                     struct('section', app.H.secChk.Value, 'dimensions', app.H.dimChk.Value));
             catch err
                 app.H.fLimits.Text = ['CHECK: ' err.message]; app.H.fLimits.FontColor = [0.75 0 0];
@@ -892,6 +846,7 @@ classdef TubeApp < handle
                 app.H.connHead.FontColor = tim.gui.palette().ok;
             end
             if ~isempty(s.Calibration), app.showCal(s.Calibration); end
+            app.CalDirty = true;                 % calibration labels pick up the TEDS serials
         end
 
         function onProgress(app, key, state, detail)
@@ -1101,13 +1056,14 @@ classdef TubeApp < handle
                 keys{end + 1} = sprintf('ch%d_II', k); %#ok<AGROW>
                 labels{end + 1} = sprintf('ch%d  config II   (interchanged)', k); %#ok<AGROW>
             end
-            doneLbl = 'Return the microphones to M1-M4';
-            if c.calibration.verifyEmptySection, doneLbl = [doneLbl ' + empty-tube check']; end
+            doneLbl = 'Microphones back to M1-M4';
+            if c.calibration.verifyEmptySection, doneLbl = 'Mics back to M1-M4 + empty-tube check'; end
             keys{end + 1} = 'done'; labels{end + 1} = doneLbl;
-            keys{end + 1} = 'mount'; labels{end + 1} = 'Replace the empty section by the specimen section';
+            keys{end + 1} = 'mount'; labels{end + 1} = 'Mount the specimen section again';
             app.CalKeys = keys; app.CalList.rebuild(keys, labels);
             app.CalStep = 0; app.CalSteps = numel(keys);
-            app.CalMap = zeros(1, 4); app.CalMap([c.mics.channel]) = [c.mics.position];
+            app.CalMap = app.homeMapping();
+            app.CalDirty = true;                 % fresh model: current geometry and serials
             try
                 [cal, file] = tim.app.runCalibration(app.Session, struct( ...
                     'prompt', @(msg, mapping) app.calStep(msg, mapping), 'report', @(q) app.calReport(q)));
@@ -1201,45 +1157,107 @@ classdef TubeApp < handle
             end
         end
 
-        function px = calPortX(~)
-            px = [2.4 3.2 7.0 7.8];          % schematic port positions in the calibration diagram
+        function drawCalModel(app, mapping)
+            % 3D model of the tube in its calibration state (Tube setup model)
+            [geom, ~, msgs] = app.readTube();
+            if ~isempty(msgs), geom = app.Cfg.geometry; end
+            M = tim.gui.drawTube3D(app.H.axCalSetup, geom, app.drawingDims(), mapping, ...
+                struct('mode', 'calibration', 'section', true, ...
+                'highlightPorts', app.Cfg.calibration.positions, 'micLabels', {app.calMicLabels()}));
+            app.H.cal3D = M; app.H.calHi = M.glow; app.H.calPaths = gobjects(0);
+            app.CalDrawn = mapping; app.CalDirty = false; app.CalDrawCount = app.CalDrawCount + 1;
+        end
+
+        function setCalText(app, mapping, msg, stepText)
+            ab = app.Cfg.calibration.positions;
+            if isempty(mapping)
+                app.H.calText.Text = {sprintf(['Switching calibration: press "Run switching cal." - every step shows ' ...
+                    'here which microphone goes into which port. Calibration ports M%d (a) and M%d (b) glow yellow.'], ab(1), ab(2)), ...
+                    ['The original specimen section is mounted EMPTY (no specimen) and the tube ends in the absorbing termination. ' ...
+                    'Each microphone stays on its own cable and LAN-XI input; only the microphone bodies are moved.']};
+            else
+                app.H.calText.Text = {sprintf('%s:  %s', stepText, msg), ['yellow glow = calibration ports a, b;  ' ...
+                    'colour / label = DAQ channel of the microphone (it keeps its cable);  dashed = last moves']};
+            end
+        end
+
+        function L = calMicLabels(app)
+            % {'ch1 (ref)', 's/n 1234567'} per DAQ channel
+            m = app.Cfg.mics;
+            if ~isempty(app.Session) && ~isempty(app.Session.Mics), m = app.Session.Mics; end
+            L = cell(1, 4);
+            for c = 1:4
+                l = {sprintf('ch%d', c)};
+                if c == app.Cfg.analysis.refChannel, l{1} = [l{1} ' (ref)']; end
+                i = find([m.channel] == c, 1);
+                if ~isempty(i)
+                    if isfield(m, 'tedsSerial') && isfinite(m(i).tedsSerial)
+                        l{end + 1} = sprintf('s/n %d', m(i).tedsSerial); %#ok<AGROW>
+                    elseif ~isempty(m(i).serial)
+                        l{end + 1} = ['s/n ' char(string(m(i).serial))]; %#ok<AGROW>
+                    end
+                end
+                L{c} = l;
+            end
+        end
+
+        function map = homeMapping(app)
+            % mapping(c) = port of DAQ channel c in the measurement set-up
+            map = zeros(1, 4); map([app.Cfg.mics.channel]) = [app.Cfg.mics.position];
+        end
+
+        function sideCalLabel(app, c, p)
+            % channel label left of a microphone in an odd port, right in an even one
+            M = app.H.cal3D; l = M.micLabel(c);
+            if ~isgraphics(l), return; end
+            s = M.labelSide(p); l.Position(1) = M.micX0(c) + s * M.labelGap;
+            if s < 0, l.HorizontalAlignment = 'right'; else, l.HorizontalAlignment = 'left'; end
+        end
+
+        function onTabChanged(app, ev)
+            % the calibration model is drawn the first time the tab is opened
+            if ev.NewValue == app.H.calTab && app.CalDirty && ~app.Busy
+                app.drawCalSetup([], '', '');
+            end
         end
 
         function animateCalMics(app, from, to)
-            % move the microphone markers from their old to their new ports:
-            % up, across, down (different heights so that two paths do not cross)
-            if isempty(from) || isequal(from, to) || ~isfield(app.H, 'calMic'), return; end
-            ax = app.H.axCalSetup; px = app.calPortX(); y0 = 3.15;
-            moving = find(from ~= to & from > 0 & to > 0);
-            moving = moving(isvalid(app.H.calMic(moving)));
-            if isempty(moving), return; end
-            lift = 4.0 + 0.6 * (0:numel(moving) - 1);
-            % time based (a uifigure redraw takes 0.1-0.2 s): fixed duration,
-            % as many frames as the window manages
+            % lift each moving microphone out of its holder above all others,
+            % across, down. Every mover has its own height (+22 mm) and depth
+            % (towards the viewer). Only the hgtransforms change - no redraw.
+            delete(app.H.calPaths(isgraphics(app.H.calPaths))); app.H.calPaths = gobjects(0);
+            M = app.H.cal3D;
+            if isempty(M) || isempty(from) || isequal(from, to), app.CalDrawn = to; return; end
+            if any((from > 0) ~= (to > 0)), app.drawCalModel(to); return; end   % a microphone (dis)appears
+            moving = find(from ~= to & to > 0);
+            moving = moving(isgraphics(M.micGroup(moving)));
+            if isempty(moving), app.CalDrawn = to; return; end
+            % time based (a uifigure frame takes 0.1-0.2 s): fixed duration
             T = 1.2; t0 = tic; last = false;
             while ~last
                 tt = toc(t0); last = tt >= T;
                 s = (1 - cos(pi * min(tt / T, 1))) / 2;           % ease in / out
                 for i = 1:numel(moving)
                     c = moving(i);
-                    [xx, yy] = calPath(s, px(from(c)), px(to(c)), y0, lift(i));
-                    set(app.H.calMic(c), 'XData', xx, 'YData', yy);
-                    app.H.calMicNum(c).Position = [xx yy 0];
-                    app.H.calMicLbl(c).Position = [xx yy + 0.8 0];
+                    [xx, dz] = calPath(s, M.portX(from(c)), M.portX(to(c)), 0, M.lift(i));
+                    dy = -12 * (i - 1) * dz / M.lift(i);
+                    M.micGroup(c).Matrix = makehgtform('translate', [xx - M.micX0(c), dy, dz]);
                 end
                 drawnow limitrate; pause(0.02);
             end
-            drawnow;
-            % keep the paths as dashed arrows (what was moved where)
-            P = tim.gui.palette(); hold(ax, 'on');
+            for c = moving, app.sideCalLabel(c, to(c)); end
+            app.CalDrawn = to;
+            % keep the paths as dashed arrows in front of the cut plane (what was moved where)
+            P = tim.gui.palette(); ax = app.H.axCalSetup; z0 = M.zHandle + 2;
             for i = 1:numel(moving)
-                c = moving(i); xa = px(from(c)); xb = px(to(c));
-                hp = plot(ax, [xa xa xb xb], [y0 + 0.35, lift(i), lift(i), y0 + 0.35], '--', ...
-                    'Color', P.ch(c, :), 'LineWidth', 1.2);
-                ha = patch(ax, xb + [-0.07 0.07 0], y0 + 0.35 + [0.2 0.2 0], P.ch(c, :), 'EdgeColor', 'none');
-                uistack([hp ha], 'bottom');
+                c = moving(i); xa = M.portX(from(c)); xb = M.portX(to(c));
+                zl = M.zHandle + M.lift(i); y = -8 - 12 * (i - 1);
+                hp = line(ax, [xa xa xb xb], y * [1 1 1 1], [z0 zl zl z0], 'LineStyle', '--', ...
+                    'Color', P.ch(c, :), 'LineWidth', 1.2, 'Tag', 'calPath');
+                ha = patch(ax, xb + [-2.5 2.5 0], y * [1 1 1], z0 + [6 6 0], P.ch(c, :), 'EdgeColor', 'none', 'Tag', 'calPath');
+                app.H.calPaths = [app.H.calPaths, hp, ha];
             end
-            hold(ax, 'off');
+            drawnow;
         end
 
         function startPulse(app)
@@ -1254,7 +1272,7 @@ classdef TubeApp < handle
             try
                 hi = app.H.calHi(isvalid(app.H.calHi));
                 if isempty(hi), return; end
-                if hi(1).FaceAlpha > 0.5, a = 0.2; else, a = 0.9; end
+                if hi(1).FaceAlpha > 0.4, a = 0.12; else, a = 0.65; end
                 set(hi, 'FaceAlpha', a);
                 drawnow limitrate
             catch
