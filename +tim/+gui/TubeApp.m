@@ -1269,6 +1269,7 @@ classdef TubeApp < handle
                 app.LastRes = tim.app.processMeasurement(app.LastMeas, app.Cfg, cal);
                 app.log('%s', app.LastRes.summary);
                 app.plotRes();
+                if strcmp(app.LastMeas.kind, 'stepped'), app.plotSpectrum(app.LastMeas, app.LastRes); end
             end
         end
 
@@ -1310,16 +1311,84 @@ classdef TubeApp < handle
             app.H.axW(1).XLim = [0 t(end)];
             xlabel(app.H.axW(4), sprintf(['Time [s]   -   %s, %s.  p = voltage / sensitivity; raw data stored in V; ' ...
                 'display high-passed at 20 Hz'], m.kind, m.timestamp));
+            app.plotSpectrum(m);
+        end
+
+        function plotSpectrum(app, m, res)
+            % Spectrum tab.
+            %  sweep / noise / background: Welch PSD of repetition 1.
+            %  stepped: the record holds one tone per step, so its PSD is a LINE
+            %  spectrum (one narrow spike per step, level diluted by the number of
+            %  steps). Shown instead: the level of every step and channel from the
+            %  sine fit of the settled part (res.toneLevels) as markers at the step
+            %  frequencies; dotted = residual noise in the fit bandwidth. Until
+            %  processing has run (or if it failed) the PSD is drawn light grey
+            %  with this explanation.
+            if nargin < 3, res = []; end
+            P = tim.gui.palette();
             ax = app.H.axSpec; cla(ax); hold(ax, 'on');
+            names = {'ch1', 'ch2', 'ch3', 'ch4'};
+            stepped = strcmp(m.kind, 'stepped');
+            if stepped && ~isempty(res) && isfield(res, 'toneLevels')
+                tl = res.toneLevels; hc = gobjects(1, 4);
+                for c = 1:4
+                    hc(c) = plot(ax, tl.f, tl.spl_dB(:, c), '-o', 'Color', P.ch(c, :), ...
+                        'MarkerFaceColor', P.ch(c, :), 'MarkerSize', 5, 'LineWidth', 0.8);
+                    plot(ax, tl.f, tl.noise_dB(:, c), ':', 'Color', P.ch(c, :), 'LineWidth', 0.8);
+                end
+                hn = plot(ax, NaN, NaN, ':', 'Color', P.grid);          % legend entry only
+                hold(ax, 'off'); set(ax, 'XScale', 'log'); grid(ax, 'on');
+                xlim(ax, [min(tl.f) / 1.2, max(tl.f) * 1.2]);
+                xlabel(ax, 'Frequency [Hz]'); ylabel(ax, 'Tone level [dB SPL]');
+                legend(ax, [hc hn], [names, {'noise in fit bandwidth'}], 'Location', 'best');
+                title(ax, {sprintf('Stepped sine: level of each of the %d steps (sine fit of the settled part)', numel(tl.f)), ...
+                    'The PSD of a stepped record is a line spectrum (one spike per step) and is not shown.'}, ...
+                    'FontWeight', 'normal');
+                return
+            end
+            x = m.records{1};
             p = tim.acq.voltsToPascal(x - mean(x, 1), m.mics, 'V');
             nfft = min(8192, 2^nextpow2(size(p, 1)));
             [Pxx, f] = pwelch(p, hann(nfft, 'periodic'), nfft / 2, nfft, m.fs);
             for c = 1:4
-                plot(ax, f, 10 * log10(Pxx(:, c) / 4e-10), 'Color', P.ch(c, :), 'LineWidth', P.lineWidth);
+                if stepped, col = P.invalid; else, col = P.ch(c, :); end
+                plot(ax, f, 10 * log10(Pxx(:, c) / 4e-10), 'Color', col, 'LineWidth', P.lineWidth);
             end
             hold(ax, 'off'); set(ax, 'XScale', 'log'); grid(ax, 'on'); xlim(ax, [20 m.fs / 2]);
             xlabel(ax, 'Frequency [Hz]'); ylabel(ax, 'PSD [dB re (20\muPa)^2/Hz]');
-            legend(ax, {'ch1', 'ch2', 'ch3', 'ch4'}, 'Location', 'best');
+            if stepped
+                legend(ax, 'off');
+                title(ax, {'Stepped sine: PSD of the whole record = line spectrum (one spike per step)', ...
+                    'Step levels are shown after processing.'}, 'FontWeight', 'normal');
+            else
+                legend(ax, names, 'Location', 'best');
+                title(ax, '');                 % clear a previous stepped title
+            end
+        end
+
+        function mk = stepMarkers(app, c, shape)
+            % Stepped sine: results exist only at the step frequencies -> draw
+            % markers (a plain line hides isolated valid steps and suggests
+            % values between steps). Empty for sweep / noise (dense grid).
+            mk = {};
+            if isempty(app.LastRes) || ~strcmp(app.LastRes.kind, 'stepped'), return; end
+            if nargin < 3, shape = 'o'; end
+            mk = {'Marker', shape, 'MarkerSize', 4};
+            if nargin >= 2 && ~isempty(c), mk = [mk, {'MarkerFaceColor', c, 'MarkerEdgeColor', c}]; end
+        end
+
+        function [thick, txt] = thickSpecimen(~, a)
+            % The thin-element model (Zt, TL from Zt) is meaningless for a thick
+            % specimen: for the empty 75 mm section Zt/rho c = 2j tan(kd/2) has a
+            % pole at kd = pi (2.29 kHz). Its curves are then not drawn (they
+            % would hide TL_tau); the velocity-mismatch mask rejects them anyway.
+            thick = false; txt = '';
+            if isfield(a.boundary, 'thickness') && a.boundary.available
+                kd = max(real(a.k)) * a.boundary.thickness;
+                thick = kd > 1;
+                txt = sprintf(['Thin-element model not applicable: d = %g mm (k d up to %.1f). ' ...
+                    'Use R / tau (anechoic termination) or the transfer matrix.'], round(1e3 * a.boundary.thickness, 3), kd);
+            end
         end
 
         function plotRes(app)
@@ -1327,7 +1396,8 @@ classdef TubeApp < handle
             r = app.LastRes; a = r.analysis; f = a.f; v = a.valid;
             ax = app.H.axH; cla(ax); hold(ax, 'on');
             for k = 1:4
-                plot(ax, f, 20 * log10(abs(r.Hposition(:, k))), 'Color', P.ch(k, :), 'LineWidth', P.lineWidth);
+                mk = app.stepMarkers(P.ch(k, :));
+                plot(ax, f, 20 * log10(abs(r.Hposition(:, k))), 'Color', P.ch(k, :), 'LineWidth', P.lineWidth, mk{:});
             end
             hold(ax, 'off'); set(ax, 'XScale', 'log'); grid(ax, 'on');
             legend(ax, {'M1', 'M2', 'M3', 'M4'}, 'Location', 'best');
@@ -1343,32 +1413,46 @@ classdef TubeApp < handle
             title(ax, 'Reflection / transmission (grey = not valid)', 'FontWeight', 'normal');
 
             ax = app.H.axZ; cla(ax); hold(ax, 'on');
-            h1 = app.masked(ax, f, real(a.thin.Zt_norm), v.validThinZt, P.a);
-            h2 = app.masked(ax, f, imag(a.thin.Zt_norm), v.validThinZt, P.b);
-            set(ax, 'XScale', 'log'); grid(ax, 'on'); xlabel(ax, 'Frequency [Hz]'); ylabel(ax, 'Z_t / \rho c');
-            legend(ax, [h1 h2], {'Re\{Z_t\}/\rho c', 'Im\{Z_t\}/\rho c'}, 'Location', 'best');
-            ok = v.validThinZt & isfinite(a.thin.Zt);
-            if any(ok)
-                title(ax, sprintf(['Thin-element transfer impedance (grey = not valid):  median valid Re\\{Z_t\\} = %.0f Pa s/m, ' ...
-                    '\\rho c = %.0f Pa s/m'], median(real(a.thin.Zt(ok))), a.air.Z0), 'FontWeight', 'normal');
+            [thick, thickTxt] = app.thickSpecimen(a);
+            if thick
+                hold(ax, 'off'); set(ax, 'XScale', 'log'); grid(ax, 'on'); xlabel(ax, 'Frequency [Hz]');
+                ylabel(ax, 'Z_t / \rho c'); legend(ax, 'off');
+                title(ax, {'Thin-element transfer impedance', thickTxt}, 'FontWeight', 'normal', 'Interpreter', 'none');
             else
-                title(ax, 'Thin-element transfer impedance: no valid bins (calibration / geometry / velocity mismatch)', 'FontWeight', 'normal');
+                h1 = app.masked(ax, f, real(a.thin.Zt_norm), v.validThinZt, P.a);
+                h2 = app.masked(ax, f, imag(a.thin.Zt_norm), v.validThinZt, P.b);
+                set(ax, 'XScale', 'log'); grid(ax, 'on'); xlabel(ax, 'Frequency [Hz]'); ylabel(ax, 'Z_t / \rho c');
+                legend(ax, [h1 h2], {'Re\{Z_t\}/\rho c', 'Im\{Z_t\}/\rho c'}, 'Location', 'best');
+                ok = v.validThinZt & isfinite(a.thin.Zt);
+                if any(ok)
+                    title(ax, sprintf(['Thin-element transfer impedance (grey = not valid):  median valid Re\\{Z_t\\} = %.0f Pa s/m, ' ...
+                        '\\rho c = %.0f Pa s/m'], median(real(a.thin.Zt(ok))), a.air.Z0), 'FontWeight', 'normal');
+                else
+                    title(ax, 'Thin-element transfer impedance: no valid bins (calibration / geometry / velocity mismatch)', 'FontWeight', 'normal');
+                end
             end
 
             ax = app.H.axTL; cla(ax); hold(ax, 'on');
-            h1 = app.masked(ax, f, a.thin.TL_dB, v.validThinZt, P.a);
             yv = a.power.TL_tau_dB; yv(~v.validTau) = NaN;
-            h2 = plot(ax, f, yv, '--', 'Color', P.b, 'LineWidth', P.lineWidth);
+            mk = app.stepMarkers(P.b);
+            h2 = plot(ax, f, yv, '--', 'Color', P.b, 'LineWidth', P.lineWidth, mk{:});
             set(ax, 'XScale', 'log'); grid(ax, 'on'); xlabel(ax, 'Frequency [Hz]'); ylabel(ax, 'TL [dB]');
-            legend(ax, [h1 h2], {'TL from Z_t: 20log_{10}|1+Z_t/(2\rhoc)|', 'TL = -20log_{10}|\tau|  (anechoic termination)'}, ...
-                'Location', 'best');
-            title(ax, 'Transmission loss (grey = not valid)', 'FontWeight', 'normal');
+            if thick
+                legend(ax, h2, {'TL = -20log_{10}|\tau|  (anechoic termination)'}, 'Location', 'best');
+                title(ax, {'Transmission loss (grey = not valid)', thickTxt}, 'FontWeight', 'normal', 'Interpreter', 'none');
+            else
+                h1 = app.masked(ax, f, a.thin.TL_dB, v.validThinZt, P.a);
+                legend(ax, [h1 h2], {'TL from Z_t: 20log_{10}|1+Z_t/(2\rhoc)|', 'TL = -20log_{10}|\tau|  (anechoic termination)'}, ...
+                    'Location', 'best');
+                title(ax, 'Transmission loss (grey = not valid)', 'FontWeight', 'normal');
+            end
 
             ax = app.H.axV; cla(ax); hold(ax, 'on');
             lv = {v.valid, v.qualityOK, v.geometryOK, v.measured};
             for i = 1:4
                 yy = double(lv{i}) * 0.8 + (i - 1); yy(~lv{i}) = NaN;
-                plot(ax, f, yy, '-', 'Color', P.ch(i, :), 'LineWidth', 3);
+                mk = app.stepMarkers(P.ch(i, :), 's');
+                plot(ax, f, yy, '-', 'Color', P.ch(i, :), 'LineWidth', 3, mk{:});
                 plot(ax, f, (i - 1) * ones(size(f)), '-', 'Color', P.invalid, 'LineWidth', 1);
             end
             hold(ax, 'off');
@@ -1377,12 +1461,14 @@ classdef TubeApp < handle
             grid(ax, 'on'); xlabel(ax, 'Frequency [Hz]'); title(ax, r.summary, 'FontSize', 9, 'FontWeight', 'normal');
         end
 
-        function hv = masked(~, ax, f, y, ok, c)
+        function hv = masked(app, ax, f, y, ok, c)
             % whole curve thin grey, valid part in colour; returns the coloured line
+            % (stepped sine: markers at the step frequencies)
             P = tim.gui.palette();
-            plot(ax, f, y, '-', 'Color', P.invalid, 'LineWidth', 0.7);
+            mg = app.stepMarkers(P.invalid); mc = app.stepMarkers(c);
+            plot(ax, f, y, '-', 'Color', P.invalid, 'LineWidth', 0.7, mg{:});
             yv = y; yv(~ok) = NaN;
-            hv = plot(ax, f, yv, '-', 'Color', c, 'LineWidth', P.lineWidth + 0.3);
+            hv = plot(ax, f, yv, '-', 'Color', c, 'LineWidth', P.lineWidth + 0.3, mc{:});
         end
 
         function onClose(app)

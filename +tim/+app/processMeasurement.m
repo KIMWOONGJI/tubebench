@@ -89,6 +89,12 @@ try
 catch err
     res.pressureSpectrum = struct('error', err.message);
 end
+% ---- stepped sine: level of every step (display / SPL only). The PSD of a
+% stepped record is a LINE spectrum (one narrow line per step, each holding
+% 1/nSteps of the record energy) - not a useful level display.
+if strcmp(meas.kind, 'stepped')
+    res.toneLevels = steppedLevels(sp, meas.mics, ch);
+end
 res.summary = res.analysis.valid.summary;
 end
 
@@ -97,9 +103,11 @@ st = meas.settings;
 freqs = st.frequencies;
 nF = numel(freqs);
 H = zeros(nF, 4); coh = zeros(nF, 4); snr = zeros(nF, 4); fHat = zeros(nF, 1); se = zeros(nF, 4);
+amp = nan(nF, 4);                       % fitted tone amplitude per step and channel [V peak]
 nR = numel(meas.records);
 for k = 1:nF
-    Hs = zeros(nR, 4); cs = zeros(nR, 4); ss = zeros(nR, 4); fh = zeros(nR, 1); es = zeros(nR, 4);
+    Hs = zeros(nR, 4); cs = zeros(nR, 4); ss = zeros(nR, 4); fh = nan(nR, 1); es = zeros(nR, 4);
+    as = nan(nR, 4);
     for r = 1:nR
         idx = tim.app.steppedSegment(meas, r, k);
         if isempty(idx)
@@ -107,11 +115,29 @@ for k = 1:nF
         end
         o = tim.dsp.sineResponse(meas.records{r}(idx, :), meas.fs, freqs(k), struct('refChannel', ref, 'nBlocks', st.nBlocks));
         Hs(r, :) = o.H; cs(r, :) = o.coherence; ss(r, :) = o.snr_dB; fh(r) = o.f; es(r, :) = o.stdErr;
+        as(r, :) = o.amplitude;
     end
     H(k, :) = mean(Hs, 1, 'omitnan'); coh(k, :) = min(cs, [], 1); snr(k, :) = min(ss, [], 1);
-    fHat(k) = mean(fh); se(k, :) = sqrt(mean(es.^2, 1)) / sqrt(nR);
+    fHat(k) = mean(fh, 'omitnan');      % a skipped repetition must not average in 0 Hz
+    se(k, :) = sqrt(mean(es.^2, 1)) / sqrt(nR);
+    amp(k, :) = mean(as, 1, 'omitnan');
 end
 sp = struct('f', freqs(:), 'fObserved', fHat, 'H', H, 'coherence', coh, 'snr_dB', snr, ...
-    'stdErr', se, 'refChannel', ref, ...
+    'stdErr', se, 'amplitude_V', amp, 'refChannel', ref, ...
     'method', 'stepped sine, 3-parameter LS sine fit at data-estimated frequency');
+end
+
+function tl = steppedLevels(sp, mics, ch)
+% Tone level of every step and DAQ channel from the sine fits of the settled
+% part of each step (columns in channel order, like pressureSpectrum).
+sens = [mics.sensitivity_VperPa];
+if numel(sens) ~= size(sp.amplitude_V, 2) || ~all(isfinite(sens) & sens > 0)
+    sens = nan(1, size(sp.amplitude_V, 2));
+end
+prms = sp.amplitude_V ./ sens / sqrt(2);          % peak volts -> rms pascal
+spl = 20 * log10(prms / 2e-5);
+tl = struct('f', sp.f(:), 'fObserved', sp.fObserved(:), 'amplitude_V', sp.amplitude_V, ...
+    'p_rms_Pa', prms, 'spl_dB', spl, 'noise_dB', spl - sp.snr_dB, 'channelOrder', ch, ...
+    'note', ['Tone level of each step from the 3-parameter sine fit of the settled part (sensitivity layer only); ' ...
+             'noise_dB = residual noise in the fit bandwidth (spl_dB - snr_dB).']);
 end

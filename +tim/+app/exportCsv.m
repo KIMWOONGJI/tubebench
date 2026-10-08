@@ -29,5 +29,13 @@ for c = 1:size(s.H, 2)
     S.(sprintf('coh%d', c)) = s.coherence(:, c);
     S.(sprintf('snr%d_dB', c)) = s.snr_dB(:, c);
 end
+if isfield(res, 'toneLevels')          % stepped sine: level of every step
+    tl = res.toneLevels;
+    S.f_observed_Hz = tl.fObserved(:);
+    for c = 1:size(tl.spl_dB, 2)
+        S.(sprintf('level%d_dB_SPL', c)) = tl.spl_dB(:, c);
+        S.(sprintf('noise%d_dB_SPL', c)) = tl.noise_dB(:, c);
+    end
+end
 writetable(S, fullfile(folder, 'spectra.csv'));
 end

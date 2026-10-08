@@ -140,6 +140,47 @@ classdef TestGui < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function steppedDisplayShowsStepLevels(tc)
+            % regression 2026-10-09: the Spectrum tab showed the PSD of the whole
+            % stepped record (line spectrum -> one spike per step). It shows the
+            % level of every step at the step frequencies; sweep display unchanged.
+            c = tim.app.defaultConfig();
+            c.mode = 'simulation';
+            c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.mode = 'stepped';
+            c.excitation.stepped = struct('fStart', 200, 'fStop', 4000, 'nPoints', 6, 'spacing', 'log', ...
+                'amplitudeVpp', 0.2, 'settleTime', 0.1, 'recordTime', 0.2, 'nBlocks', 2, 'repetitions', 1);
+            c.excitation.sweep.duration = 2; c.excitation.sweep.repetitions = 1;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            tc.assertEqual(h.exMode.Value, 'stepped');
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.assertNotEmpty(app.LastRes);
+            fk = app.LastMeas.settings.frequencies(:);
+            tc.verifyEqual(numel(fk), 6, 'GUI Steps field used');
+            L = findobj(h.axSpec, 'Type', 'line', 'Marker', 'o');
+            tc.verifyNumElements(L, 4);
+            for i = 1:numel(L)
+                tc.verifyEqual(L(i).XData(:), fk, 'RelTol', 1e-12, 'markers only at the step frequencies');
+                tc.verifyTrue(all(isfinite(L(i).YData)));
+            end
+            tc.verifySubstring(strjoin(cellstr(h.axSpec.Title.String), ' '), 'Stepped sine');
+            LH = findobj(h.axH, 'Type', 'line');
+            tc.verifyTrue(all(strcmp({LH.Marker}, 'o')), 'relative responses drawn as markers');
+            % sweep afterwards: dense PSD, no markers, no stepped title
+            h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            L = findobj(h.axSpec, 'Type', 'line');
+            tc.verifyTrue(all(strcmp({L.Marker}, 'none')));
+            tc.verifyGreaterThan(max(arrayfun(@(l) numel(l.XData), L)), 1000);
+            tc.verifyFalse(contains(strjoin(cellstr(h.axSpec.Title.String), ' '), 'Stepped'));
+            LH = findobj(h.axH, 'Type', 'line');
+            tc.verifyTrue(all(strcmp({LH.Marker}, 'none')));
+        end
+
         function tubeFieldsAreExactDistances(tc)
             % regression 2026-10-09: s1/s2 showed 29.000000000000004 / 28.999999999999986
             % while editing; Save config wrote 0.11599999999999999

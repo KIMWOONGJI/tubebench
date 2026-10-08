@@ -67,6 +67,8 @@ classdef TestEndToEnd < matlab.unittest.TestCase
 
             % storage: two saves -> two folders, nothing overwritten
             figs = tim.app.plotResults(res, meas, struct('Visible', 'off'));
+            tc.verifyNotEmpty(findobj(figs.validity, 'Type', 'image'), 'sweep: dense validity image unchanged');
+            tc.verifyFalse(isfield(res, 'toneLevels'));
             d1 = tim.app.saveMeasurement(meas, res, tc.cfg, 'porous', figs);
             d2 = tim.app.saveMeasurement(meas, res, tc.cfg, 'porous', []);
             fc = struct2cell(figs); close(fc{:});
@@ -140,6 +142,43 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             r = tim.app.processMeasurement(m, c, []);
             tc.verifyTrue(all(isfinite(r.spectra.H(:))));
             clear cleanup
+        end
+
+        function steppedToneLevelsAndFigures(tc)
+            % regression 2026-10-09: stepped spectrum displayed as spikes. Step
+            % levels from the sine fit; results only at the step frequencies;
+            % CSV columns; saved figures use markers (no imagesc, no PSD comb).
+            c = tc.cfg;
+            c.excitation.stepped = struct('fStart', 200, 'fStop', 4000, 'nPoints', 8, 'spacing', 'log', ...
+                'amplitudeVpp', 0.2, 'settleTime', 0.2, 'recordTime', 0.25, 'nBlocks', 2, 'repetitions', 1);
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            m = s.measure('stepped');
+            r = tim.app.processMeasurement(m, c, []);
+            fk = m.settings.frequencies(:);
+            tc.verifyEqual(r.analysis.f, fk, 'no interpolation onto a dense grid');
+            tl = r.toneLevels;
+            tc.verifyEqual(tl.f, fk);
+            tc.verifySize(tl.spl_dB, [8 4]);
+            sens = [m.mics.sensitivity_VperPa];
+            for k = 1:8
+                idx = tim.app.steppedSegment(m, 1, k);
+                x = m.records{1}(idx, :); x = x - mean(x, 1);
+                lvl = 20 * log10(sqrt(mean(x.^2, 1)) ./ sens / 2e-5);   % noise 2 mPa << tone
+                tc.verifyEqual(tl.spl_dB(k, :), lvl, 'AbsTol', 0.2);
+            end
+            tc.verifyTrue(all(tl.spl_dB - tl.noise_dB > 20, 'all'));
+            tim.app.exportCsv(r, tc.tmp);
+            S = readtable(fullfile(tc.tmp, 'spectra.csv'));
+            tc.verifyEqual(S.level1_dB_SPL, tl.spl_dB(:, 1), 'AbsTol', 1e-6);
+            figs = tim.app.plotResults(r, m, struct('Visible', 'off'));
+            fc = struct2cell(figs); closeFigs = onCleanup(@() close(fc{:}));
+            L = findobj(figs.spectrum, 'Type', 'line', 'Marker', 'o');
+            tc.verifyNumElements(L, 4, 'one step-level series per channel');
+            tc.verifyEqual(sort(L(1).XData(:)), fk, 'RelTol', 1e-12);
+            tc.verifyEmpty(findobj(figs.validity, 'Type', 'image'), 'log-spaced steps not drawn with imagesc');
+            clear closeFigs cleanup
         end
 
         function excitationRequiresOperatorConfirmation(tc)
