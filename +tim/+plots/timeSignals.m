@@ -15,7 +15,10 @@ function info = timeSignals(ax, meas, opts)
 %   are drawn as a min / max envelope, so that every peak stays visible.
 %
 %   opts (all optional): .simulation (logical), .emptyText, .mics
-%   (microphones used for the labels and the unit when meas is empty).
+%   (microphones used for the labels and the unit when meas is empty),
+%   .gate ([tA tB tC tD] s, tim.plots.analysisGate(res)): the parts of the
+%   record outside the analysed sweep (generator output on/off transients,
+%   start-frequency tone) are shaded grey.
 %   info: .summary  Channel | Port | Peak | Level [dB SPL] | Sensitivity | Source
 %         .note     explanation for the header of the view
 %         .lines    1 x C line handles, Tag 'timWave1'..'timWave4'
@@ -91,6 +94,20 @@ for c = 1:nA
     end
 end
 if nA > 1, linkaxes(ax, 'x'); end
+% ---- not analysed (outside the sweep gate): grey background
+gate = [];
+if hasData && isfield(opts, 'gate') && numel(opts.gate) == 4 && all(isfinite(opts.gate)), gate = opts.gate; end
+for c = 1:nA
+    if isempty(gate) || c > size(y, 2), break; end
+    a = ax(c); yl = a.YLim; xe = [min(gate(1), 0), gate(1); gate(4), max(gate(4), t(end))];
+    hold(a, 'on');
+    pz = patch(a, [xe(:, 1) xe(:, 2) xe(:, 2) xe(:, 1)].', repmat([yl(1) yl(1) yl(2) yl(2)].', 1, 2), P.invalid, ...
+        'FaceAlpha', 0.3, 'EdgeColor', 'none', 'Tag', 'timNotAnalysed', 'HandleVisibility', 'off', ...
+        'PickableParts', 'none');
+    uistack(pz, 'bottom');
+    hold(a, 'off');
+    a.YLim = yl;
+end
 if hasData
     title(ax(1), tim.plots.dataTitle(meas, struct('simulation', sim)));
 else
@@ -112,6 +129,10 @@ if hasData
     end
     info.note = sprintf('%s; repetition 1 of %d; display high-pass 20 Hz (raw data unchanged, stored in V).', ...
         txt, nRep);
+    if ~isempty(gate)
+        info.note = sprintf(['%s Grey: not analysed (before %.2f s and after %.2f s: generator output on/off, ' ...
+            'start-frequency tone).'], info.note, gate(1), gate(4));
+    end
 else
     info.note = '';
 end

@@ -94,7 +94,9 @@ for k = chans
         session.log('%s', seq{i, 3});
         m = session.measure('sweep');
         s = tim.dsp.sweepResponse(m.records, m.fs, struct('refChannel', ref, 'fRange', [a.fMin a.fMax], ...
-            'df', a.df, 'preRoll', m.settings.preRoll, 'excitationBand', [m.settings.fStart m.settings.fStop]));
+            'df', a.df, 'preRoll', m.settings.preRoll, 'excitationBand', [m.settings.fStart m.settings.fStop], ...
+            'sweep', m.settings));    % sweep gate: generator on/off transients excluded
+        for w = reshape(s.warnings, 1, []), session.log('Warning: %s', w{1}); end
         sp.(seq{i, 1}) = s;
         raw(end+1) = struct('channel', k, 'config', seq{i, 1}, 'meas', m, 'spectra', s); %#ok<AGROW>
         coh = s.coherence(:, k); snr = min(s.snr_dB(:, [ref k]), [], 2);

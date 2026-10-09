@@ -402,6 +402,12 @@ second, the header note gives the live level of every channel. After the measure
 record of repetition 1, long records as a min / max envelope so that every peak stays visible. A
 display high-pass at 20 Hz removes the slow CCLD settling drift; the raw data are not changed and
 are stored in volts. Without a valid sensitivity for every channel the graphs show mV.
+For a swept sine the parts of the record that are **not analysed** are shaded grey: before the
+sweep (the "click" when the generator output is switched on and the start-frequency tone) and
+after it (the jump back to the start frequency and the click when the output is switched off).
+The sweep is located in every repetition by a matched filter; only the sweep enters the transfer
+functions and the calibration (`docs/theory.md`, section 4). If the sweep cannot be found, the
+message pane says so and the whole excited interval is used.
 Summary **Channels**: Channel, Port, Peak [Pa], Level [dB SPL] (rms of the displayed record,
 including pre- and post-roll), Sensitivity [mV/Pa], Source (TEDS, Certificate, Nominal).
 

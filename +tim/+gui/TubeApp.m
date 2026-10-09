@@ -2072,6 +2072,9 @@ classdef TubeApp < handle
             app.log('Processed with calibration %s%s; L1/d/L2 = %s/%s/%s mm, T = %g °C.', ...
                 app.LastRes.calibration.version, src, app.H.L1.Value, app.H.dTh.Value, app.H.L2.Value, app.H.temp.Value);
             for w = app.LastRes.calibration.context.warnings, app.log('CALIBRATION: %s', w{1}); end
+            if isfield(app.LastRes, 'diagnostics') && isfield(app.LastRes.diagnostics, 'warnings')
+                for w = reshape(app.LastRes.diagnostics.warnings, 1, []), app.log('Warning: %s', w{1}); end
+            end
             app.refreshViews();
         end
 
@@ -2122,7 +2125,8 @@ classdef TubeApp < handle
                 try
                     switch pages{i}
                         case 'wave'
-                            info = tim.plots.timeSignals(app.H.axW, m, o);
+                            ow = o; ow.gate = tim.plots.analysisGate(r);     % grey: not analysed (generator on/off)
+                            info = tim.plots.timeSignals(app.H.axW, m, ow);
                             if isfield(info, 'lines'), app.WaveLines = info.lines; else, app.WaveLines = gobjects(0); end
                         case 'spec', info = tim.plots.spectrum(app.H.axSpec, m, r, o);
                         case 'tf', info = tim.plots.transferFunctions(app.H.axH, r, o);

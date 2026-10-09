@@ -270,15 +270,44 @@ which is independent of `S(f)`. That removes the dependence on:
 * loudspeaker/amplifier harmonic distortion. A harmonic of the drive is acoustic excitation at its
   own frequency and propagates through the same linear tube. The tube and specimen must be linear;
   the source need not be.
-* the start-frequency tone the 33220A emits before and after a triggered sweep.
+* the start-frequency tone the 33220A emits before and after a triggered sweep (it is outside the
+  sweep gate of step 2 anyway).
 
 Estimator (`tim.dsp.sweepResponse`), per repetition:
 
 1. Detect the excited interval on the reference channel (band-limited short-time RMS in 10 ms
    frames, 12 dB above the pre-roll background).
-2. Cut from the detected start minus 10 ms to the detected end plus a ring-down margin
+2. **Sweep gate** (generator output on/off transients excluded, 2026-10-09). The 33220A output
+   relay clicks when the output is switched on (the start-frequency tone then plays until the
+   trigger) and off (after the sweep; at the end of the sweep the generator also jumps back to the
+   start frequency). These transients are not part of the sweep. If they do not follow the
+   loudspeaker → tube path exactly (electrical crosstalk, tube vibration) they bias `H`; in any
+   case they add energy outside the sweep. The actual start `t0` and duration `T` of the sweep in
+   every repetition are found by a matched filter with the head and the tail of the nominal sweep
+   (`tim.dsp.estimateSweepLaw`; accepted if the correlation peak is ≥ 8 × its median, `T` within
+   2 % of the programmed duration and the sweep inside the detected interval). With `t(f)` the
+   time of frequency `f` on the sweep and `[f_lo, f_hi]` the analysis band, the window is
+   0 before `t(max(f_start, f_lo/1.5))`, a raised cosine up to `t(max(f_start, f_lo/1.1))`, 1 up
+   to `t(min(f_stop, 1.1 f_hi))` and a raised cosine down to `t(min(f_stop, 1.5 f_hi))`. The
+   window edges lie in the part of the sweep outside the band (long, smooth ramps, so truncation
+   leakage stays out of the band), and every frequency of the band keeps at least the time from
+   `f_hi` to `1.1 f_hi` of ring-down (in the tube about 1 ms per 0.3 m of path, decaying with
+   |R|). Ramps shorter than 10 ms are widened to 10 ms inside the sweep. The pre-roll noise
+   estimate uses the same window energy. The window of repetition 1 is shown in the Time signals
+   view (grey: not analysed). If the sweep is not found, step 2' is used and a warning says so.
+   With the default band 120–4500 Hz the sweep should start at least 10 % below 120 Hz and stop at
+   least 10 % above 4500 Hz (default 80–5500 Hz).
+
+   *Measured on the lab tube (empty 75 mm section, 2026-10-09):* the trigger latency varied by
+   0.15 s between repetitions (sweep start 1.128–1.277 s after the record start) and the output-off
+   click came 0–0.19 s after the end of the sweep. Gating changed `H` by 0.06 % (median) and at
+   most 1.4 % (above 4 kHz), added 24 valid frequency lines and raised the median SNR by 0.9 dB;
+   the empty-tube check was unchanged (|τ/τ_exp| − 1 = −0.2 %, 1.25° rms).
+2'. Without the gate (no sweep settings, `excludeSwitching = false`, or sweep not found): cut from
+   the detected start minus 10 ms to the detected end plus a ring-down margin
    (`min(postRoll, 0.5 s)`), with 10 ms raised-cosine tapers `w`. The acoustic ring-down is
-   included, and truncation leakage is confined to segments where the signal has decayed.
+   included, and truncation leakage is confined to segments where the signal has decayed; the
+   on/off transients are inside this window.
 3. FFT, then accumulate `Y_k Y_ref*`, `|Y_ref|²` and `|Y_k|²` over all FFT bins inside each
    frequency line `[f − Δf/2, f + Δf/2)` (`Δf = cfg.analysis.df`, default 2 Hz) and over all
    repetitions.

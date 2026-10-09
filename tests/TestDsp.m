@@ -123,6 +123,51 @@ classdef TestDsp < matlab.unittest.TestCase
             tc.verifyLessThan(max(rel(good, :), [], 'all'), 3e-2);
         end
 
+        function sweepGateExcludesSwitchingTransients(tc)
+            % user request 2026-10-09: the output relay of the 33220A clicks when
+            % the output is switched on (before the sweep) and off (after it).
+            % The sweep gate cuts the analysis window to the sweep itself. Test
+            % clicks that do NOT follow the tube response (independent per
+            % channel, e.g. electrical) bias H when included; with the gate H
+            % stays at the true response.
+            rig = tc.makeRig(0); rig.NoiseV = 0;
+            fs = rig.Fs;
+            g = tc.genState('SWE_STAT', 1, 'OUTP', 0); rig.setGeneratorState(g);
+            pre = rig.generate(fs);                                  % 1 s silence
+            g.OUTP = 1;
+            x = [pre; tc.record(rig, g, round(4.6 * fs), 0)];        % tone, then the sweep (3 s)
+            ts = rig.TriggerLog(end) / fs + rig.BulkDelay;           % acoustic sweep start in x
+            sw = struct('fStart', 80, 'fStop', 5500, 'duration', 3, 'spacing', 'LOG');
+            rng(7);
+            n = size(x, 1); t = (0:n - 1).' / fs;
+            a = 3 * rms(x(round((ts + 1) * fs):round((ts + 2) * fs), 1));
+            for tc0 = [ts - 0.1, ts + 3.04]                          % output on / output off (as measured)
+                k = t >= tc0;
+                x(k, :) = x(k, :) + a * [1 0.5 2 1.5] .* exp(-(t(k) - tc0) / 0.004) .* randn(nnz(k), 4);
+            end
+            o = struct('fRange', [120 4500], 'df', 2, 'preRoll', 1, 'excitationBand', [80 5500], 'sweep', sw);
+            sp = tim.dsp.sweepResponse({x}, fs, o);
+            o.excludeSwitching = false;
+            sp0 = tim.dsp.sweepResponse({x}, fs, o);
+            tr = rig.trueResponse(sp.f); Ht = tr.G ./ tr.G(:, 1);
+            e = abs(sp.H(:, 2:4) ./ Ht(:, 2:4) - 1); e0 = abs(sp0.H(:, 2:4) ./ Ht(:, 2:4) - 1);
+            tc.verifyTrue(sp.excitation.gated, 'sweep found');
+            tc.verifyEqual(sp.excitation.sweepStart_s, ts, 'AbsTol', 0.005);
+            tc.verifyEqual(sp.excitation.sweepDuration_s, 3, 'RelTol', 1e-3);
+            tc.verifyLessThanOrEqual(sp.excitation.gate_s(4), sp.excitation.sweepStart_s + sp.excitation.sweepDuration_s + 1e-9, ...
+                'window ends at the end of the sweep (before the off transient)');
+            tc.verifyGreaterThanOrEqual(sp.excitation.gate_s(1), sp.excitation.sweepStart_s - 1e-9, ...
+                'window starts at the sweep (after the on transient)');
+            tc.verifyLessThan(prctile(e(:), 99), 3e-3, 'gated: true response');
+            tc.verifyGreaterThan(prctile(e0(:), 99), 10 * prctile(e(:), 99), 'without the gate the clicks bias H');
+            tc.verifyFalse(sp0.excitation.gated);
+            % not found (wrong programmed duration): previous window and a warning
+            o.excludeSwitching = true; o.sweep.duration = 5;
+            sp2 = tim.dsp.sweepResponse({x}, fs, o);
+            tc.verifyFalse(sp2.excitation.gated);
+            tc.verifyTrue(any(contains(sp2.warnings, 'not excluded')));
+        end
+
         function sweepIndependentOfExcitationWaveform(tc)
             % The same tube measured with a LINEAR sweep and with noise gives
             % the same relative responses (excitation-independence).

@@ -22,7 +22,7 @@ switch meas.kind
         s = meas.settings;
         sp = tim.dsp.sweepResponse(meas.records, fs, struct('refChannel', ref, ...
             'fRange', [a.fMin a.fMax], 'df', a.df, 'preRoll', s.preRoll, ...
-            'excitationBand', [s.fStart s.fStop], 'ringDown', min(s.postRoll, 0.5)));
+            'excitationBand', [s.fStart s.fStop], 'ringDown', min(s.postRoll, 0.5), 'sweep', s));   % sweep gate: generator on/off transients excluded
         % excitation diagnostics OUTSIDE the try below (that one is only for
         % estimateSweepLaw): appending to a missing warnings field used to throw
         % and was stored as a false sweepLawError (formula review dsp-3)
