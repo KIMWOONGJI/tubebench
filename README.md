@@ -41,7 +41,7 @@ or configuration.
 
 ## Status (2026-10-09)
 
-* **Software**: complete. 192 automated tests in 16 test classes (simulation and recorded hardware
+* **Software**: complete. 194 automated tests in 16 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -86,7 +86,7 @@ config/                 user_config.json (lab settings), example_config.json (te
                         emptyState, thickSpecimen, viewText (titles and descriptions)
 +tim/+gui               TubeApp (uifigure window), ViewPage (header + graphs + summary of a view),
                         drawTube3D (3D tube model), equationsPanel (Formula tab), Checklist,
-                        palette, icon, closeApp
+                        StartWindow (start window with progress), palette, icon, closeApp
 +tim/+val               hardware validation procedures (Tests A–E)
 +tim/+cad               readStep (STEP assembly reader used for the tube dimensions)
 resources/icons         status and button icons

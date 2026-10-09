@@ -45,7 +45,8 @@ writePng(folder, 'skip', {circle, seg(X, Y, [-0.4 0], [0.4 0], 0.12)}, {[0.8 0.8
 tri = X >= -0.42 & abs(Y) <= 0.62 * (0.62 - X) / 1.04;
 writePng(folder, 'start', {tri}, {white}, S);
 writePng(folder, 'stop', {abs(X) < 0.5 & abs(Y) < 0.5}, {white}, S);
-% run: animated arc on a light track (background = default figure colour)
+% run: animated arc on a light track; transparent background (edges blended
+% with the default figure colour), so it also fits the lighter panels
 bg = [0.94 0.94 0.94];
 nF = 12; th = atan2(Y, X);
 track = abs(R - 0.72) < 0.15;
@@ -56,10 +57,13 @@ for k = 1:nF
     arc = track & d < 0.6 * pi;
     img = compose({track, arc}, {[0.84 0.87 0.92], P.run}, bg, S);
     [ind, map] = rgb2ind(img, 32, 'nodither');
+    t = double(ind(1, 1));                        % corner = background (0-based index)
     if k == 1
-        imwrite(ind, map, file, 'gif', 'LoopCount', Inf, 'DelayTime', 0.07);
+        imwrite(ind, map, file, 'gif', 'LoopCount', Inf, 'DelayTime', 0.07, ...
+            'TransparentColor', t, 'DisposalMethod', 'restoreBG');
     else
-        imwrite(ind, map, file, 'gif', 'WriteMode', 'append', 'DelayTime', 0.07);
+        imwrite(ind, map, file, 'gif', 'WriteMode', 'append', 'DelayTime', 0.07, ...
+            'TransparentColor', t, 'DisposalMethod', 'restoreBG');
     end
 end
 end

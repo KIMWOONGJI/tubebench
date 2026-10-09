@@ -20,6 +20,11 @@ and the formulas are in `theory.md` and in the **Formula** tab of the window.
 
 ## 2. The window
 
+Starting takes about 25 s. Meanwhile a small start window shows the program name, the version, a
+progress bar and the current step (control panel, views, 3D tube model, graphs); its turning icon
+keeps moving while MATLAB is busy. It closes by itself when the main window appears; closing it
+earlier does not stop the start.
+
 The window title is "Transfer impedance tube". It opens as a normal window as large as the screen without the taskbar (it can be moved and resized) and has four parts:
 
 * the **menu bar** (File, Help; section 7);

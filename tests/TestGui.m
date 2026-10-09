@@ -20,6 +20,51 @@ classdef TestGui < matlab.unittest.TestCase
             end
             info = imfinfo(tim.gui.icon('run'));
             tc.verifyGreaterThan(numel(info), 4, 'running icon is an animated GIF');
+            tc.verifyTrue(all([info.TransparentColor] > 0), 'transparent background (start window panel)');
+        end
+
+        function startWindowStepsAndClose(tc)
+            % user request 2026-10-10: a small start window (name, version, step,
+            % progress bar, turning icon) while the main window is built; closing
+            % it by the user does not stop the start-up
+            sw = tim.gui.StartWindow('Visible', 'off'); tc.addTeardown(@() delete(sw));
+            f = sw.Fig;
+            tc.verifyEqual(f.Name, 'Transfer impedance tube');
+            tc.verifyEqual(f.Position(3:4), [460 190]);
+            tc.verifyFalse(logical(f.Resize));
+            [~, info] = tim.app.softwareVersion();
+            tc.verifyEqual(sw.H.title.Text, 'Transfer impedance tube');
+            tc.verifySubstring(sw.H.version.Text, info.version);
+            tc.verifySubstring(sw.H.version.Text, info.released);
+            tc.verifyEqual(sw.H.spin.ImageSource, tim.gui.icon('run'), 'turning icon (animated by the window)');
+            tc.verifyEqual(sw.Step, 'Starting…');
+            frac = @() str2double(erase(sw.H.bar.ColumnWidth{1}, 'x')) / ...
+                (str2double(erase(sw.H.bar.ColumnWidth{1}, 'x')) + str2double(erase(sw.H.bar.ColumnWidth{2}, 'x')));
+            sw.update('Drawing the 3D tube model…', 0.4);
+            tc.verifyEqual(sw.H.step.Text, 'Drawing the 3D tube model…');
+            tc.verifyEqual(sw.Value, 0.4);
+            tc.verifyEqual(frac(), 0.4, 'AbsTol', 1e-3, 'filled part of the bar');
+            sw.update('Ready', 1.5);
+            tc.verifyEqual(sw.Value, 1, 'progress limited to 0..1');
+            tc.verifyEqual(sw.H.bar.ColumnWidth, {'1x', 0});
+            tc.verifyEqual({sw.Steps.text}, {'Starting…', 'Drawing the 3D tube model…', 'Ready'});
+            tc.verifyTrue(issorted([sw.Steps.time]));
+            feval(f.CloseRequestFcn, f, []);              % closed by the user
+            tc.verifyFalse(isvalid(f));
+            sw.update('Drawing the graphs of the views…', 0.8);   % start-up goes on: no error
+            tc.verifyEqual(sw.Step, 'Drawing the graphs of the views…');
+            sw2 = tim.gui.StartWindow('Visible', 'off'); f2 = sw2.Fig;
+            sw2.close();
+            tc.verifyFalse(isvalid(f2));
+            delete(sw2);
+        end
+
+        function startWindowGoesOnError(tc)
+            % the start window always disappears, also when the start-up fails
+            % (a visible start: the start window appears for about 1 s)
+            n0 = numel(findall(groot, 'Type', 'figure'));
+            tc.verifyError(@() tim.gui.TubeApp(fullfile(tc.tmp, 'missing.json')), 'tim:io:open');
+            tc.verifyEqual(numel(findall(groot, 'Type', 'figure')), n0, 'no window left');
         end
 
         function checklistStates(tc)
@@ -92,8 +137,18 @@ classdef TestGui < matlab.unittest.TestCase
             % the window was closed (MATLAB stuck). app.ask must return the
             % cancel option; timers keep running while it waits.
             % (uiconfirm needs a visible window: it appears for about 1 s)
+            n0 = numel(findall(groot, 'Type', 'figure'));
             app = tim.gui.TubeApp('', 'Visible', 'on');
             tc.addTeardown(@() delete(app));
+            % start window (user request 2026-10-10): steps shown while the main
+            % window was built hidden, closed when the main window appeared
+            s = app.StartSteps;
+            tc.verifyGreaterThanOrEqual(numel(s), 10);
+            tc.verifyTrue(issorted([s.value]), 'the bar only moves forward');
+            tc.verifyEqual(s(end).value, 1);
+            tc.verifyTrue(strcmp(app.Fig.Visible, 'on'));
+            tc.verifyEmpty(app.StartWin);
+            tc.verifyEqual(numel(findall(groot, 'Type', 'figure')), n0 + 1, 'start window closed');
             tick = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.1, 'UserData', 0, ...
                 'TimerFcn', @(t, ~) set(t, 'UserData', t.UserData + 1));
             % (closer after 2.5 s: under load the dialog itself needs up to ~1 s to appear)
@@ -480,7 +535,10 @@ classdef TestGui < matlab.unittest.TestCase
         function windowTitleMenusAndAbout(tc)
             % user request 2026-10-09: version and repository in Help > About of a
             % menu bar (as in other programs) instead of a footer; tab "Formula"
+            n0 = numel(findall(groot, 'Type', 'figure'));
             app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            tc.verifyEqual(numel(findall(groot, 'Type', 'figure')), n0 + 1, 'hidden window: no start window');
+            tc.verifyEmpty(app.StartSteps);
             tc.verifyEqual(app.Fig.Name, 'Transfer impedance tube', 'no hyphen in the window name');
             top = findall(app.Fig, 'Type', 'uimenu', 'Parent', app.Fig);
             tc.verifyEqual(sort({top.Text}), {'File', 'Help'});

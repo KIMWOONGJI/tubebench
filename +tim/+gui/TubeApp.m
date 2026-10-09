@@ -6,6 +6,10 @@ classdef TubeApp < handle
     %   app = tim.gui.TubeApp(file, 'Visible', 'off')  % hidden window (automated tests)
     %   app.openMeasurement('data/20261009_111602_sweep_foam')  % show a saved measurement
     %
+    %   While a visible window is built (about 25 s), a small start window
+    %   (tim.gui.StartWindow) shows the steps and a progress bar; the main
+    %   window appears complete. A hidden window has no start window.
+    %
     %   Layout: menu bar (File, Help); control panel on the left in workflow
     %   order (INSTRUMENTS, IMPEDANCE TUBE, EXCITATION, CALIBRATION,
     %   MEASUREMENT, RESULTS); on the right two-level tabs (Setup >
@@ -56,6 +60,8 @@ classdef TubeApp < handle
         PendingStop logical = false % Stop / close before the connection has a session (gui-5)
         BusyWhat char = ''      % the running action ('calibration', 'measurement', ...)
         PromptAnswer char = ''  % answer of the calibration bar (askBar)
+        StartWin = []           % start window while the main window is built (tim.gui.StartWindow)
+        StartSteps = []         % steps of the start window with their times (diagnostics / tests)
         LastPrompt struct = struct('text', '', 'options', {{}})   % last question of the bar (tests)
     end
     properties
@@ -69,17 +75,39 @@ classdef TubeApp < handle
                 cfgFile = ''
                 opts.Visible (1,:) char = 'on'
             end
+            % visible: a small start window shows the steps while the main window
+            % is built hidden; it disappears when the main window appears, also
+            % when the start-up fails. Every step is drawn at the next step (the
+            % window drawn in parts: about 25 s instead of 30 s with one first
+            % drawing of all ~1300 controls). Hidden (tests): no start window.
+            show = strcmp(opts.Visible, 'on');
+            if show
+                sw = tim.gui.StartWindow('Area', workArea());
+                closeStart = onCleanup(@() delete(sw));     % also on an error
+                app.StartWin = sw;
+            end
             if ~isempty(cfgFile)
                 app.Cfg = tim.app.loadConfig(cfgFile);
             else
                 app.Cfg = tim.app.defaultConfig();
             end
-            app.build(opts.Visible);
-            app.refreshFromCfg();
+            app.startStep('Building the control panel…', 0.04);
+            app.build();                      % further steps: the views
+            app.refreshFromCfg();             % step: 3D tube model
+            app.startStep('Drawing the graphs of the views…', 0.78);
             app.refreshViews();
             app.updateEnable();
             app.log(['Ready (%s mode). Not connected - "Connect" switches the generator output OFF; it is ' ...
                 'switched on only during a measurement or a calibration.'], app.Cfg.mode);
+            app.fitCalBar();                  % bar height from the laid-out width of the model
+            if show
+                app.startStep('Opening the main window…', 0.98);
+                app.Fig.Visible = 'on';
+                drawnow;
+                app.startStep('Ready', 1);
+                app.StartSteps = sw.Steps;
+            end
+            app.StartWin = [];
         end
 
         function delete(app)
@@ -313,17 +341,18 @@ classdef TubeApp < handle
 
     methods (Access = private)
         %% ----------------------------------------------------------- layout
-        function build(app, visible)
+        function build(app)
             % normal window (not maximised) as large as the work area of the screen
             % (the screen without the taskbar), so it fills the laptop screen and can
-            % still be moved and resized
+            % still be moved and resized. Built hidden: the constructor shows it when
+            % it is complete.
             P = tim.gui.palette();
             op = workArea();
             % Position is the inside of the window; a uifigure cannot set OuterPosition
             % (R2022b), so the title bar, menu bar and top border (53 px on Windows 11
             % at 100 % scaling, measured on a screen capture) are subtracted
             app.Fig = uifigure('Name', 'Transfer impedance tube', 'Position', [op(1) op(2) op(3) op(4) - 53], ...
-                'Visible', visible, 'Color', P.ui.panel, 'CloseRequestFcn', @(src, ~) tim.gui.closeApp(src, app));   % never gets stuck
+                'Visible', 'off', 'Color', P.ui.panel, 'CloseRequestFcn', @(src, ~) tim.gui.closeApp(src, app));   % never gets stuck
             h = struct();
             % ---------------- menu bar (version + repository: Help > About)
             m = uimenu(app.Fig, 'Text', 'File');
@@ -531,6 +560,7 @@ classdef TubeApp < handle
             uilabel(mp, 'Text', 'Messages', 'FontWeight', 'bold', 'FontSize', 11, 'FontColor', P.ui.text);
             h.log = uitextarea(mp, 'Editable', 'off', 'FontName', 'Consolas', 'FontSize', 11);
 
+            app.startStep('Building the Setup views (connection, tube setup)…', 0.10);   % start window (start-up only)
             % Setup > Connection | Tube setup
             t = uitab(tabs, 'Title', 'Setup'); h.setupTab = t;
             h.setupTabs = app.subTabs(t);
@@ -591,6 +621,7 @@ classdef TubeApp < handle
             h.tubeInfo = uilabel(tg, 'Text', '', 'FontSize', 11, 'FontColor', P.ui.muted, 'WordWrap', 'on', ...
                 'VerticalAlignment', 'top');
 
+            app.startStep('Building the Calibration view…', 0.19);
             % Calibration: operator instruction, 3D diagram, step list, C_k curves
             t = uitab(tabs, 'Title', 'Calibration'); h.calTab = t;
             pg = tim.gui.ViewPage(t, 'Calibration', ['Switching calibration of the microphone channels with ' ...
@@ -635,6 +666,7 @@ classdef TubeApp < handle
                 h.axCal(i) = ax;
             end
 
+            app.startStep('Building the Measurement views…', 0.26);
             % Measurement > Time signals | Spectrum | Transfer functions
             % (titles and descriptions: tim.plots.viewText, shared with the saved figures)
             t = uitab(tabs, 'Title', 'Measurement'); h.measTab = t;
@@ -652,6 +684,7 @@ classdef TubeApp < handle
             app.Pages.tf = tim.gui.ViewPage(h.tfTab, vt, vd, 'Axes', 3);
             h.axH = app.Pages.tf.Axes;
 
+            app.startStep('Building the Results views…', 0.36);
             % Results > Reflection and transmission | Transmission loss | Transfer impedance | Validity
             t = uitab(tabs, 'Title', 'Results'); h.resTab = t;
             h.resTabs = app.subTabs(t);
@@ -674,6 +707,7 @@ classdef TubeApp < handle
                 'SummaryWidth', 470);
             h.axV = app.Pages.valid.Axes;
 
+            app.startStep('Building the Formula tab…', 0.46);
             % Formula: every equation used by the software
             t = uitab(tabs, 'Title', 'Formula'); h.formulaTab = t;
             tim.gui.equationsPanel(t);
@@ -682,6 +716,12 @@ classdef TubeApp < handle
             h.cal3D = []; h.calPaths = gobjects(0); h.calHi = gobjects(0);
             app.H = h;
             app.setCalText([], '', '');      % the 3D model is drawn when the tab is opened or at the first step
+        end
+
+        function startStep(app, txt, value)
+            % next step in the start window (only while a visible window is built;
+            % its drawnow also draws the part of the hidden window built so far)
+            if ~isempty(app.StartWin), app.StartWin.update(txt, value); end
         end
 
         function tg = subTabs(~, tab)
@@ -734,6 +774,7 @@ classdef TubeApp < handle
             else
                 h.exMode.Value = 'sweep';     % 'noise' is script-only
             end
+            app.startStep('Drawing the 3D tube model…', 0.53);   % start window (start-up only)
             app.tubeToUi(c.geometry, c.environment);     % tube geometry [mm] and air
             ls = struct('impedance_ohm', 8, 'maxPower_W', 1);
             if isfield(c, 'loudspeaker'), ls = c.loudspeaker; end
