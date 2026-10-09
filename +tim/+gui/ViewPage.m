@@ -160,9 +160,16 @@ classdef ViewPage < handle
             px = 7 * len + 14;
             avail = p.SummaryPanel.Parent.ColumnWidth{2} - 4;
             if sum(px) > avail
-                px = max(30, floor(px * avail / sum(px)));
-                ex = sum(px) - avail;                 % the 30 px floor can exceed the panel:
-                if ex > 0, [~, i] = max(px); px(i) = max(30, px(i) - ex); end   % take it from the widest column
+                % too wide: cap the WIDEST columns at a common width (short columns
+                % such as Channel / Port keep their full width and stay readable)
+                s = sort(px, 'descend');
+                cap = s(1);
+                for m = 1:numel(s)
+                    rest = sum(s(m + 1:end));         % columns below the cap keep their width
+                    c = (avail - rest) / m;           % cap for the m widest columns
+                    if m == numel(s) || c >= s(m + 1), cap = c; break; end
+                end
+                px = min(px, max(floor(cap), 40));
             end
             w = num2cell(px);
         end

@@ -1,7 +1,9 @@
 function files = exportFigures(figs, folder, formats)
-%EXPORTFIGURES Save figures as PNG (raster) and PDF/SVG (vector).
+%EXPORTFIGURES Save figures as PNG (default) and, on request, PDF/SVG (vector) or FIG.
+%   formats: cell of 'png' | 'pdf' | 'svg' | 'fig' (cfg.output.figureFormats);
+%   a vector PDF takes about as long as the PNG export, so it is not a default.
 %   figs: struct of figure handles (field name = file stem)
-if nargin < 3, formats = {'png', 'pdf'}; end
+if nargin < 3, formats = {'png'}; end
 files = {};
 names = fieldnames(figs);
 for i = 1:numel(names)

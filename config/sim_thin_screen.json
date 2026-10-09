@@ -167,8 +167,7 @@
     "exportCsv": true,
     "exportFigures": true,
     "figureFormats": [
-      "png",
-      "pdf"
+      "png"
     ]
   },
   "simulation": {

@@ -48,6 +48,7 @@ classdef TubeApp < handle
         Closing logical = false % closeNow running: further close requests are ignored
         ClosingWin = []         % "Closing ..." progress dialog (steps of the shutdown)
         ClosingLog cell = {}    % texts shown in the closing dialog (also when hidden: tests)
+        ProgressWin = []        % progress dialog of Save measurement
         AboutFig = []           % Help > About window (one at a time)
         OutputUnconfirmed logical = false  % last read-back did not confirm the generator output off
         PendingStop logical = false % Stop / close before the connection has a session (gui-5)
@@ -222,15 +223,16 @@ classdef TubeApp < handle
     methods (Access = private)
         %% ----------------------------------------------------------- layout
         function build(app, visible)
-            % window fills the screen (maximised); restored size = most of the screen
+            % normal window (not maximised) as large as the work area of the screen
+            % (the screen without the taskbar), so it fills the laptop screen and can
+            % still be moved and resized
             P = tim.gui.palette();
-            scr = get(groot, 'ScreenSize');
-            W = max(1400, scr(3) - 80); Hh = max(800, scr(4) - 120);
-            app.Fig = uifigure('Name', 'Transfer impedance tube', 'Position', [40 50 W Hh], 'Visible', visible, ...
-                'Color', P.ui.panel, 'CloseRequestFcn', @(src, ~) tim.gui.closeApp(src, app));   % never gets stuck
-            if strcmp(visible, 'on')
-                try, app.Fig.WindowState = 'maximized'; catch, end
-            end
+            op = workArea();
+            % Position is the inside of the window; a uifigure cannot set OuterPosition
+            % (R2022b), so the title bar, menu bar and top border (53 px on Windows 11
+            % at 100 % scaling, measured on a screen capture) are subtracted
+            app.Fig = uifigure('Name', 'Transfer impedance tube', 'Position', [op(1) op(2) op(3) op(4) - 53], ...
+                'Visible', visible, 'Color', P.ui.panel, 'CloseRequestFcn', @(src, ~) tim.gui.closeApp(src, app));   % never gets stuck
             h = struct();
             % ---------------- menu bar (version + repository: Help > About)
             m = uimenu(app.Fig, 'Text', 'File');
@@ -252,7 +254,7 @@ classdef TubeApp < handle
             g = uigridlayout(app.Fig, [1 2], 'ColumnWidth', {412, '1x'}, 'Padding', [0 0 0 0], ...
                 'ColumnSpacing', 0, 'BackgroundColor', P.ui.panel);
             % ---------------- control panel (left), workflow order. Fixed row
-            % heights [px]: about 860 px -> no scrolling in the maximised window
+            % heights [px]: about 860 px -> no scrolling in the window
             % on the lab screen (1920 x 1080: about 985 px); Scrollable stays on
             % as a fallback for small screens.
             bar = 26; rw = 24; sp = 4;
@@ -1899,8 +1901,17 @@ classdef TubeApp < handle
             app.run(@() app.doSave(), 'saving the measurement');
         end
         function doSave(app)
+            % Progress dialog in the window (same style as the closing dialog): the
+            % steps done so far and the running one, with a progress bar. Data
+            % files first, then the figures one by one (the slow part).
+            done = {};
+            dlgEnd = onCleanup(@() app.closeProgress());
+            app.progressDialog('Saving the measurement', {'Drawing the figures …'}, 0.03);
             % saved figures = the views (background / unprocessed: time signals and spectrum)
             figs = tim.app.plotResults(app.LastRes, app.LastMeas, struct('Visible', 'off'));
+            figEnd = onCleanup(@() closeFigures(figs));
+            names = fieldnames(figs);
+            done{end + 1} = sprintf('%d figures drawn.', numel(names));
             name = app.LastMeas.kind;
             sp = '';                     % the name entered at Start (metadata.specimen)
             if isfield(app.LastMeas.metadata, 'specimen') && ~strcmp(app.LastMeas.metadata.specimen, 'unnamed specimen')
@@ -1910,8 +1921,21 @@ classdef TubeApp < handle
             c = app.Cfg;                 % the mode of the DATA decides folder and label (not the selector)
             md = app.LastMeas.metadata;
             if isfield(md, 'mode'), c.mode = md.mode; elseif isfield(md, 'WARNING'), c.mode = 'simulation'; end
-            d = tim.app.saveMeasurement(app.LastMeas, app.LastRes, c, name, figs);
-            fc = struct2cell(figs); if ~isempty(fc), close(fc{:}); end
+            app.progressDialog('Saving the measurement', [done, {'Writing raw data, results, configuration and CSV files …'}], 0.25);
+            d = tim.app.saveMeasurement(app.LastMeas, app.LastRes, c, name, []);   % figures below, with progress
+            [~, folder] = fileparts(d);
+            done{end + 1} = sprintf('Data written to %s.', folder);
+            if c.output.exportFigures
+                n = numel(names);
+                for i = 1:n
+                    app.progressDialog('Saving the measurement', [done, {sprintf('Exporting figure %d of %d (%s) …', ...
+                        i, n, figs.(names{i}).Name)}], 0.3 + 0.68 * (i - 1) / n);
+                    tim.app.exportFigures(struct(names{i}, figs.(names{i})), d, c.output.figureFormats);
+                end
+                done{end + 1} = sprintf('%d figures exported (%s).', n, strjoin(cellstr(c.output.figureFormats), ', '));
+            end
+            app.progressDialog('Saving the measurement', [done, {'Done.'}], 1);
+            clear figEnd
             app.Saved = true; app.SavedDir = d;
             app.setResultStatus();
             app.log('Saved to %s', d);
@@ -2142,6 +2166,26 @@ classdef TubeApp < handle
             b.Layout.Row = 5; b.Layout.Column = 2;
         end
 
+        function progressDialog(app, title, msg, value)
+            % progress dialog inside the window with a determinate bar (Save
+            % measurement); same look as the "Closing" dialog: the steps done so
+            % far and the running one. A hidden window (scripts, tests) shows nothing.
+            if isempty(app.Fig) || ~isvalid(app.Fig) || ~strcmp(app.Fig.Visible, 'on'), return; end
+            msg = cellstr(msg);
+            if isempty(app.ProgressWin) || ~isvalid(app.ProgressWin)
+                app.ProgressWin = uiprogressdlg(app.Fig, 'Title', title, 'Message', msg, 'Value', value, 'Icon', 'info');
+            else
+                app.ProgressWin.Title = title; app.ProgressWin.Message = msg; app.ProgressWin.Value = value;
+            end
+            drawnow;
+        end
+
+        function closeProgress(app)
+            if isvalid(app) && ~isempty(app.ProgressWin) && isvalid(app.ProgressWin)
+                close(app.ProgressWin);
+            end
+        end
+
         function closingDialog(app, msg)
             % "Closing" progress dialog inside the (already rendered) window:
             % appears at once; its indeterminate bar is animated by the window
@@ -2194,6 +2238,29 @@ if isfield(c.generator, 'load') && strcmp(c.generator.load, '50')
     t = 'voltage into 50 Ω (open circuit: twice)';
 else
     t = 'open-circuit peak voltage';
+end
+end
+
+function op = workArea()
+% [left bottom width height] of the work area of the primary
+% screen (screen without the taskbar) in MATLAB coordinates (origin bottom left)
+scr = get(groot, 'ScreenSize');
+op = [1, 49, scr(3), scr(4) - 48];                         % fallback: 48 px taskbar at the bottom
+try
+    r = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+    s = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+    k = scr(3) / double(s.width);                            % Java pixels -> MATLAB pixels (display scaling)
+    op = [double(r.x) * k + 1, scr(4) - double(r.y + r.height) * k + 1, double(r.width) * k, double(r.height) * k];
+catch
+end
+op(3) = max(op(3), 1200); op(4) = max(op(4), 760);        % smallest usable window
+end
+
+function closeFigures(figs)
+% close the (hidden) saved-figure windows of Save measurement
+fc = struct2cell(figs);
+for i = 1:numel(fc)
+    if ~isempty(fc{i}) && isgraphics(fc{i}), close(fc{i}); end
 end
 end
 

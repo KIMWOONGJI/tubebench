@@ -10,7 +10,8 @@ function folder = saveMeasurement(meas, res, cfg, name, figs)
 %       metadata.json    instrument/software metadata (human readable)
 %       results.csv      per-frequency results incl. validity flags
 %       spectra.csv      relative channel responses and quality indicators
-%       fig_*.png/.pdf   figures (if figs given and cfg.output.exportFigures)
+%       fig_*.png        figures (if figs given and cfg.output.exportFigures;
+%                        other formats: cfg.output.figureFormats, e.g. 'pdf')
 %   An existing folder is NEVER overwritten: a numeric suffix is added.
 
 if nargin < 4 || isempty(name), name = meas.kind; end

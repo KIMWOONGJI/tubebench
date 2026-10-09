@@ -86,7 +86,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             fc = struct2cell(figs); close(fc{:});
             tc.verifyNotEqual(d1, d2);
             for fn = {'raw.mat', 'result.mat', 'config.json', 'metadata.json', 'results.csv', 'spectra.csv', ...
-                    'fig_reflection.png', 'fig_reflection.pdf'}
+                    'fig_reflection.png'}
                 tc.verifyTrue(isfile(fullfile(d1, fn{1})), fn{1});
             end
             S = load(fullfile(d1, 'raw.mat'));
@@ -466,7 +466,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyEqual(size(c2.geometry.micPositions), [1 4]);
             tc.verifyEqual(c2.mics(3).position, 3);
             tc.verifyEqual(c2.acquisition.ccld, true(1, 4));
-            tc.verifyEqual(c2.output.figureFormats, {'png', 'pdf'});
+            tc.verifyEqual(cellstr(c2.output.figureFormats), {'png'});
             bad = c; bad.excitation.sweep.amplitudeVpp = 5;
             tc.verifyError(@() tim.app.MeasurementSession(bad), 'tim:config:amplitude');
         end

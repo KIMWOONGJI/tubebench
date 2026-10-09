@@ -346,7 +346,7 @@ classdef TestGui < matlab.unittest.TestCase
 
         function leftPanelFitsWithoutScrolling(tc)
             % user request 2026-10-09: no scrolling in the control panel on the lab screen
-            % (maximised 1920 x 1080 -> about 985 px; restored window 960 - menu bar -> about 935 px)
+            % (window = work area of the 1920 x 1080 lab laptop screen: about 975 px inside the title and menu bars)
             app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
             L = app.H.left; g = L.Parent;
             rh = L.RowHeight;

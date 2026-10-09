@@ -20,7 +20,7 @@ and the formulas are in `theory.md` and in the **Formula** tab of the window.
 
 ## 2. The window
 
-The window title is "Transfer impedance tube". It opens maximised and has four parts:
+The window title is "Transfer impedance tube". It opens as a normal window as large as the screen without the taskbar (it can be moved and resized) and has four parts:
 
 * the **menu bar** (File, Help; section 7);
 * the **control panel** on the left, in workflow order: INSTRUMENTS, IMPEDANCE TUBE, EXCITATION,
@@ -271,6 +271,8 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 * **Save measurement**: raw data, results, configuration, metadata, CSV files and figures into a
   new folder under `data\` (section 12). A background-noise record, or a measurement that could
   not be processed, is saved with its raw data and the figures of its time signals and spectrum.
+  A "Saving the measurement" dialog (same style as the "Closing" dialog) shows the steps and a
+  progress bar; a save takes about 10–15 s, most of it the PNG figures.
 * **Reprocess**: computes the results of the last measurement again with the current IMPEDANCE TUBE
   fields (geometry, temperature, pressure) and the active calibration, e.g. after correcting a
   distance or loading another calibration. Save measurement again to keep the new results (a new
@@ -585,7 +587,7 @@ missing in the file keeps its default. Lengths in metres, amplitudes in Vpp (the
 | `calibration.repeatConfigI`, `verifyEmptySection` | true, true | repeated configuration I; empty-tube check (Test E) |
 | `calibration.coherenceMin`, `snrMin_dB` | 0.98, 20 dB | quality limits of the calibration |
 | `output.dataDir`, `calibrationDir` | `data`, `calibration` | output folders |
-| `output.saveRawStream`, `exportCsv`, `exportFigures`, `figureFormats` | true, true, true, png + pdf | what Save measurement writes |
+| `output.saveRawStream`, `exportCsv`, `exportFigures`, `figureFormats` | true, true, true, png | what Save measurement writes (add "pdf" for vector figures; about 3 s more per save) |
 | `simulation` | – | the virtual tube (geometry, specimen, termination, noise, generator clock error) |
 
 **Amplitudes**: the window and all messages use **Vpk** (generator peak voltage). The
@@ -709,7 +711,7 @@ never overwritten; a suffix `_2`, `_3`, … is added if needed.
 | `config.json`, `metadata.json` | configuration snapshot; metadata including `softwareInfo` |
 | `results.csv` | one row per frequency line: R, τ, R_term, Z_t, TL, power fractions, condition numbers, every mask and flag |
 | `spectra.csv` | transfer functions per channel, coherence, SNR; stepped sine also the step levels |
-| `fig_*.png`, `fig_*.pdf` | the figures (PNG 200 dpi, vector PDF; `output.figureFormats`) |
+| `fig_*.png` | the figures (PNG 200 dpi; a vector PDF only if `output.figureFormats` contains "pdf") |
 | `README.txt` | time, mode, software version, repository and commit |
 
 The **saved figures** are drawn by the same views as the window (`tim.app.plotResults`): header
