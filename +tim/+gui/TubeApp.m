@@ -4,6 +4,7 @@ classdef TubeApp < handle
     %   app = tim.gui.TubeApp();                      % default / example config
     %   app = tim.gui.TubeApp('config/user_config.json');
     %   app = tim.gui.TubeApp(file, 'Visible', 'off')  % hidden window (automated tests)
+    %   app.openMeasurement('data/20261009_111602_sweep_foam')  % show a saved measurement
     %
     %   Layout: menu bar (File, Help); control panel on the left in workflow
     %   order (INSTRUMENTS, IMPEDANCE TUBE, EXCITATION, CALIBRATION,
@@ -29,7 +30,8 @@ classdef TubeApp < handle
         Pages struct = struct() % tim.gui.ViewPage of every view
         WaveLines = gobjects(0) % lines of the time-signal view (live update)
         Saved logical = true    % the last measurement is saved (or there is nothing to save)
-        SavedDir char = ''      % folder of the last save
+        SavedDir char = ''      % folder of the last save (or of the opened measurement)
+        Opened logical = false  % the last measurement was opened from its folder (File > Open measurement…)
         GainEntered logical = true  % the gain was entered after an amplifier was chosen
         LastCheck char = ''     % last configuration warnings (logged once)
         CalStep double = 0      % current / total operator steps of a calibration
@@ -146,6 +148,18 @@ classdef TubeApp < handle
             [geom, env, msgs] = app.readTube();
         end
 
+        function openMeasurement(app, folder, useSavedTube)
+            %OPENMEASUREMENT Show a measurement saved by Save measurement (also
+            %   File > Open measurement…): raw.mat and result.mat of the folder in
+            %   every view; Reprocess and Save measurement then work as after a
+            %   measurement. The files are only read - a new save writes a new folder.
+            %   useSavedTube: 'ask' (default; a hidden window answers yes) | true |
+            %   false - put the tube set-up of the saved results (config.json of
+            %   the folder) into the IMPEDANCE TUBE fields when it differs from them.
+            if nargin < 3, useSavedTube = 'ask'; end
+            app.run(@() app.doOpenMeasurement(folder, useSavedTube), 'opening the measurement');
+        end
+
         function sel = ask(app, msg, title, options, defaultIdx, cancelIdx, icon)
             %ASK Operator dialog that can never hang MATLAB: non-blocking
             %   uiconfirm and a wait loop. (A blocking uiconfirm does not return
@@ -236,7 +250,9 @@ classdef TubeApp < handle
             h = struct();
             % ---------------- menu bar (version + repository: Help > About)
             m = uimenu(app.Fig, 'Text', 'File');
-            h.mLoadCfg = uimenu(m, 'Text', 'Load configuration…', 'MenuSelectedFcn', @(~, ~) app.onLoadConfig());
+            h.mOpenMeas = uimenu(m, 'Text', 'Open measurement…', 'MenuSelectedFcn', @(~, ~) app.onOpenMeasurement());
+            h.mLoadCfg = uimenu(m, 'Text', 'Load configuration…', 'Separator', 'on', ...
+                'MenuSelectedFcn', @(~, ~) app.onLoadConfig());
             h.mSaveCfg = uimenu(m, 'Text', 'Save configuration…', 'MenuSelectedFcn', @(~, ~) app.onSaveConfig());
             h.mExit = uimenu(m, 'Text', 'Exit', 'Separator', 'on', 'MenuSelectedFcn', @(~, ~) tim.gui.closeApp(app.Fig, app));
             m = uimenu(app.Fig, 'Text', 'Help');
@@ -623,21 +639,7 @@ classdef TubeApp < handle
             else
                 h.exMode.Value = 'sweep';     % 'noise' is script-only
             end
-            % tube geometry [mm] and air
-            gm = c.geometry;
-            h.tubeD.Value = app.toMm(gm.diameter);
-            % coordinates in the config -> distances s1, L1, d, L2, s2 in the GUI, on a
-            % 1 nm grid (1e3*(-0.041 - (-0.07)) alone would be 29.000000000000004)
-            x = gm.micPositions;
-            if all(isfinite(x))
-                h.s1.Value = app.toMm(x(2) - x(1)); h.s2.Value = app.toMm(x(4) - x(3));
-            else
-                h.s1.Value = app.toMm(gm.spacingUp); h.s2.Value = app.toMm(gm.spacingDown);
-            end
-            h.L1.Value = app.mm2txt(gm.xFront - x(2));
-            h.dTh.Value = app.mm2txt(gm.xRear - gm.xFront);
-            h.L2.Value = app.mm2txt(x(3) - gm.xRear);
-            h.temp.Value = c.environment.temperature_C; h.pres.Value = c.environment.pressure_Pa / 1e3;
+            app.tubeToUi(c.geometry, c.environment);     % tube geometry [mm] and air
             ls = struct('impedance_ohm', 8, 'maxPower_W', 1);
             if isfield(c, 'loudspeaker'), ls = c.loudspeaker; end
             h.spkZ.Value = ls.impedance_ohm; h.spkP.Value = ls.maxPower_W;
@@ -663,6 +665,24 @@ classdef TubeApp < handle
             if isempty(app.Session), app.refreshCards(); end
             app.buildCalSteps();
             app.refreshCalLabel();
+        end
+
+        function tubeToUi(app, gm, env)
+            % geometry and air -> IMPEDANCE TUBE fields. Coordinates in the config ->
+            % distances s1, L1, d, L2, s2 in the GUI, on a 1 nm grid
+            % (1e3*(-0.041 - (-0.07)) alone would be 29.000000000000004)
+            h = app.H;
+            h.tubeD.Value = app.toMm(gm.diameter);
+            x = gm.micPositions;
+            if all(isfinite(x))
+                h.s1.Value = app.toMm(x(2) - x(1)); h.s2.Value = app.toMm(x(4) - x(3));
+            else
+                h.s1.Value = app.toMm(gm.spacingUp); h.s2.Value = app.toMm(gm.spacingDown);
+            end
+            h.L1.Value = app.mm2txt(gm.xFront - x(2));
+            h.dTh.Value = app.mm2txt(gm.xRear - gm.xFront);
+            h.L2.Value = app.mm2txt(x(3) - gm.xRear);
+            h.temp.Value = env.temperature_C; h.pres.Value = env.pressure_Pa / 1e3;
         end
 
         function excitationToUi(app, mode)
@@ -1008,6 +1028,9 @@ classdef TubeApp < handle
                 elseif startsWith(err.identifier, {'tim:gui:input', 'tim:gui:geometry', 'tim:config:'})
                     app.log('Warning: %s', err.message);
                     msg = err.message; icon = 'warning'; ttl = 'Check the settings';
+                elseif strcmp(err.identifier, 'tim:gui:open')
+                    app.log('Open measurement: %s', err.message);
+                    msg = err.message; icon = 'warning'; ttl = 'Open measurement';
                 else
                     app.log('Error (%s): %s', what, err.message);
                     msg = err.message; icon = 'error'; ttl = 'Error';
@@ -1068,7 +1091,7 @@ classdef TubeApp < handle
             end
             h = app.H; P = tim.gui.palette();
             ctl = [app.inputControls(), {h.connect, h.disconnect, h.start, h.background, h.loadCal, h.runCal, ...
-                h.save, h.reprocess, h.mLoadCfg, h.mSaveCfg}, num2cell(h.mHelp)];
+                h.save, h.reprocess, h.mOpenMeas, h.mLoadCfg, h.mSaveCfg}, num2cell(h.mHelp)];
             if tf
                 app.Busy = true;
                 for i = 1:numel(ctl), ctl{i}.Enable = 'off'; end
@@ -1267,11 +1290,92 @@ classdef TubeApp < handle
                 app.log('Disconnected: a new configuration was loaded - press Connect again.');
             end
             app.Cfg = cfg; app.LastCheck = '';
-            app.LastMeas = []; app.LastRes = []; app.Saved = true;
+            app.LastMeas = []; app.LastRes = []; app.Saved = true; app.Opened = false;
             app.refreshFromCfg();
             app.refreshViews();
             app.setResultStatus();
             app.log('Loaded configuration %s', file);
+        end
+
+        function onOpenMeasurement(app)
+            % File > Open measurement…: select raw.mat (or result.mat) in a folder
+            % written by Save measurement
+            if app.Busy || ~app.confirmDiscard('Open a measurement'), return; end
+            c = app.Cfg; if isempty(app.Session), c.mode = app.H.mode.Value; end   % data\ or data\simulation\
+            start = tim.app.outputDir(c, 'data');
+            if ~isempty(app.SavedDir) && isfolder(fileparts(app.SavedDir)), start = fileparts(app.SavedDir); end
+            if ~isfolder(start), start = tim.app.projectRoot(); end
+            [f, p] = uigetfile({'raw.mat;result.mat', 'Saved measurement (raw.mat, result.mat)'}, ...
+                'Open measurement – select raw.mat in a measurement folder', [start filesep]);
+            figure(app.Fig);
+            if isequal(f, 0), return; end
+            app.openMeasurement(p);
+        end
+        function doOpenMeasurement(app, folder, useSavedTube)
+            folder = char(folder);
+            if isfile(folder), folder = fileparts(folder); end       % raw.mat / result.mat given
+            if endsWith(folder, filesep), folder = folder(1:end - 1); end
+            f = fullfile(folder, 'raw.mat');
+            if ~isfile(f)
+                error('tim:gui:open', 'No raw.mat in %s.\nSelect raw.mat in a folder written by Save measurement.', folder);
+            end
+            ws = [warning('off', 'MATLAB:load:variableNotFound'), warning('off', 'tim:config:unknownField')];
+            wsEnd = onCleanup(@() warning(ws));      % older files: missing variables, renamed config fields
+            S = load(f, 'meas');
+            if ~isfield(S, 'meas') || ~isstruct(S.meas) || ~all(isfield(S.meas, {'kind', 'records', 'fs', 'timestamp', 'metadata'}))
+                error('tim:gui:open', '%s does not hold a measurement of this program (variable "meas").', f);
+            end
+            res = [];
+            if isfile(fullfile(folder, 'result.mat'))
+                R = load(fullfile(folder, 'result.mat'), 'res');
+                if isfield(R, 'res'), res = R.res; end
+            end
+            saved = [];                  % configuration at the save = set-up of the saved results
+            if isfile(fullfile(folder, 'config.json'))
+                try, saved = tim.app.loadConfig(fullfile(folder, 'config.json')); catch, end
+            end
+            m = S.meas; md = m.metadata;
+            app.LastMeas = m; app.LastRes = res;
+            app.Saved = true; app.SavedDir = folder; app.Opened = true;
+            app.refreshViews();
+            app.setResultStatus();
+            [~, nm] = fileparts(folder);
+            sp = '';
+            if isfield(md, 'specimen') && ~strcmp(md.specimen, 'unnamed specimen'), sp = sprintf(', specimen "%s"', md.specimen); end
+            if (isfield(md, 'mode') && strcmp(md.mode, 'simulation')) || isfield(md, 'WARNING'), sp = [sp ', SIMULATED DATA']; end
+            app.log('Opened %s: %s of %s%s.', nm, app.signalName(m.kind), m.timestamp, sp);
+            if ~isempty(res) && isfield(res, 'summary')
+                app.log('Saved results (calibration %s): %s', res.calibration.version, res.summary);
+            elseif ~strcmp(m.kind, 'background')
+                app.log('No results were saved with it - press Reprocess to compute them.');
+            end
+            % tube set-up of the saved results vs. the IMPEDANCE TUBE fields
+            if ~isempty(saved)
+                [g, e, msgs] = app.readTube();
+                if ~isempty(msgs) || ~sameTube(g, e, saved.geometry, saved.environment)
+                    txt = tubeText(saved.geometry, saved.environment);
+                    use = useSavedTube;
+                    if ~islogical(use)
+                        sel = app.ask(sprintf(['The saved results were computed with this tube set-up:\n%s\n\n' ...
+                            'The IMPEDANCE TUBE fields show another set-up. Put the saved set-up into the ' ...
+                            'fields? (Reprocess uses the fields.)'], txt), 'Open measurement', ...
+                            {'Use the saved set-up', 'Keep the current fields'}, 1, 2, 'question');
+                        use = strcmp(sel, 'Use the saved set-up');
+                    end
+                    if use
+                        app.tubeToUi(saved.geometry, saved.environment);
+                        app.onTubeChanged();
+                        app.log('IMPEDANCE TUBE fields set to the saved set-up: %s.', txt);
+                    else
+                        app.log('IMPEDANCE TUBE fields kept; the saved results used %s.', txt);
+                    end
+                end
+            end
+            [cal, ~] = app.currentCalibration();
+            cv = 'none - results not valid'; if ~isempty(cal), cv = cal.version; end
+            if ~strcmp(m.kind, 'background')
+                app.log('Reprocess uses the IMPEDANCE TUBE fields and the active calibration (%s).', cv);
+            end
         end
 
         function onConnect(app)
@@ -1458,7 +1562,7 @@ classdef TubeApp < handle
             app.showTab(app.H.waveTab);                   % live view
             app.prepareLive();
             m = app.Session.measure(app.Cfg.excitation.mode);
-            app.LastMeas = m; app.LastRes = []; app.Saved = false; app.SavedDir = '';
+            app.LastMeas = m; app.LastRes = []; app.Saved = false; app.SavedDir = ''; app.Opened = false;
             app.LastMeas.metadata.specimen = app.specimenName();   % name at Start (folder + metadata)
             app.process();
             app.setResultStatus();
@@ -1504,7 +1608,7 @@ classdef TubeApp < handle
             app.showTab(app.H.waveTab);
             app.prepareLive();
             m = app.Session.measureBackground(2);
-            app.LastMeas = m; app.LastRes = []; app.Saved = false; app.SavedDir = '';
+            app.LastMeas = m; app.LastRes = []; app.Saved = false; app.SavedDir = ''; app.Opened = false;
             app.refreshViews();
             app.setResultStatus();
             integ = m.channelInfo{1}.integrity;
@@ -1936,7 +2040,7 @@ classdef TubeApp < handle
             end
             app.progressDialog('Saving the measurement', [done, {'Done.'}], 1);
             clear figEnd
-            app.Saved = true; app.SavedDir = d;
+            app.Saved = true; app.SavedDir = d; app.Opened = false;
             app.setResultStatus();
             app.log('Saved to %s', d);
         end
@@ -1948,7 +2052,7 @@ classdef TubeApp < handle
         function doReprocess(app)
             app.readCfgFromUi();                  % the fields as they are now (geometry, air)
             app.process();
-            app.Saved = false; app.SavedDir = '';  % new results: not saved yet
+            app.Saved = false; app.SavedDir = ''; app.Opened = false;  % new results: not saved yet
             app.setResultStatus();
         end
 
@@ -2055,7 +2159,8 @@ classdef TubeApp < handle
                 h.resultStatus.Text = 'No measurement'; h.resultStatus.FontColor = P.ui.muted; h.resultStatus.Tooltip = '';
             elseif app.Saved
                 [~, nm] = fileparts(app.SavedDir);
-                h.resultStatus.Text = ['Saved: ' nm]; h.resultStatus.FontColor = P.ok;
+                verb = 'Saved: '; if app.Opened, verb = 'Opened: '; end
+                h.resultStatus.Text = [verb nm]; h.resultStatus.FontColor = P.ok;
                 h.resultStatus.Tooltip = app.SavedDir;
             else
                 ts = char(m.timestamp); if numel(ts) >= 19, ts = ts(12:19); end
@@ -2135,16 +2240,17 @@ classdef TubeApp < handle
 
         function fig = showAbout(app)
             % Help > About: program, version, release date, Git commit, MATLAB
-            % release and the repository link (selectable text: can be copied)
+            % release, the repository and the author's portfolio (selectable
+            % text: can be copied)
             if ~isempty(app.AboutFig) && isvalid(app.AboutFig)
                 figure(app.AboutFig); fig = app.AboutFig; return
             end
             [~, info] = tim.app.softwareVersion();
-            p = app.Fig.Position; w = 470; hgt = 250;
+            p = app.Fig.Position; w = 500; hgt = 276;
             fig = uifigure('Name', 'About Transfer impedance tube', 'Resize', 'off', 'Visible', app.Fig.Visible, ...
                 'Position', [p(1) + (p(3) - w) / 2, p(2) + (p(4) - hgt) / 2, w, hgt]);
             app.AboutFig = fig;
-            gl = uigridlayout(fig, [5 2], 'RowHeight', {28, 22, '1x', 22, 30}, 'ColumnWidth', {'1x', 90}, ...
+            gl = uigridlayout(fig, [6 2], 'RowHeight', {28, 22, '1x', 22, 22, 30}, 'ColumnWidth', {'1x', 90}, ...
                 'Padding', [16 12 16 12], 'RowSpacing', 6);
             l = uilabel(gl, 'Text', 'Transfer impedance tube', 'FontSize', 17, 'FontWeight', 'bold');
             l.Layout.Column = [1 2];
@@ -2158,12 +2264,18 @@ classdef TubeApp < handle
             ta = uitextarea(gl, 'Value', lines, 'Editable', 'off', 'FontName', 'Consolas', 'FontSize', 11);
             ta.Layout.Column = [1 2];
             app.H.aboutText = ta;
-            lk = uihyperlink(gl, 'Text', info.repository, 'URL', info.repository, ...
+            short = @(u) regexprep(u, '^https?://', '');
+            lk = uihyperlink(gl, 'Text', ['Source code – ' short(info.repository)], 'URL', info.repository, ...
                 'Tooltip', 'opens in the web browser - private repository: sign in with an account that has access');
             lk.Layout.Column = [1 2];
             app.H.aboutLink = lk;
+            u = tim.app.portfolioUrl();
+            lk = uihyperlink(gl, 'Text', ['Portfolio – ' short(u)], 'URL', u, ...
+                'Tooltip', 'portfolio of the author - opens in the web browser');
+            lk.Layout.Column = [1 2];
+            app.H.aboutPortfolio = lk;
             b = uibutton(gl, 'Text', 'OK', 'ButtonPushedFcn', @(~, ~) delete(fig));
-            b.Layout.Row = 5; b.Layout.Column = 2;
+            b.Layout.Row = 6; b.Layout.Column = 2;
         end
 
         function progressDialog(app, title, msg, value)
@@ -2254,6 +2366,27 @@ try
 catch
 end
 op(3) = max(op(3), 1200); op(4) = max(op(4), 760);        % smallest usable window
+end
+
+function tf = sameTube(g1, e1, g2, e2)
+% same tube set-up within 0.1 µm, 0.001 °C and 0.01 Pa (not entered = NaN matches NaN)
+a = [g1.diameter, g1.spacingUp, g1.spacingDown, g1.micPositions(:).', g1.xFront, g1.xRear];
+b = [g2.diameter, g2.spacingUp, g2.spacingDown, g2.micPositions(:).', g2.xFront, g2.xRear];
+tf = numel(a) == numel(b) && all((isnan(a) & isnan(b)) | abs(a - b) <= 1e-7) && ...
+    abs(e1.temperature_C - e2.temperature_C) <= 1e-3 && abs(e1.pressure_Pa - e2.pressure_Pa) <= 1e-2;
+end
+
+function t = tubeText(g, e)
+% "D 29, s1 29, L1 41, d 75, L2 41, s2 29 mm, 20 °C, 101.325 kPa"
+mm = @(v) num2str(round(1e3 * v, 3));
+x = g.micPositions;
+if all(isfinite(x)) && isfinite(g.xFront) && isfinite(g.xRear)
+    t = sprintf('D %s, s1 %s, L1 %s, d %s, L2 %s, s2 %s mm', mm(g.diameter), mm(x(2) - x(1)), ...
+        mm(g.xFront - x(2)), mm(g.xRear - g.xFront), mm(x(3) - g.xRear), mm(x(4) - x(3)));
+else
+    t = sprintf('D %s, s1 %s, s2 %s mm, L1 / d / L2 not entered', mm(g.diameter), mm(g.spacingUp), mm(g.spacingDown));
+end
+t = sprintf('%s, %g °C, %g kPa', t, e.temperature_C, e.pressure_Pa / 1e3);
 end
 
 function closeFigures(figs)

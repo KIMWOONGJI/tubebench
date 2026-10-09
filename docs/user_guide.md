@@ -119,7 +119,8 @@ The same style is used in the window and in the saved figures:
   (≥ 99 % of the input range) mark a measurement as failing. The results are still computed, the
   message pane lists the problem and a "Data integrity" warning appears.
 * **Unsaved measurement**: before an unsaved measurement is replaced or lost (Start measurement,
-  Measure background noise, File > Load configuration…, closing the window), a dialog asks
+  Measure background noise, File > Open measurement…, File > Load configuration…, closing the
+  window), a dialog asks
   "… anyway? The measurement is then lost." with the action and Cancel.
 * **Closing the window** (the window's X or File > Exit): a "Closing" dialog appears at once and
   lists the steps: generator output off, LAN-XI module back to Idle (2 s time-outs, so a
@@ -267,7 +268,8 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 ### RESULTS
 
 * **Last result**: "No measurement"; "Swept sine 11:15:37 – not saved" (red) after a measurement;
-  "Saved: `<folder>`" (green, the tooltip gives the full path) after Save measurement.
+  "Saved: `<folder>`" (green, the tooltip gives the full path) after Save measurement;
+  "Opened: `<folder>`" (green) after File > Open measurement….
 * **Save measurement**: raw data, results, configuration, metadata, CSV files and figures into a
   new folder under `data\` (section 12). A background-noise record, or a measurement that could
   not be processed, is saved with its raw data and the figures of its time signals and spectrum.
@@ -276,7 +278,8 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 * **Reprocess**: computes the results of the last measurement again with the current IMPEDANCE TUBE
   fields (geometry, temperature, pressure) and the active calibration, e.g. after correcting a
   distance or loading another calibration. Save measurement again to keep the new results (a new
-  folder; the first one is not changed).
+  folder; the first one is not changed). This also works for a measurement opened with File > Open
+  measurement….
 
 ### Which buttons are available
 
@@ -497,7 +500,16 @@ criteria; 12 units and level references. The derivations are in `theory.md`.
 
 ## 7. Menus
 
-* **File**: Load configuration…, Save configuration…, Exit.
+* **File**: Open measurement…, Load configuration…, Save configuration…, Exit.
+  * *Open measurement…* shows a measurement saved by Save measurement again: select `raw.mat` (or
+    `result.mat`) in its folder under `data\`. Every view shows the saved data and results (the
+    results are not recomputed), Last result reads "Opened: `<folder>`" and the message pane gives
+    the measurement time, the specimen and the calibration of the saved results. If the tube
+    set-up of the saved results (its `config.json`) differs from the IMPEDANCE TUBE fields, a
+    dialog asks "Use the saved set-up" (puts it into the fields) or "Keep the current fields".
+    **Reprocess** then computes the results again with the fields and the active calibration;
+    **Save measurement** writes a new folder. The opened files are only read, never changed. It
+    asks about an unsaved measurement first and works connected or not.
   * *Load configuration…* asks about an unsaved measurement; when connected it asks "Disconnect and
     load" (the operating mode, the microphones and the calibration settings belong to the
     connection). The last measurement is cleared.
@@ -509,9 +521,9 @@ criteria; 12 units and level references. The derivations are in `theory.md`.
   documents of `docs/`, opened in the MATLAB Editor; Source code on GitHub (web browser);
   **About**.
 * **Help > About** shows the program, the software version and release date, the Git commit and
-  branch, the MATLAB release and the repository link
-  (<https://github.com/kimwoongji/transfer-impedance-tube-measurement>, private). The text can be
-  selected and copied.
+  branch, the MATLAB release, the repository link
+  (<https://github.com/kimwoongji/transfer-impedance-tube-measurement>, private) and the author's
+  portfolio (<https://kimwoongji.github.io>). The text can be selected and copied.
 
 The version, the repository and the commit are stored with every measurement (`metadata.json`,
 field `softwareInfo`, and `README.txt`) and calibration (`cal.meta.softwareInfo`). The commit is
@@ -724,6 +736,10 @@ figures. A background-noise record, or a measurement that could not be processed
 without results and CSV files, with the figures it has in the window: `fig_waveforms` and
 `fig_spectrum`. The calibration view is drawn by `tim.app.plotCalibration(cal)`; it is not saved
 with a measurement.
+
+A saved folder is shown again in the window with **File > Open measurement…** (section 7), or
+from a script with `app.openMeasurement(folder)`; without the window: `load(fullfile(folder,
+'raw.mat'))` and `tim.app.processMeasurement(meas, cfg, cal)`.
 
 Simulated measurements are labelled "SIMULATED DATA" in `README.txt` and in the metadata, and are
 stored separately in `data\simulation\` and `calibration\simulation\`, so they cannot be confused

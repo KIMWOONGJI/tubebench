@@ -387,6 +387,64 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual([s.fStart s.fStop s.nPoints s.repetitions], [200 3000 12 2], 'typed stepped values kept');
         end
 
+        function openSavedMeasurement(tc)
+            % user request 2026-10-09: File > Open measurement… shows a saved
+            % measurement again (views, RESULTS line), offers the tube set-up of the
+            % saved results, allows Reprocess / Save; the opened files never change
+            c = tim.app.defaultConfig();
+            c.mode = 'simulation';
+            c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data');
+            c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            s.connect(); s.prepareAcquisition();
+            meas = s.measure('sweep'); s.close();
+            meas.metadata.specimen = 'demo';
+            res = tim.app.processMeasurement(meas, c, []);
+            d = tim.app.saveMeasurement(meas, res, c, 'sweep_demo', []);
+            raw0 = dir(fullfile(d, 'raw.mat'));
+            % the app starts with another set-up (L1 9 mm longer) and no measurement
+            c2 = c; c2.geometry.micPositions(1:2) = c.geometry.micPositions(1:2) - 0.009;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c2, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            L1 = h.L1.Value;
+            app.openMeasurement(d, false);                         % keep the fields
+            tc.verifyEqual(app.LastMeas.timestamp, meas.timestamp);
+            tc.verifyEqual(app.LastRes.analysis.R, res.analysis.R, 'saved results shown, not recomputed');
+            tc.verifyTrue(app.Saved); tc.verifyTrue(app.Opened);
+            [~, nm] = fileparts(d);
+            tc.verifyEqual(h.resultStatus.Text, ['Opened: ' nm]);
+            tc.verifyEqual(h.L1.Value, L1, 'fields kept');
+            tc.verifyNotEmpty(findobj(h.axR, 'Type', 'line'), 'result views drawn');
+            tc.verifyEqual(h.reprocess.Enable, matlab.lang.OnOffSwitchState.on);
+            log = strjoin(cellstr(h.log.Value), newline);
+            tc.verifySubstring(log, 'specimen "demo", SIMULATED DATA');
+            g = c.geometry;
+            tc.verifySubstring(log, sprintf('IMPEDANCE TUBE fields kept; the saved results used D 29, s1 29, L1 %g,', ...
+                round(1e3 * (g.xFront - g.micPositions(2)), 3)));
+            app.openMeasurement(fullfile(d, 'raw.mat'), true);      % file given; saved set-up into the fields
+            g = app.currentGeometry();
+            tc.verifyEqual(g.micPositions, c.geometry.micPositions, 'AbsTol', 1e-12);
+            % Reprocess -> new results, not saved; Save -> a NEW folder; raw.mat unchanged
+            feval(h.reprocess.ButtonPushedFcn, h.reprocess, []);
+            tc.verifyFalse(app.Saved); tc.verifySubstring(h.resultStatus.Text, 'not saved');
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            tc.verifyTrue(app.Saved); tc.verifyFalse(app.Opened);
+            tc.verifyNotEqual(app.SavedDir, d);
+            tc.verifySubstring(h.resultStatus.Text, 'Saved: ');
+            raw1 = dir(fullfile(d, 'raw.mat'));
+            tc.verifyEqual([raw1.bytes raw1.datenum], [raw0.bytes raw0.datenum], 'opened raw.mat unchanged');
+            % a folder without raw.mat: message only, the measurement shown is kept
+            before = app.LastMeas.timestamp;
+            app.openMeasurement(tc.tmp);
+            tc.verifyEqual(app.LastMeas.timestamp, before);
+            tc.verifySubstring(strjoin(cellstr(h.log.Value), newline), 'Open measurement: No raw.mat in');
+            tc.verifyEqual(h.save.Enable, matlab.lang.OnOffSwitchState.on, 'controls unlocked again');
+        end
+
         function windowTitleMenusAndAbout(tc)
             % user request 2026-10-09: version and repository in Help > About of a
             % menu bar (as in other programs) instead of a footer; tab "Formula"
@@ -394,6 +452,9 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.Fig.Name, 'Transfer impedance tube', 'no hyphen in the window name');
             top = findall(app.Fig, 'Type', 'uimenu', 'Parent', app.Fig);
             tc.verifyEqual(sort({top.Text}), {'File', 'Help'});
+            file = top(strcmp({top.Text}, 'File'));
+            tc.verifyEqual(flip({file.Children.Text}), {'Open measurement…', 'Load configuration…', ...
+                'Save configuration…', 'Exit'}, 'File menu');
             tc.verifyEmpty(findall(app.Fig, 'Type', 'uihyperlink'), 'no footer link any more');
             tc.verifyEqual(app.H.formulaTab.Title, 'Formula');
             % user request 2026-10-09: tabs grouped by the workflow (major tab > sub tab)
@@ -410,6 +471,9 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifySubstring(txt, info.version);
             tc.verifySubstring(txt, info.commit);
             tc.verifyEqual(app.H.aboutLink.URL, tim.app.repositoryUrl());
+            % user request 2026-10-09: link to the author's portfolio site
+            tc.verifyEqual(app.H.aboutPortfolio.URL, 'https://kimwoongji.github.io');
+            tc.verifyEqual(app.H.aboutPortfolio.Text, 'Portfolio – kimwoongji.github.io');
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
             tc.verifyNumElements(findall(groot, 'Type', 'figure', 'Name', 'About Transfer impedance tube'), 1, 'one About window');
         end
