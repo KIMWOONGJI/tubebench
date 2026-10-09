@@ -41,7 +41,8 @@ classdef SimulatedRig < handle
                                    % length of the frequency-sampled responses: with 4 ms
                                    % the wrapped precursor caused 0.4 % FIR error (diagnosed).
         FirTaps double = 16384
-        LossModel char = 'iso10534'
+        LossModel char = 'kirchhoff'    % tube-loss model of the virtual tube; taken from
+                                        % cfg.analysis.lossModel (same model as the analysis)
         Seed double = 1
     end
     properties (SetAccess = private)
@@ -67,6 +68,9 @@ classdef SimulatedRig < handle
                 obj.Environment = cfg.environment;
                 mp = zeros(1, 4); mp([cfg.mics.channel]) = [cfg.mics.position];
                 obj.MicPosOfChannel = mp;
+                if isfield(cfg, 'analysis') && isfield(cfg.analysis, 'lossModel') && ~isempty(cfg.analysis.lossModel)
+                    obj.LossModel = cfg.analysis.lossModel;   % (cfg.simulation.LossModel may still override)
+                end
                 if isfield(cfg, 'simulation')
                     s = cfg.simulation;
                     f = fieldnames(s);

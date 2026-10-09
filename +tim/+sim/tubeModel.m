@@ -19,9 +19,18 @@ function out = tubeModel(f, geom, env, sample, termination, opts)
 %     'matrix'    sample.T = @(f) -> [Nf x 4] (T11 T12 T21 T22)
 %   termination.R : complex scalar or @(f) reflection coefficient referred to
 %                   the plane termination.x (0 = anechoic, 1 = rigid)
-%   termination.x : axial position of the termination plane [m]
-%   opts.lossModel : passed to wavenumber ('iso10534' default)
+%   termination.x : axial position of the termination plane [m], >= xRear.
+%                   The tube ENDS there: a microphone at x > termination.x
+%                   sits behind the termination (e.g. behind a rigid plug)
+%                   and receives NO sound, p = 0 (out.behindTermination).
+%                   The standing wave is not continued past the plug.
+%   opts.lossModel : passed to wavenumber ('kirchhoff' default; use the
+%                    analysis setting cfg.analysis.lossModel)
 %   opts.incident  : complex amplitude of the incident wave at xFront (1)
+%
+%   NOTE: the field is built with the SAME air properties and wavenumber as
+%   the analysis, so a round trip (Test F) verifies the decomposition
+%   algebra only, not the physical tube model.
 %
 %   out.p  (Nf x 4) pressures at geom.micPositions
 %   out.T  (Nf x 4) true transfer matrix,  out.R, out.tau, out.Rterm (true)
@@ -33,12 +42,16 @@ arguments
     env struct
     sample struct
     termination struct
-    opts.lossModel char = 'iso10534'
+    opts.lossModel char = 'kirchhoff'
     opts.incident double = 1
 end
 air = tim.acoustics.airProperties(env);
 [k, Zc] = tim.acoustics.wavenumber(f, air, geom.diameter, opts.lossModel);
 xF = geom.xFront; xR = geom.xRear; d = xR - xF;
+if termination.x < xR
+    error('tim:sim:termination', 'Termination plane x = %.4g m lies upstream of the rear face xRear = %.4g m.', ...
+        termination.x, xR);
+end
 
 switch sample.type
     case 'thin'
@@ -79,8 +92,11 @@ incL = incL .* s; refL = refL .* s;
 % Field at microphones
 xm = geom.micPositions(:).';
 p = zeros(numel(f), 4);
+behind = false(1, 4);
 for m = 1:4
-    if xm(m) <= xF
+    if xm(m) > termination.x
+        behind(m) = true;              % behind the termination (rigid plug): no sound, p = 0
+    elseif xm(m) <= xF
         p(:, m) = incL .* exp(-1j * k * (xm(m) - xF)) + refL .* exp(1j * k * (xm(m) - xF));
     elseif xm(m) >= xR
         p(:, m) = C .* exp(-1j * k * (xm(m) - xR)) + D .* exp(1j * k * (xm(m) - xR));
@@ -89,7 +105,8 @@ for m = 1:4
     end
 end
 out = struct('f', f, 'p', p, 'T', T, 'pL', pL, 'uL', uL, 'pR', pR, 'uR', uR, ...
-    'R', refL ./ incL, 'tau', C ./ incL, 'Rterm', D ./ C, 'k', k, 'Zc', Zc, 'air', air);
+    'R', refL ./ incL, 'tau', C ./ incL, 'Rterm', D ./ C, 'k', k, 'Zc', Zc, 'air', air, ...
+    'behindTermination', behind);
 if strcmp(sample.type, 'thin')
     out.Zt = Zt;
 end

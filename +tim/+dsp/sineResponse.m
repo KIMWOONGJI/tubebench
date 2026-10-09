@@ -18,7 +18,11 @@ function r = sineResponse(x, fs, fNominal, opts)
 %   (exp(+j w t) convention: a_c is the phasor of channel c.)
 %   H_c = sum_b a_cb conj(a_rb) / sum_b |a_rb|^2,   coherence-like
 %   g2_c = |sum a_c a_r^*|^2 / (sum|a_c|^2 sum|a_r|^2), standard error of
-%   H from the block scatter, SNR = |a|^2/2 / residual variance.
+%   H from the block scatter.
+%   snr_dB          = (|a|^2/2) / (G_n fs/L), per block of L = N/nBlocks
+%                     samples (narrow-band; G_n one-sided noise PSD near f).
+%                     The SNR of the nBlocks average is snr_dB + 10 log10(nBlocks).
+%   snrBroadband_dB = (|a|^2/2) / residual variance (all frequencies).
 
 arguments
     x double
@@ -70,15 +74,33 @@ end
 %                     noise PSD taken from f +- (10..100) Hz (bench finding
 %                     2026-10-08: broadband SNR was negative for a clearly
 %                     measurable 40 dB SPL tone in 60 dB SPL room noise).
+%   Derivation: white noise of variance s^2 has the one-sided PSD G = 2 s^2/fs
+%   (pwelch of a real signal). The LS fit of [cos, -sin, 1] over L samples
+%   gives var = s^2/(L/2) per quadrature, E|da|^2 = 4 s^2/L, so the noise
+%   power of the fitted sinusoid is E|da|^2/2 = 2 s^2/L = G*fs/L (= ENBW fs/L
+%   of an L-point rectangular DFT bin). Hence SNR = (|a|^2/2) / (G fs/L).
+%   (Formula review 2026-10-09, dsp-1: a factor 1/2 on G made snr_dB 3.01 dB
+%   too high; dsp-2: the plain median of an unaveraged periodogram is ln2 =
+%   -1.59 dB below the mean PSD; together +4.6 dB with the default settings.)
 toneP = mean(abs(a).^2 / 2, 1);
 resAll = zeros(N, C); tb = t;
 M = [cos(2*pi*fHat*tb), -sin(2*pi*fHat*tb), ones(N, 1)];
 resAll(:, :) = x - M * (M \ x);
 nf = min(N, 2^floor(log2(N)));
-[Pr, fr] = pwelch(resAll, hann(min(nf, 8192), 'periodic'), [], min(nf, 8192), fs);
+nw = min(nf, 8192);
+[Pr, fr] = pwelch(resAll, hann(nw, 'periodic'), [], nw, fs);   % one-sided PSD G [V^2/Hz]
 band = abs(fr - fHat) >= 10 & abs(fr - fHat) <= 100;
-if nnz(band) < 3, band = abs(fr - fHat) <= 200 & abs(fr - fHat) >= 2 * fs / min(nf, 8192); end
-noiseInBw = median(Pr(band, :), 1) / 2 * fs / L;   % one-sided PSD -> noise power in fit bandwidth
+if nnz(band) < 3, band = abs(fr - fHat) <= 200 & abs(fr - fHat) >= 2 * fs / nw; end
+% Unbiased, robust band estimate of G: mean of the band bins after removing
+% stray lines (previous step, harmonics, mains) above 10 x median. For a
+% Gaussian-noise periodogram (chi-square, 2 dof per bin) the trimmed mean is
+% 0.03 dB low; the plain median would be 1.59 dB low.
+Gn = zeros(1, C);
+for c = 1:C
+    p = Pr(band, c);
+    Gn(c) = mean(p(p <= 10 * median(p)));
+end
+noiseInBw = Gn * fs / L;                % G x ENBW fs/L of the L-sample sine fit (= E|da|^2/2)
 r = struct('fNominal', fNominal, 'f', fHat, 'clockRatio', fHat / fNominal, ...
     'amplitude', mean(abs(a), 1), 'phasor', mean(a, 1), 'H', H, 'Hblocks', Hb, ...
     'stdErr', sem, 'coherence', abs(Scr).^2 ./ (Srr * Scc), ...

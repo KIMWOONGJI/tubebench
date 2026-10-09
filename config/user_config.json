@@ -92,7 +92,7 @@
     "spacingDown": 0.029,
     "xFront": 0,
     "xRear": 0.075,
-    "note": "CAD design values (cad/transfer-impedance-tube.step, Assy_SIT, SolidWorks 2024): port centres from holder/mic axes; specimen fills the 75 mm middle section. s1 29, L1 41, d 75, L2 41, s2 29 mm. Calibration with the EMPTY 75 mm section (SIT-PT-003) mounted; M2->M3 = L1 + d + L2 = 157 mm is fixed by the hardware. Verify with calipers on the real tube."
+    "note": "CAD design values (cad/transfer-impedance-tube.step, Assy_SIT, SolidWorks 2024): port centres from holder/mic axes; specimen fills the 75 mm middle section. s1 29, L1 41, d 75, L2 41, s2 29 mm. Calibration with the empty 75 mm specimen section (SIT-PT-003) mounted; M2->M3 = L1 + d + L2 = 157 mm is fixed by the hardware. Verify with calipers on the real tube."
   },
   "tubeDrawing": {
     "outerDiameter": 0.065,
@@ -160,7 +160,7 @@
     "fMin": 120,
     "fMax": 4500,
     "df": 2,
-    "lossModel": "iso10534",
+    "lossModel": "kirchhoff",
     "velocityRef": "mean",
     "condMax": 40,
     "phaseUncertainty_rad": 0.002,

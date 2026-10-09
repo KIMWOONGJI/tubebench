@@ -13,9 +13,13 @@ cfg.projectName = 'transfer-impedance-tube-measurement';
 cfg.ui = struct('language', 'en');      % operator prompts in MATLAB: 'en' (default) | 'ko'
 
 % ---------------- instruments ----------------
+% The 33220A source impedance is always 50 ohm. OUTP:LOAD only rescales the
+% programmed amplitude: 'INF' -> VOLT is the open-circuit voltage; '50' ->
+% VOLT is the voltage across a 50-ohm load (open circuit = 2 x VOLT).
+% maxVpp limits the PROGRAMMED amplitude (VOLT).
 cfg.generator = struct('host', '169.254.2.20', 'port', 5025, 'timeout', 5, ...
-    'maxVpp', 0.5, ...                  % SAFETY LIMIT for amplifier/loudspeaker [Vpp]
-    'load', 'INF');                     % 'INF' (high-Z amplifier input) | '50'
+    'maxVpp', 0.5, ...                  % SAFETY LIMIT for amplifier/loudspeaker [Vpp, programmed]
+    'load', 'INF');                     % 'INF' (high-Z amplifier input, direct drive) | '50' (50-ohm amplifier input)
 % Power amplifier between 33220A and loudspeaker. Its gain is set BY HAND
 % on the amplifier (not remote controlled); record it here (or in the GUI /
 % s.setAmplifier) - it is stored with every measurement and confirmed by
@@ -24,6 +28,7 @@ cfg.amplifier = struct('model', '', ...
     'gainFactor', NaN, ...              % voltage gain as a multiplier (x10 -> 10); 1 for direct drive; NaN = unknown
     'gainSetting', '', ...              % free text, e.g. knob position as written on the amplifier
     'gain_dB', NaN, ...                 % = 20*log10(gainFactor), kept for the metadata
+    'inputImpedance_ohm', NaN, ...      % amplifier input impedance; NaN = from generator.load (INF -> high-Z, 50 -> 50 ohm)
     'knownModels', {{'none (direct drive)', 'power amplifier'}}, ...  % GUI drop-down items (typed models are added)
     'confirmBeforeExcitation', true);   % ask operator before driving the loudspeaker (hardware mode)
 % Loudspeaker data: used to estimate the electrical drive (voltage, current,
@@ -98,8 +103,11 @@ cfg.excitation.stepped = struct('fStart', 120, 'fStop', 4500, 'nPoints', 40, 'sp
 cfg.excitation.noise = struct('amplitudeVpp', 0.2, 'duration', 20, 'nfft', 8192, 'preRoll', 1.0);
 
 % ---------------- analysis ----------------
+% lossModel: 'kirchhoff' (visco-thermal wide-tube losses, k = w/c + (1-j)k'',
+% matching Zc; default) | 'iso10534' (ISO 10534-2 attenuation only, Re k = w/c,
+% Zc = rho c) | 'none'. Used by the analysis, Test D/E and the virtual rig.
 cfg.analysis = struct('refChannel', 1, 'fMin', 120, 'fMax', 4500, 'df', 2, ...
-    'lossModel', 'iso10534', 'velocityRef', 'mean', 'condMax', 40, ...
+    'lossModel', 'kirchhoff', 'velocityRef', 'mean', 'condMax', 40, ...
     'phaseUncertainty_rad', 0.002, 'maxPhaseSensitivity', 0.05, ...
     'coherenceMin', 0.98, 'snrMin_dB', 20, 'validatedBands', zeros(0, 2), ...
     'lowerFraction', 0.01, 'upperFraction', 0.40, 'passivityTol', 0.05, ...

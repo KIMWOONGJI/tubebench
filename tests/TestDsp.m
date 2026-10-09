@@ -57,6 +57,42 @@ classdef TestDsp < matlab.unittest.TestCase
             tc.verifyGreaterThan(min(r.snr_dB), 50);
         end
 
+        function sineFitSnrUnbiased(tc)
+            % formula review dsp-1/dsp-2: snr_dB = (|a|^2/2) / (G fs/L) with the
+            % one-sided noise PSD G = 2 s^2/fs (white noise of variance s^2) and
+            % L = N/nBlocks: the noise power of the L-sample LS sine fit is
+            % E|da|^2/2 = 2 s^2/L = G fs/L. Defined value for A = 0.01, s = 1e-3:
+            % N = 8192 (one Welch segment), L = 2048 -> A^2 L/(4 s^2) = 47.09 dB;
+            % N = 16384, L = 4096 -> 50.10 dB. The former estimate was 4.6 / 3.5 dB
+            % high (factor 1/2 on G + median of an unaveraged periodogram).
+            fs = 16384; A = 0.01; s = 1e-3; f0 = 1000.3; nT = 60;
+            rs = RandStream('mt19937ar', 'Seed', 17);
+            for N = [8192 16384]
+                L = N / 4; t = (0:N-1).' / fs;
+                snr = zeros(nT, 1);
+                for i = 1:nT
+                    x = A * cos(2 * pi * f0 * t + 0.3) + s * randn(rs, N, 1);
+                    r = tim.dsp.sineResponse([x x], fs, 1000, struct('nBlocks', 4));
+                    snr(i) = r.snr_dB(2);
+                end
+                defined = 10 * log10(A^2 * L / (4 * s^2));
+                % std of one estimate ~ 0.6 dB (~90 correlated band bins) -> mean of 60 to +-0.1 dB;
+                % measured bias +0.08 / +0.01 dB (200 runs, review check)
+                tc.verifyEqual(mean(snr), defined, 'AbsTol', 0.25, sprintf('N = %d', N));
+            end
+            % a stray line 50 Hz from the tone (-14 dB) must not raise the SNR
+            % (it is trimmed from the noise band; single estimate, std ~0.6 dB;
+            % the former median-of-G/2 estimate was +4.6 dB)
+            N = 8192; t = (0:N-1).' / fs;
+            snr = zeros(10, 1);
+            for i = 1:10
+                x = A * cos(2 * pi * f0 * t) + 0.2 * A * cos(2 * pi * (f0 + 50) * t) + s * randn(rs, N, 1);
+                r = tim.dsp.sineResponse(x, fs, 1000, struct('nBlocks', 4));
+                snr(i) = r.snr_dB;
+            end
+            tc.verifyLessThan(mean(snr), 10 * log10(A^2 * 2048 / (4 * s^2)) + 0.5);
+        end
+
         function sweepEstimatorMatchesRealisedResponse(tc)
             % Stepped (non-ideal) log sweep, generator clock +35 ppm, random
             % trigger latency, start-frequency tone before/after the sweep.

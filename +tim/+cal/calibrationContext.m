@@ -3,15 +3,15 @@ function c = calibrationContext(cal, cfg)
 %
 %   c = tim.cal.calibrationContext(cal, cfg)
 %
-%   Diagnostic only: C_k = c_k / c_ref does not depend on the tube, so
-%   nothing is invalidated. Compared:
-%   - port distances M1-M2, M2-M3, M3-M4 (hardware: with the empty section
-%     mounted during the calibration they are the same as in the
+%   Diagnostic only: C_k = g_k / g_ref (ratio of the chain gains) does not
+%   depend on the tube, so nothing is invalidated. Compared:
+%   - port distances M1-M2, M2-M3, M3-M4 (hardware: with the empty specimen
+%     section mounted during the calibration they are the same as in the
 %     measurement; a mismatch means the tube was assembled differently, e.g.
-%     the section taken out, or the geometry was edited). xFront / xRear may
-%     legitimately differ (a thinner specimen in the same section).
-%   - temperature (re-calibrate above 3 K), mode (simulation vs hardware),
-%   - the empty-section check (Test E) stored with the calibration.
+%     the specimen section removed, or the geometry was edited). xFront /
+%     xRear may legitimately differ (a thinner specimen in the same section).
+%   - temperature (recalibrate above 3 K), mode (simulation vs hardware),
+%   - the empty-tube check (Test E) stored with the calibration.
 %   c.warnings lists the findings as text.
 
 c = struct('known', false, 'specimenSection', '', 'sectionLength_m', NaN, ...
@@ -25,7 +25,8 @@ if isfield(meta, 'mode') && ~strcmp(meta.mode, cfg.mode)
     c.warnings{end+1} = sprintf('Calibration %s was made in %s mode; this measurement is in %s mode.', ver, meta.mode, cfg.mode);
 end
 if ~isfield(meta, 'tube')
-    c.warnings{end+1} = sprintf('Calibration %s does not record the tube set-up (made before the empty-section procedure).', ver);
+    c.warnings{end+1} = sprintf(['Calibration %s does not record the tube set-up (made before calibration with the ' ...
+        'empty specimen section was introduced).'], ver);
     return
 end
 t = meta.tube; c.known = true;
@@ -35,21 +36,23 @@ c.portDistances_cal_m = diff(xc); c.portDistances_meas_m = diff(xm);
 if all(isfinite([xc xm]))
     c.geometryMatch = all(abs(diff(xc) - diff(xm)) <= 0.5e-3);
     if ~c.geometryMatch
-        c.warnings{end+1} = sprintf(['Port distances M1-M2 / M2-M3 / M3-M4 = %s mm differ from the calibration set-up (%s mm): ' ...
-            'tube assembled differently (section taken out?) or geometry edited - the empty-section check does not apply.'], ...
+        c.warnings{end+1} = sprintf(['Port distances M1–M2 / M2–M3 / M3–M4 = %s mm differ from the calibration set-up (%s mm): ' ...
+            'tube assembled differently (specimen section removed?) or geometry edited – the empty-tube check (Test E) ' ...
+            'of this calibration does not apply.'], ...
             mat2str(round(1e3 * diff(xm), 2)), mat2str(round(1e3 * diff(xc), 2)));
     end
 end
 if isfield(t, 'environment') && isfield(t.environment, 'temperature_C')
     c.temperatureDiff_K = cfg.environment.temperature_C - t.environment.temperature_C;
     if abs(c.temperatureDiff_K) > 3
-        c.warnings{end+1} = sprintf('Temperature differs by %.1f K from the calibration %s: re-calibrate (> 3 K).', c.temperatureDiff_K, ver);
+        c.warnings{end+1} = sprintf('Temperature differs by %.1f K from calibration %s (more than 3 K): recalibrate.', ...
+            c.temperatureDiff_K, ver);
     end
 end
 if isfield(meta, 'emptyCheck') && isfield(meta.emptyCheck, 'performed') && meta.emptyCheck.performed
     c.emptyCheckPassed = meta.emptyCheck.passed;
     if ~c.emptyCheckPassed
-        c.warnings{end+1} = sprintf('The empty-section check (Test E) of calibration %s FAILED: check the geometry.', ver);
+        c.warnings{end+1} = sprintf('The empty-tube check (Test E) of calibration %s failed: check s1, L1 + d + L2 and s2.', ver);
     end
 end
 end

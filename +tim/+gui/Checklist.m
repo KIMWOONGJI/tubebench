@@ -2,7 +2,7 @@ classdef Checklist < handle
     %CHECKLIST List of steps with a status icon, detail text and duration.
     %
     %   cl = tim.gui.Checklist(parent, keys, labels)
-    %   cl.set('teds', 'run', 'detecting ...')   % 'pending'|'run'|'ok'|'warn'|'fail'|'skip'
+    %   cl.set('teds', 'run', 'detecting…')      % 'pending'|'run'|'ok'|'warn'|'fail'|'skip'
     %   cl.set('teds', 'ok', '4 of 4 inputs with TEDS')
     %   cl.rebuild(keys, labels)                 % new list (e.g. per calibration)
     %
@@ -70,7 +70,7 @@ classdef Checklist < handle
             if nargin < 4, detail = []; end
             if strcmp(state, 'run')
                 if ~strcmp(obj.States{i}, 'run'), obj.Started{i} = tic; end
-                obj.Times(i).Text = '...';
+                obj.Times(i).Text = char(8230);       % '…' while the step runs
             elseif ~isempty(obj.Started{i})
                 obj.Times(i).Text = sprintf('%.1f s', toc(obj.Started{i}));
                 obj.Started{i} = [];

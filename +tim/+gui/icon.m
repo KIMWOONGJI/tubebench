@@ -1,7 +1,7 @@
 function file = icon(name)
 %ICON Path of a status icon for the GUI checklists (created on first use).
 %
-%   file = tim.gui.icon('ok')      % 'pending' | 'run' | 'ok' | 'warn' | 'fail' | 'skip'
+%   file = tim.gui.icon('ok')      % 'pending' | 'run' | 'ok' | 'warn' | 'fail' | 'skip' | 'start' | 'stop'
 %
 %   'run' is an animated GIF (rotating arc). It is animated by the figure
 %   window itself, so it keeps turning while MATLAB is busy (e.g. during the
@@ -41,6 +41,10 @@ cr = seg(X, Y, [-0.36 -0.36], [0.36 0.36], 0.13) | seg(X, Y, [-0.36 0.36], [0.36
 writePng(folder, 'fail', {circle, cr}, {P.fail, white}, S);
 % skip: light grey disc + dash
 writePng(folder, 'skip', {circle, seg(X, Y, [-0.4 0], [0.4 0], 0.12)}, {[0.8 0.8 0.8], white}, S);
+% start / stop: white symbols for the coloured Start measurement / Stop buttons
+tri = X >= -0.42 & abs(Y) <= 0.62 * (0.62 - X) / 1.04;
+writePng(folder, 'start', {tri}, {white}, S);
+writePng(folder, 'stop', {abs(X) < 0.5 & abs(Y) < 0.5}, {white}, S);
 % run: animated arc on a light track (background = default figure colour)
 bg = [0.94 0.94 0.94];
 nF = 12; th = atan2(Y, X);

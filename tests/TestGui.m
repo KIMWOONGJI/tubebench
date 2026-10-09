@@ -15,7 +15,7 @@ classdef TestGui < matlab.unittest.TestCase
 
     methods (Test)
         function statusIcons(tc)
-            for s = {'pending', 'run', 'ok', 'warn', 'fail', 'skip'}
+            for s = {'pending', 'run', 'ok', 'warn', 'fail', 'skip', 'start', 'stop'}
                 tc.verifyTrue(isfile(tim.gui.icon(s{1})), s{1});
             end
             info = imfinfo(tim.gui.icon('run'));
@@ -147,7 +147,7 @@ classdef TestGui < matlab.unittest.TestCase
             app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             ax = app.H.axCalSetup;
             tc.verifyEmpty(ax.Children, 'not drawn at start-up');
-            tc.verifySubstring(strjoin(cellstr(app.H.calText.Text), ' '), 'Run switching cal.');
+            tc.verifySubstring(strjoin(cellstr(app.H.calText.Text), ' '), 'Run switching calibration');
             app.drawCalSetup([], '', '');
             tc.verifyEqual(app.CalDrawCount, 1);
             tc.verifyEqual(numel(findobj(ax, 'Type', 'hgtransform')), 4);
@@ -173,7 +173,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
             tc.verifyFalse(s.Connected, 'instruments released');
             % the steps shown in the closing dialog are also logged by the session
-            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output OFF (confirmed).')));
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output off (confirmed).')));
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: Instruments disconnected.')));
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: window deleted.')));
         end
@@ -199,8 +199,9 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyFalse(s.Connected);
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: window close requested while busy - STOP requested first.')));
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: Instruments disconnected.')));
-            % stopped inside the acquisition (partial data saved), not completed
-            tc.verifyTrue(any(contains(s.LogLines, 'stopped by user')), strjoin(s.LogLines, newline));
+            % stopped (inside the acquisition, or before it started - a close request
+            % before the first measurement is honoured too), never completed
+            tc.verifyFalse(any(contains(s.LogLines, 'Repetition 4:')), strjoin(s.LogLines, newline));
         end
 
         function appSimulationWorkflow(tc)
@@ -245,10 +246,11 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifySubstring(h.calLabel.Text, 'CAL-');
             feval(h.start.ButtonPushedFcn, h.start, []);
             tc.verifyNotEmpty(app.LastRes);
-            tc.verifyEqual(h.axW(1).YLabel.String, 'ch1 [Pa]');
+            tc.verifyEqual(h.axW(1).YLabel.String, 'ch1 (M1) [Pa]');
+            tc.verifySubstring(h.resultStatus.Text, 'not saved', 'RESULTS line: unsaved measurement');
             feval(h.background.ButtonPushedFcn, h.background, []);
             tc.verifyEqual(app.LastMeas.kind, 'background');
-            tc.verifyEqual(h.stop.Text, 'STOP', 'busy label restored');
+            tc.verifyEqual(h.stop.Text, 'Stop', 'busy label restored');
             tc.verifyEqual(h.start.Enable, matlab.lang.OnOffSwitchState.on, 'controls unlocked again');
             clear cleanup
         end
@@ -271,7 +273,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.assertEqual(h.exMode.Value, 'stepped');
             feval(h.connect.ButtonPushedFcn, h.connect, []);
             % values typed in the GUI (different from the configuration) must be used
-            h.dur.Value = 5; h.fRange.Value = '300 3000'; h.reps.Value = 2;
+            h.dur.Value = 5; h.fStart.Value = 300; h.fStop.Value = 3000; h.reps.Value = 2;
             feval(h.start.ButtonPushedFcn, h.start, []);
             tc.assertNotEmpty(app.LastRes);
             fk = app.LastMeas.settings.frequencies(:);
@@ -318,14 +320,14 @@ classdef TestGui < matlab.unittest.TestCase
         end
 
         function leftPanelFitsWithoutScrolling(tc)
-            % user request 2026-10-09: no scrolling in the left panel on the lab screen
-            % (maximised 1920 x 1080 -> 989 px; restored window 960 - 20 = 940 px)
+            % user request 2026-10-09: no scrolling in the control panel on the lab screen
+            % (maximised 1920 x 1080 -> about 985 px; restored window 960 - menu bar -> about 935 px)
             app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
             L = app.H.left; g = L.Parent;
             rh = L.RowHeight;
             tc.verifyTrue(all(cellfun(@isnumeric, rh)), 'left panel uses fixed row heights only');
             content = sum([rh{:}]) + (numel(rh) - 1) * L.RowSpacing + L.Padding(2) + L.Padding(4);
-            tc.verifyLessThanOrEqual(content, 740, sprintf('left panel content %g px (smallest window: 740 px)', content));
+            tc.verifyLessThanOrEqual(content, 930, sprintf('control panel content %g px (restored window on the lab screen: 935 px)', content));
             ch = L.Children; rows = zeros(1, numel(ch));
             for i = 1:numel(ch), rows(i) = ch(i).Layout.Row; end
             tc.verifyEqual(sort(rows), 1:numel(rh), 'one child per row, every row used');
@@ -337,9 +339,10 @@ classdef TestGui < matlab.unittest.TestCase
                     tc.verifyLessThanOrEqual(need, W, sprintf('row %d too wide', ch(i).Layout.Row));
                 end
             end
-            for n = {'mode','loadCfg','saveCfg','connect','disconnect','exMode','fRange','dur','amp','reps', ...
+            for n = {'mode','connect','disconnect','exMode','fStart','fStop','dur','amp','reps', ...
                     'ampModel','ampGain','spkZ','spkP','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
-                    'temp','pres','loadCal','runCal','save','reprocess','status','drive','fLimits','calLabel'}
+                    'temp','pres','loadCal','runCal','save','reprocess','status','drive','fLimits','calLabel', ...
+                    'specimen','resultStatus','durEst'}
                 tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
             end
         end
@@ -348,11 +351,11 @@ classdef TestGui < matlab.unittest.TestCase
             % before 2026-10-09 f start/stop, duration and repetitions reached only the sweep
             app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H; c = tim.app.defaultConfig();
-            tc.verifyEqual(h.durLabel.Text, 'Sweep time [s]');
+            tc.verifyEqual(h.durLabel.Text, 'Sweep duration [s]');
             h.exMode.Value = 'stepped'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'sweep'));
-            tc.verifyEqual(h.durLabel.Text, 'Steps');
+            tc.verifyEqual(h.durLabel.Text, 'Number of steps');
             tc.verifyEqual(h.dur.Value, c.excitation.stepped.nPoints);
-            h.fRange.Value = '200 3000'; h.dur.Value = 12; h.reps.Value = 2;
+            h.fStart.Value = 200; h.fStop.Value = 3000; h.dur.Value = 12; h.reps.Value = 2;
             h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
             tc.verifyEqual(h.dur.Value, c.excitation.sweep.duration);
             s = app.Cfg.excitation.stepped;
@@ -368,6 +371,12 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(sort({top.Text}), {'File', 'Help'});
             tc.verifyEmpty(findall(app.Fig, 'Type', 'uihyperlink'), 'no footer link any more');
             tc.verifyEqual(app.H.formulaTab.Title, 'Formula');
+            % user request 2026-10-09: tabs grouped by the workflow (major tab > sub tab)
+            tc.verifyEqual({app.H.tabs.Children.Title}, {'Setup', 'Calibration', 'Measurement', 'Results', 'Formula'});
+            tc.verifyEqual({app.H.setupTabs.Children.Title}, {'Connection', 'Tube setup'});
+            tc.verifyEqual({app.H.measTabs.Children.Title}, {'Time signals', 'Spectrum', 'Transfer functions'});
+            tc.verifyEqual({app.H.resTabs.Children.Title}, {'Reflection and transmission', 'Transmission loss', ...
+                'Transfer impedance', 'Validity'});
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
             fig = app.AboutFig; tc.addTeardown(@() delete(fig));
             tc.verifyEqual(fig.Name, 'About Transfer impedance tube');

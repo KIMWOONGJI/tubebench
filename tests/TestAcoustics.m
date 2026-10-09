@@ -97,21 +97,32 @@ classdef TestAcoustics < matlab.unittest.TestCase
         function emptySection75mm(tc)
             % lab tube: EMPTY 75 mm specimen section mounted (calibration / Test E).
             % tau = exp(-j k d); the thin-element model gives a spurious reactance
-            % Zt/rho c = 2j tan(kd/2) and is rejected by the velocity-mismatch mask.
+            % Zt/Zc = 2j tan(kd/2) and is rejected by the velocity-mismatch mask.
             g = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
                 'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.075);
             air = tim.acoustics.airProperties(tc.env);
-            k = tim.acoustics.wavenumber(tc.f, air, 0.029, 'iso10534');
+            [k, Zc] = tim.acoustics.wavenumber(tc.f, air, 0.029);     % default 'kirchhoff'
             m = tim.sim.tubeModel(tc.f, g, tc.env, struct('type', 'air'), struct('R', 0, 'x', 0.6));
             r = tim.acoustics.analyzeFourMic(tc.f, m.p, g, tc.env, struct('calValid', true(size(tc.f))));
             tc.verifyEqual(r.tau, exp(-1j * k * 0.075), 'AbsTol', 1e-10);
+            % 1 kHz, 20 degC: k0 = 2 pi 1000/343.288 = 18.3030 /m, k'' = Cw sqrt(f)/(c D)
+            % = 2.029e-2*31.623/(343.288*0.029) = 0.06445 /m (Kirchhoff):
+            % |tau| = exp(-k'' d) = 0.99518, angle = -(k0 + k'') d = -78.93 deg
+            % (ISO model, Re k = k0: 0.99539 / -78.65 deg)
             i = tc.f == 1000;
-            tc.verifyEqual(abs(r.tau(i)), 0.99539, 'AbsTol', 2e-4);
-            tc.verifyEqual(rad2deg(angle(r.tau(i))), -78.65, 'AbsTol', 0.1);
+            tc.verifyEqual(abs(r.tau(i)), 0.99518, 'AbsTol', 2e-5);
+            tc.verifyEqual(rad2deg(angle(r.tau(i))), -78.93, 'AbsTol', 0.01);
             band = tc.f >= 120 & tc.f <= 4500;
-            tc.verifyLessThan(max(r.power.TL_tau_dB(band)), 0.09);
-            tc.verifyEqual(r.thin.Zt_norm, 2j * tan(k * 0.075 / 2), 'RelTol', 1e-8);
-            tc.verifyFalse(any(r.valid.validThinZt(band)), 'thin-element model rejected for 75 mm');
+            tc.verifyLessThan(max(r.power.TL_tau_dB(band)), 0.09);   % 0.089 dB at 4.5 kHz
+            % Zt = 2j Zc tan(kd/2); Zt_norm is normalised by the real rho c (air.Z0)
+            tc.verifyEqual(r.thin.Zt_norm, 2j * tan(k * 0.075 / 2) .* Zc / air.Z0, 'RelTol', 1e-8);
+            % velocity mismatch |uL - uR|/|uL| = |1 - e^{-jkd}| ~ |Re(k) d - 2 pi n|: the
+            % thin model is rejected except where the air column is a whole
+            % wavelength (T ~ identity, transparent): Re(k) d = 2 pi at 4.57 kHz,
+            % mismatch <= 0.1 from 4.50 kHz (Kirchhoff Re k; 4.505 kHz with Re k = w/c)
+            tc.verifyFalse(any(r.valid.validThinZt(band & tc.f < 4495)), 'thin-element model rejected for 75 mm');
+            near = abs(real(k) * 0.075 - 2 * pi) < 0.1;
+            tc.verifyTrue(all(near(r.valid.validThinZt)));
             % reflecting end: tau unchanged, R = Rterm exp(-2jkd)
             m2 = tim.sim.tubeModel(tc.f, g, tc.env, struct('type', 'air'), struct('R', 0.7, 'x', 0.4));
             r2 = tim.acoustics.analyzeFourMic(tc.f, m2.p, g, tc.env, struct());
@@ -125,7 +136,7 @@ classdef TestAcoustics < matlab.unittest.TestCase
             m = tim.sim.tubeModel(tc.f, g, tc.env, struct('type', 'air'), struct('R', 0, 'x', 0.6));
             r = tim.acoustics.analyzeFourMic(tc.f, m.p, g, tc.env, struct());
             air = tim.acoustics.airProperties(tc.env);
-            k = tim.acoustics.wavenumber(tc.f, air, 0.029, 'iso10534');
+            k = tim.acoustics.wavenumber(tc.f, air, 0.029);      % same (default) model as the analysis
             tc.verifyEqual(r.R, zeros(size(tc.f)), 'AbsTol', 1e-10);         % anechoic end
             tc.verifyEqual(r.tau, exp(-1j * k * 0.05), 'AbsTol', 1e-10);   % pure propagation
             % reflecting end: tau unchanged, R = Rterm*exp(-2jkd) (continuity across the gap)
@@ -143,7 +154,7 @@ classdef TestAcoustics < matlab.unittest.TestCase
             m = tim.sim.tubeModel(tc.f, g, tc.env, struct('type', 'air'), struct('R', 1, 'x', L));
             r = tim.acoustics.analyzeFourMic(tc.f, m.p, g, tc.env, struct());
             air = tim.acoustics.airProperties(tc.env);
-            k = tim.acoustics.wavenumber(tc.f, air, 0.029, 'iso10534');
+            k = tim.acoustics.wavenumber(tc.f, air, 0.029);
             tc.verifyEqual(r.R, exp(-2j * k * L), 'AbsTol', 1e-8);
             tc.verifyLessThan(max(abs(r.R)), 1);
             % lossless model: |R| = 1 exactly
@@ -205,7 +216,7 @@ classdef TestAcoustics < matlab.unittest.TestCase
             % upstream field with |R| = 1.3 at the front face (an "active"
             % sample, e.g. the signature of a gross calibration error)
             air = tim.acoustics.airProperties(tc.env);
-            k = tim.acoustics.wavenumber(tc.f, air, 0.029, 'iso10534');
+            k = tim.acoustics.wavenumber(tc.f, air, 0.029);
             m = tim.sim.tubeModel(tc.f, tc.geom, tc.env, struct('type', 'air'), struct('R', 0, 'x', 0.6));
             p = m.p;
             x = tc.geom.micPositions;
@@ -216,6 +227,171 @@ classdef TestAcoustics < matlab.unittest.TestCase
             tc.verifyEqual(abs(r.R), 1.3 * ones(size(tc.f)), 'RelTol', 1e-9);
             tc.verifyTrue(all(r.valid.flags.nonPassive));
             tc.verifyFalse(any(r.valid.valid));
+            % R uses the one-sided upstream test |R| <= 1 + passivityTol
+            tc.verifyTrue(all(r.valid.upstream.flags.nonPassive));
+            tc.verifyFalse(any(r.valid.validR));
+        end
+
+        function airDensityIdealGas(tc)
+            % formula review acoustics-4: rho = p_s/(287.05 T) (dry air)
+            air = tim.acoustics.airProperties(tc.env);
+            tc.verifyEqual(air.rho, 101325 / (287.05 * 293.15), 'RelTol', 1e-12);
+            tc.verifyEqual(air.rho, 1.2041, 'AbsTol', 1e-4);              % dry air, 20 degC, 101.325 kPa
+            tc.verifyEqual(air.Z0, air.rho * air.c, 'RelTol', 1e-12);
+            % thermodynamic consistency with c = 343.2 sqrt(T/293): rho c^2 = gamma p_s, gamma = 1.4
+            tc.verifyEqual(air.rho * air.c^2 / 101325, 1.4, 'RelTol', 1e-3);
+            tc.verifyEqual(air.mu, 1.813e-5, 'RelTol', 2e-3);              % Sutherland, 20 degC
+            e = tc.env; e.temperature_C = 30; e.pressure_Pa = 95000;
+            a2 = tim.acoustics.airProperties(e);
+            tc.verifyEqual(a2.rho, air.rho * (95000 / 101325) * (293.15 / 303.15), 'RelTol', 1e-12);
+            % overrides keep working
+            e = tc.env; e.c_override = 340; e.rho_override = 1.2;
+            a3 = tim.acoustics.airProperties(e);
+            tc.verifyEqual([a3.c a3.rho a3.Z0], [340 1.2 408], 'AbsTol', 1e-12);
+            tc.verifyEqual(a3.nu, a3.mu / 1.2, 'RelTol', 1e-12);
+        end
+
+        function kirchhoffMatchesExactTube(tc)
+            % formula review acoustics-1/-3: the default loss model against an
+            % INDEPENDENT propagation model, the exact visco-thermal circular-tube
+            % solution (Zwikker-Kosten / Stinson, Bessel functions), same air.
+            fq = [120 200 500 1000 2000 4000].';
+            air = tim.acoustics.airProperties(tc.env);
+            D = 0.029;
+            [kT, ZcT] = TestAcoustics.exactTube(fq, air, D);
+            [kK, ZcK] = tim.acoustics.wavenumber(fq, air, D, 'kirchhoff');
+            k0 = 2 * pi * fq / air.c;
+            % first-order wide-tube expansion: residual O((delta/a)^2), < 2e-4 of k0
+            tc.verifyLessThan(max(abs(kK - kT) ./ k0), 2e-4);
+            tc.verifyLessThan(max(abs(ZcK - ZcT) / air.Z0), 2e-4);
+            % Re(k) - k0 = k'' (phase-velocity reduction equal to the attenuation)
+            tc.verifyEqual(real(kK) - k0, -imag(kK), 'RelTol', 1e-12);
+            % coefficient 2 sqrt(pi nu)(1 + (gamma-1)/sqrt(Pr)) = 2.03e-2 m s^-1/2
+            tc.verifyEqual(-imag(kK) * air.c * D ./ sqrt(fq), 2.03e-2 * ones(size(fq)), 'RelTol', 5e-3);
+            % thin element of low impedance at x = 0 in the exact tube, lab mics,
+            % anechoic end: Zt within 0.1 % with 'kirchhoff'; the ISO model
+            % (Re k = w/c) is off by 3-17 % (the reason for the default)
+            g = struct('diameter', D, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
+                'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0);
+            Zt = air.Z0 * (0.05 + 0.05j * fq / 1000);
+            z = Zt ./ ZcT; tau = 2 ./ (2 + z); R = z ./ (2 + z);
+            x = g.micPositions; p = zeros(numel(fq), 4);
+            for m = 1:2, p(:, m) = exp(-1j * kT * x(m)) + R .* exp(1j * kT * x(m)); end
+            for m = 3:4, p(:, m) = tau .* exp(-1j * kT * x(m)); end
+            rK = tim.acoustics.analyzeFourMic(fq, p, g, tc.env, struct());
+            rI = tim.acoustics.analyzeFourMic(fq, p, g, tc.env, struct('lossModel', 'iso10534'));
+            tc.verifyLessThan(max(abs(rK.thin.Zt ./ Zt - 1)), 1e-3);
+            tc.verifyGreaterThan(max(abs(rI.thin.Zt ./ Zt - 1)), 0.1);
+            tc.verifyLessThan(max(abs(rK.R - R)), 1e-4);
+        end
+
+        function nearSingularityPerPair(tc)
+            % formula review acoustics-2 / calval-3: the proximity test to
+            % k s = n pi is applied per pair. Unequal spacings s1 = 29 mm,
+            % s2 = 100 mm: c/(4 s2) = 858 Hz .. 0.1 c/s1 = 1184 Hz used to be
+            % rejected only because k s1 < 0.2 pi there (cond1 <= 4.3).
+            fq = (100:2:4000).';
+            g = struct('diameter', 0.029, 'micPositions', [-0.150 -0.121 0.071 0.171], ...
+                'spacingUp', 0.029, 'spacingDown', 0.100, 'xFront', 0, 'xRear', 0.010);
+            m = tim.sim.tubeModel(fq, g, tc.env, struct('type', 'thin', 'Zt', 200), struct('R', 0, 'x', 0.6));
+            r = tim.acoustics.analyzeFourMic(fq, m.p, g, tc.env, struct('calValid', true(size(fq))));
+            fl = r.valid.flags;
+            ks = real(r.k) * [0.029 0.100];
+            band = fq >= 860 & fq <= 1182;
+            tc.verifyFalse(any(fl.nearSingularity(band)));
+            % flagged exactly where one pair is within 0.2 pi of k s = n pi (n >= 1)
+            tc.verifyEqual(fl.nearSingularity, any(abs(sin(ks)) < sin(0.2 * pi) & ks > pi / 2, 2));
+            i1 = find(ks(:, 2) >= pi, 1);                       % k s2 = pi near 1.7 kHz
+            tc.verifyTrue(fl.nearSingularity(i1));
+            % short downstream pair (s2 = 10 mm): 3.0-3.4 kHz no longer rejected
+            g2 = g; g2.micPositions(4) = 0.081; g2.spacingDown = 0.010;
+            m2 = tim.sim.tubeModel(fq, g2, tc.env, struct('type', 'thin', 'Zt', 200), struct('R', 0, 'x', 0.6));
+            r2 = tim.acoustics.analyzeFourMic(fq, m2.p, g2, tc.env, struct('calValid', true(size(fq))));
+            tc.verifyFalse(any(r2.valid.flags.nearSingularity(fq >= 3000 & fq <= 3400)));
+            % equal spacings (lab): identical to the former common-gate rule
+            f3 = (100:10:6500).';
+            m3 = tim.sim.tubeModel(f3, tc.geom, tc.env, struct('type', 'thin', 'Zt', 200), struct('R', 0, 'x', 0.6));
+            r3 = tim.acoustics.analyzeFourMic(f3, m3.p, tc.geom, tc.env, struct('calValid', true(size(f3))));
+            ks3 = real(r3.k) * [0.029 0.029];
+            old = any(abs(sin(ks3)) < sin(0.2 * pi), 2) & f3 > 0.5 * min(r3.valid.limits.singular);
+            tc.verifyTrue(any(old));
+            tc.verifyEqual(r3.valid.flags.nearSingularity, old);
+        end
+
+        function rigidPlugUpstreamOnly(tc)
+            % formula review calval-1: rigid plug at the front face (L = 0) in the
+            % lab tube. M3/M4 lie behind the plug: the virtual tube gives p = 0
+            % there (no standing wave continued past the plug). R needs only
+            % M1/M2: validR and Test D use the upstream masks, whatever the
+            % downstream quality is.
+            fq = (100:5:5000).';
+            g = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
+                'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0);
+            m = tim.sim.tubeModel(fq, g, tc.env, struct('type', 'air'), struct('R', 1, 'x', 0));
+            tc.verifyEqual(m.behindTermination, [false false true true]);
+            tc.verifyEqual(m.p(:, 3:4), zeros(numel(fq), 2));
+            tc.verifyEqual(m.R, ones(size(fq)), 'AbsTol', 1e-12);
+            % M3/M4: background noise only (incoherent, SNR 3 dB)
+            rng(21);
+            H = m.p;
+            H(:, 3:4) = 1e-3 * (randn(numel(fq), 2) + 1j * randn(numel(fq), 2));
+            coh = ones(numel(fq), 4); coh(:, 3:4) = 0.2;
+            snr = 60 * ones(numel(fq), 4); snr(:, 3:4) = 3;
+            o = struct('calValid', true(size(fq)), 'quality', struct('coherence', coh, 'snr_dB', snr), ...
+                'fRange', [120 4500]);
+            a = tim.acoustics.analyzeFourMic(fq, H, g, tc.env, o);
+            v = a.valid;
+            tc.verifyFalse(any(v.valid), 'all-four-position mask fails behind the plug');
+            band = fq >= 120 & fq <= 4500;
+            tc.verifyEqual(v.validR, v.upstream.valid);
+            tc.verifyGreaterThan(nnz(v.validR), 0.9 * nnz(band));
+            tc.verifyFalse(any(v.validR & ~band));
+            tc.verifyEqual(a.R(v.validR), ones(nnz(v.validR), 1), 'AbsTol', 1e-9);
+            tc.verifyFalse(any(v.validTau | v.validThinZt));
+            r = tim.val.testDE_reference(struct('analysis', a), 'rigid', struct('L', 0));
+            tc.verifyTrue(r.passed);
+            tc.verifyEqual(r.validBins, nnz(v.upstream.geometryOK & v.upstream.qualityOK));
+            tc.verifyEqual(r.magDeficit_median, 0, 'AbsTol', 1e-9);
+            tc.verifyEqual(r.nonPassiveBins, 0);
+            % low coherence at M1 rejects R (and Test D bins) where it occurs
+            coh2 = coh; bad = fq > 1000 & fq < 1500; coh2(bad, 1) = 0.5;
+            o.quality.coherence = coh2;
+            a2 = tim.acoustics.analyzeFourMic(fq, H, g, tc.env, o);
+            tc.verifyFalse(any(a2.valid.validR(bad)));
+            tc.verifyTrue(all(a2.valid.upstream.flags.lowCoherence(bad)));
+            % the termination plane cannot lie upstream of the rear face
+            tc.verifyError(@() tim.sim.tubeModel(fq, g, tc.env, struct('type', 'air'), struct('R', 1, 'x', -0.01)), ...
+                'tim:sim:termination');
+        end
+
+        function bandEdgeTolerance(tc)
+            % UI audit B-L2: logspace(log10(120), ...) gives 119.99999999999996 Hz;
+            % such a step at fMin must count as inside the analysis band
+            fq = logspace(log10(120), log10(4500), 12).';
+            fq(1) = 120 - 3 * eps(120);                          % = 119.99999999999996 (3 ulp below)
+            fq(end) = 4500 + 2 * eps(4500);                      % and a few ulp above fMax
+            m = tim.sim.tubeModel(fq, tc.geom, tc.env, struct('type', 'air'), struct('R', 0, 'x', 0.6));
+            r = tim.acoustics.analyzeFourMic(fq, m.p, tc.geom, tc.env, struct('fRange', [120 4500]));
+            tc.verifyTrue(all(r.valid.measured));
+            r2 = tim.acoustics.analyzeFourMic(fq * (1 - 1e-6), m.p, tc.geom, tc.env, struct('fRange', [120 4500]));
+            tc.verifyFalse(r2.valid.measured(1), 'a real offset (1e-6) is still outside');
+        end
+    end
+
+    methods (Static)
+        function [k, Zc] = exactTube(fq, air, D)
+            % Exact visco-thermal plane-wave mode of a rigid circular tube,
+            % exp(+j w t) (Zwikker & Kosten 1949; Stinson 1991):
+            %   rho_eff = rho / (1 - F(x_v)),  C_eff = (1 + (gamma-1) F(x_t)) / (gamma p)
+            %   F(x) = 2 J1(x) / (x J0(x)),  x_v = a sqrt(-j w/nu),  x_t = x_v sqrt(Pr)
+            % C_eff is scaled so that the lossless limit has the analysis c.
+            a = D / 2; w = 2 * pi * fq;
+            xv = a * sqrt(-1j * w / air.nu); xt = xv * sqrt(air.Pr);
+            F = @(x) 2 * besselj(1, x) ./ (x .* besselj(0, x));
+            rhoE = air.rho ./ (1 - F(xv));
+            Ce = (1 + (air.gamma - 1) * F(xt)) / (air.rho * air.c^2);
+            k = w .* sqrt(rhoE .* Ce); k = real(k) - 1j * abs(imag(k));
+            Zc = sqrt(rhoE ./ Ce);
         end
     end
 end

@@ -11,9 +11,15 @@ function lim = frequencyLimits(diameter, spacing, air, opts)
 %   statements; see docs/theory.md section "Frequency limits"):
 %
 %   * Plane-wave limit, circular duct: the first non-planar mode (1,1)
-%     cuts on at  f_c = 1.8412 * c / (pi * d)  (zero of J1').
-%     ISO 10534-2 recommends  f_u < 0.58 * c / d  (= 0.586 * f_c*pi/1.8412,
-%     i.e. essentially f_c) as the upper limit.
+%     cuts on at  f_c = 1.8412 * c / (pi * d) = 0.586 * c / d  (zero of J1').
+%     ISO 10534-2 recommends  f_u < 0.58 * c / d  (= 0.990 * f_c) as the
+%     upper limit; it is therefore always the binding diameter rule
+%     (lab, d = 29 mm, 20 degC: 6866 Hz vs f_c = 6938 Hz).
+%   * The limits use the speed of sound c; with lossModel 'kirchhoff' the
+%     phase speed is c/(1 + k''/k0), lower by 1 % at 120 Hz and by 0.15 %
+%     near c/(2s) (D = 29 mm), which moves k*s = pi down by 0.15 %
+%     (9 Hz for s = 29 mm). The near-singularity mask
+%     (validityMasks) uses real(k) and therefore follows it exactly.
 %   * Spacing singularity: wave decomposition is singular at k*s = n*pi,
 %     first at  f_s = c / (2*s).
 %   * Spacing upper limit: ASTM E1050 / E2611 recommend  f_u = K_u * c / s
@@ -46,6 +52,6 @@ lim.fUpper = min([lim.upperSpacing, lim.isoDiameterLimit, lim.cutOn11]);
 lim.lowerFraction = opts.LowerFraction;
 lim.upperFraction = opts.UpperFraction;
 lim.criteria = sprintf(['f_l = %.3g*c/s (spacing >= %.0f%% of wavelength); ' ...
-    'f_u = min(%.2f*c/s, 0.58*c/d, (1,1)-mode cut-on)'], ...
+    'f_u = min(%.2f*c/s, 0.58*c/D, (1,1)-mode cut-on)'], ...
     opts.LowerFraction, 100 * opts.LowerFraction, opts.UpperFraction);
 end

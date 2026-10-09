@@ -6,7 +6,11 @@ function r = testB_singleFrequency(session, f, vpp, nRepeat)
 %   nRepeat times. Reports the relative amplitude [dB] and phase [deg] of
 %   every channel w.r.t. the reference channel, their repeat scatter, the
 %   generator/DAQ clock ratio, SNR, and checks against plausibility limits:
-%     * SNR > 40 dB on all channels
+%     * SNR > 40 dB on all channels (narrow-band SNR of tim.dsp.sineResponse:
+%       tone power / (G_n fs/L) per block of L = N/4 samples = 0.25 s; the
+%       estimate was 3.5 dB too high before the 2026-10-09 fix, so the limit
+%       is now met only by a true 40 dB; the 0.05 dB scatter limit below
+%       already needs about 36.5 dB)
 %     * repeat scatter < 0.05 dB and < 0.2 deg
 %     * no overload / integrity problems
 %   (The absolute relative values depend on the tube field and are only
@@ -33,5 +37,5 @@ r = struct('name', sprintf('Test B - single frequency %g Hz', f), 'H', mean(H, 1
     'scatter_dB', std(magdB, 0, 1), 'scatter_deg', std(ph, 0, 1), 'snr_dB', min(snr, [], 1), ...
     'clockRatio', mean(clk), 'clockOffset_ppm', (mean(clk) - 1) * 1e6, 'integrityOk', m.integrityOk, 'meas', m);
 r.passed = m.integrityOk && all(r.snr_dB > 40) && all(r.scatter_dB < 0.05) && all(r.scatter_deg < 0.2);
-r.criteria = 'SNR > 40 dB, repeat scatter < 0.05 dB and < 0.2 deg, integrity OK';
+r.criteria = 'SNR > 40 dB (per 0.25 s block, fit bandwidth 4 Hz), repeat scatter < 0.05 dB and < 0.2 deg, integrity OK';
 end

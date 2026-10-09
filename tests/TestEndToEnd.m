@@ -67,7 +67,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
 
             % storage: two saves -> two folders, nothing overwritten
             figs = tim.app.plotResults(res, meas, struct('Visible', 'off'));
-            tc.verifyNotEmpty(findobj(figs.validity, 'Type', 'image'), 'sweep: dense validity image unchanged');
+            tc.verifyNotEmpty(findobj(figs.validity, 'Type', 'patch'), 'sweep: validity bands (same view as the GUI)');
             tc.verifyFalse(isfield(res, 'toneLevels'));
             d1 = tim.app.saveMeasurement(meas, res, tc.cfg, 'porous', figs);
             d2 = tim.app.saveMeasurement(meas, res, tc.cfg, 'porous', []);
@@ -204,7 +204,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             s.setAmplifierGain('test amp', 10);
             s.measure('sweep');
             tc.verifyNumElements(asked, 3);
-            tc.verifyTrue(contains(asked{3}, 'x10') && contains(asked{3}, 'Vpk'));
+            tc.verifyTrue(contains(asked{3}, [char(215) '10']) && contains(asked{3}, 'Vpk'));
             % direct drive: gain forced to x1, message shows the 8-ohm current
             s.setAmplifierGain('none (direct drive)', 5);
             tc.verifyEqual(s.Cfg.amplifier.gainFactor, 1);
@@ -260,6 +260,84 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             m = s.measure('sweep');
             tc.verifyTrue(m.integrityOk);
             clear cleanup
+        end
+
+        function driveEstimateGeneratorLoad(tc)
+            % formula review calval-2: the 33220A source impedance is always 50 ohm;
+            % OUTP:LOAD 50 makes the programmed VOLT the voltage across 50 ohm, so
+            % the open-circuit voltage is 2 x VOLT.
+            c = tc.cfg;
+            c.loudspeaker = struct('impedance_ohm', 8, 'ratedPower_W', 25, 'maxPower_W', 1);
+            c.generator.load = '50';
+            c.amplifier.model = 'none (direct drive)'; c.amplifier.gainFactor = 1;
+            d = tim.app.driveEstimate(c, 1.0);           % Voc = 2 Vpp = 1 Vpk -> 8/(8+50) divider
+            tc.verifyEqual(d.Voc_pp, 2, 'RelTol', 1e-12);
+            tc.verifyEqual(d.Vspk_pk, 8 / 58, 'RelTol', 1e-12);
+            tc.verifyEqual(d.P_W, (8 / 58)^2 / 16, 'RelTol', 1e-12);       % 1.19 mW (was 0.30 mW)
+            % amplifier x20 with the documented 50-ohm input (load '50'): Vin = VOLT
+            c.amplifier.model = 'power amplifier'; c.amplifier.gainFactor = 20;
+            d = tim.app.driveEstimate(c, 0.3);
+            tc.verifyEqual(d.Vin_pk, 0.15, 'RelTol', 1e-12);
+            tc.verifyEqual(d.Vspk_pk, 3.0, 'RelTol', 1e-12);
+            tc.verifyEqual(d.P_W, 0.5625, 'RelTol', 1e-12);
+            % ... and with a declared high-Z input: Vin = Voc * Zin/(Zin + 50)
+            c.amplifier.inputImpedance_ohm = 1e4;
+            d = tim.app.driveEstimate(c, 0.3);
+            tc.verifyEqual(d.Vspk_pk, 20 * 0.3 * 1e4 / 10050, 'RelTol', 1e-12);   % 5.97 V, 2.23 W
+            tc.verifyGreaterThan(d.P_W, d.limit_W);
+            % load 'INF' (lab): VOLT is the open-circuit voltage (unchanged)
+            c.generator.load = 'INF'; c.amplifier.inputImpedance_ohm = NaN;
+            d = tim.app.driveEstimate(c, 0.3);
+            tc.verifyEqual(d.Vspk_pk, 3.0, 'RelTol', 1e-12);
+            % load '50' with direct drive is refused by the configuration check
+            c.generator.load = '50'; c.amplifier.model = 'none (direct drive)';
+            tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load');
+            c.generator.load = '75';
+            tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load');
+        end
+
+        function validateConfigMessages(tc)
+            % operator-readable numbers in the configuration errors
+            c = tc.cfg;
+            b = c; b.generator.maxVpp = 0.5; b.excitation.sweep.amplitudeVpp = 1.2;
+            tc.verifySubstring(errText(b), ['Generator amplitude of the swept sine, 0.6 Vpk (1.2 Vpp), exceeds the ' ...
+                'amplitude limit of 0.25 Vpk (0.5 Vpp']);
+            b = c; b.excitation.sweep.fStop = 9000;
+            tc.verifySubstring(errText(b), ['Swept sine: stop frequency 9000 Hz is above 0.45 ' char(215) ' sample rate = 7373 Hz']);
+            b = c; b.excitation.stepped.fStop = 8000;
+            tc.verifySubstring(errText(b), ['Stepped sine: stop frequency 8000 Hz is above 0.45 ' char(215) ' sample rate = 7373 Hz']);
+            b = c; b.analysis.fMax = 7500;
+            tc.verifySubstring(errText(b), ['7500 Hz is above 0.45 ' char(215) ' sample rate = 7373 Hz']);
+            b = c; b.analysis.lossModel = 'kirchoff';
+            tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:lossModel');
+            function t = errText(cfg)
+                t = '';
+                try
+                    tim.app.validateConfig(cfg);
+                catch err
+                    t = err.message;
+                end
+            end
+        end
+
+        function earlyExcitationWarningKept(tc)
+            % formula review dsp-3: an excitation that starts in the first half of
+            % the pre-roll must give a warning, not a false sweepLawError
+            fs = 16384; rng(4);
+            t = (0:round(3 * fs) - 1).' / fs; t0 = 0.45; T = 1;
+            in = t >= t0 & t < t0 + T; tau = t(in) - t0;
+            Lk = T / log(5500 / 80);
+            s = zeros(size(t)); s(in) = 0.1 * sin(2 * pi * 80 * Lk * (exp(tau / Lk) - 1));
+            x = s .* [1 0.9 0.8 0.7] + 1e-4 * randn(numel(t), 4);
+            meas = struct('kind', 'sweep', 'timestamp', '2026-10-09 12:00:00', 'fs', fs, 'records', {{x}}, ...
+                'settings', struct('preRoll', 1, 'postRoll', 1, 'fStart', 80, 'fStop', 5500, ...
+                'spacing', 'LOG', 'duration', T), 'mics', tc.cfg.mics);
+            res = tim.app.processMeasurement(meas, tc.cfg, []);
+            tc.verifyTrue(res.diagnostics.excitation(1).detected);
+            tc.verifyLessThan(res.diagnostics.excitation(1).start_s, 0.5);
+            tc.verifyTrue(any(contains(res.diagnostics.warnings, 'started early')), strjoin(res.diagnostics.warnings, ' | '));
+            tc.verifyFalse(isfield(res.diagnostics, 'sweepLawError'));
+            tc.verifyTrue(isfield(res.diagnostics, 'sweepLaw'));
         end
 
         function noiseExcitation(tc)
@@ -383,7 +461,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyEqual(types{end}, 'porous', 'specimen mounted again before the last prompt');
             tc.verifyEqual(s.Rig.Sample.type, 'porous');
             tc.verifyEqual(msgs{end}, tim.app.msg('en', 'calMountSpecimen'));
-            tc.verifySubstring(msgs{1}, 'EMPTY specimen section (75 mm)');
+            tc.verifySubstring(msgs{1}, 'empty specimen section (75 mm)');
             tc.verifyEqual(cal.meta.tube.specimenSection, 'empty');
             tc.verifyEqual(cal.meta.tube.sectionLength_m, 0.075, 'AbsTol', 1e-12);
             tc.verifyTrue(cal.meta.emptyCheck.performed);
@@ -405,7 +483,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
 
         function emptyCheckDetectsRemovedSection(tc)
             % if the section were taken out and the tubes joined, M3/M4 move 75 mm:
-            % the empty-section check (Test E) must fail with the 75 mm geometry
+            % the empty-tube check (Test E) must fail with the 75 mm geometry
             c = tc.cfg;
             g = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
                 'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.075, 'note', 'lab');
@@ -457,11 +535,40 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             [cal, file] = tim.app.runCalibration(s, struct('prompt', @prompt));
             tc.verifyTrue(isfile(file), 'calibration saved');
             tc.verifyFalse(cal.meta.emptyCheck.performed);
-            tc.verifySubstring(cal.meta.emptyCheck.text, 'aborted');
+            tc.verifySubstring(cal.meta.emptyCheck.text, 'stopped by the operator');
             S = load(file, 'cal');
             tc.verifyEqual(S.cal.C, cal.C);
-            tc.verifySubstring(S.cal.meta.emptyCheck.text, 'aborted', 'saved file holds the final check result');
+            tc.verifySubstring(S.cal.meta.emptyCheck.text, 'stopped by the operator', 'saved file holds the final check result');
             tc.verifyEqual(s.Calibration.version, cal.version, 'new calibration active');
+            tc.verifyFalse(s.Gen.isOutputOn());
+            clear cleanup
+        end
+
+        function cancelAtReturnStepKeepsCalibration(tc)
+            % review 2026-10-09: cancelling the "return the microphones" step (or a
+            % Stop / window close there) lost the nine switching measurements
+            s = tim.app.MeasurementSession(tc.cfg);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            done = tim.app.msg('en', 'calDone');
+            reports = {};
+            function prompt(msg, mapping)
+                s.setMicPositionsForSimulation(mapping);
+                if strcmp(msg, done), error('tim:gui:abort', 'Calibration cancelled by the operator.'); end
+            end
+            function report(q), reports{end + 1} = q; end
+            tc.verifyError(@() tim.app.runCalibration(s, struct('prompt', @prompt, 'report', @report)), 'tim:gui:abort');
+            tc.assertNotEmpty(s.Calibration, 'calibration active although cancelled at the return step');
+            cal = s.Calibration;
+            tc.verifyFalse(cal.meta.emptyCheck.performed);
+            tc.verifySubstring(cal.meta.emptyCheck.text, 'cancelled by the operator');
+            f = dir(fullfile(tim.app.outputDir(s.Cfg, 'calibration'), [cal.version '*.mat']));
+            tc.assertNumElements(f, 1, 'calibration file saved');
+            S = load(fullfile(f.folder, f.name), 'cal');
+            tc.verifyEqual(S.cal.C, cal.C);
+            tc.verifySubstring(S.cal.meta.emptyCheck.text, 'cancelled by the operator');
+            kinds = cellfun(@(q) q.kind, reports, 'UniformOutput', false);
+            tc.verifyTrue(any(strcmp(kinds, 'verification')), 'the step list gets the reason');
             tc.verifyFalse(s.Gen.isOutputOn());
             clear cleanup
         end
@@ -477,7 +584,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
                 msgs{end + 1} = msg; s.setMicPositionsForSimulation(mapping);
             end
             cal = tim.app.runCalibration(s, struct('prompt', @prompt));
-            tc.verifyTrue(any(contains(msgs, 'No empty-tube check will be made (disabled')));
+            tc.verifyTrue(any(contains(msgs, 'The empty-tube check (Test E) is skipped: disabled')));
             tc.verifyFalse(any(strcmp(msgs, tim.app.msg('en', 'calDone'))));
             tc.verifySubstring(cal.meta.emptyCheck.text, 'disabled');
             tc.verifyEqual(cal.meta.tube.sectionLength_m, c.tubeDrawing.specimenSectionLength);

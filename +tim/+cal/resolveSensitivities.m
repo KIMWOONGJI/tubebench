@@ -12,7 +12,8 @@ function mics = resolveSensitivities(mics, teds, policy)
 %   Adds fields: sensitivity_VperPa (used), sensitivitySource, tedsSensitivity_VperPa,
 %   tedsSerial, tedsType, serialMismatch (TEDS serial ~= configured serial).
 %   Sensitivity is used ONLY to express levels in Pa / dB SPL. It is never a
-%   substitute for the complex inter-channel calibration (tim.cal.*).
+%   substitute for the switching calibration (calibration factors C_k =
+%   g_k / g_ref, tim.cal.*).
 
 if nargin < 3 || isempty(policy), policy = 'certificate>teds>nominal'; end
 order = strsplit(policy, '>');
@@ -43,7 +44,7 @@ for i = 1:numel(mics)
         end
     end
     if ~(mics(i).sensitivity_VperPa > 0)
-        error('tim:cal:sensitivity', 'No sensitivity available for channel %d.', ch);
+        error('tim:cal:sensitivity', 'No sensitivity available for ch%d (no certificate, TEDS or nominal value).', ch);
     end
 end
 end

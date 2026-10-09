@@ -1,37 +1,40 @@
 function [cal, file, raw] = runCalibration(session, opts)
-%RUNCALIBRATION Sequential sensor-switching calibration of all channels.
+%RUNCALIBRATION Sequential switching calibration (microphone switching) of all channels.
 %
 %   [cal, file] = tim.app.runCalibration(session)
 %   [cal, file] = tim.app.runCalibration(session, struct('channels', [2 3 4], 'prompt', @fn))
 %
 %   For every channel k ~= ref (ref = cfg.analysis.refChannel), with the
 %   calibration ports a, b = cfg.calibration.positions:
-%     I   : reference microphone at port a, microphone k at port b -> measure
-%     I'  : (optional) remove and re-insert both, same positions   -> repeat
+%     I   : reference microphone in port a, microphone k in port b -> measure
+%     I'  : (optional) remove and reinsert both, same ports        -> repeat
 %     II  : interchange the two microphones (each keeps its own cable /
-%           preamplifier / DAQ channel!)                           -> measure
+%           preamplifier / LAN-XI input)                           -> measure
 %   The remaining microphones stay in the other ports (their signals are
-%   recorded but unused). The EMPTY specimen section (the middle part,
-%   lab: 75 mm, SIT-PT-003, without specimen) is mounted, so the tube is
-%   continuous and every port keeps its measurement position; the tube is
-%   terminated anechoically (or with an absorber) so that no pressure node
-%   falls on a calibration port. A first prompt shows this checklist.
+%   recorded but unused). The empty specimen section (lab: 75 mm,
+%   SIT-PT-003, without specimen) is mounted, so the tube is continuous
+%   and every port keeps its measurement position; the absorbing
+%   termination keeps pressure nodes away from the calibration ports.
+%   A first prompt shows this checklist.
 %   After the switching measurements (cfg.calibration.verifyEmptySection)
 %   one sweep with the microphones in their measurement ports is evaluated
-%   as Test E (empty section: tau = exp(-j k d)), stored in
+%   as the empty-tube check, Test E (tau = exp(-j k d)), stored in
 %   cal.meta.emptyCheck; cal.meta.tube records the set-up (section, length,
 %   geometry, environment). The last prompt asks to mount the specimen
-%   section again. In simulation the virtual rig models the empty section
-%   (sample 'air') during the calibration and gets its specimen back
-%   afterwards, also after an error or STOP. See docs/calibration_procedure.md.
+%   section again. In simulation the virtual rig models the empty specimen
+%   section (sample 'air') during the calibration and gets its specimen
+%   back afterwards, also after an error or Stop. See docs/calibration_procedure.md.
+%
+%   The chain gain of channel k is g_k; the result is the calibration
+%   factor C_k = g_k / g_ref (tim.cal.switchingCorrection).
 %
 %   opts.prompt(msg, mapping): called before each configuration. In
-%   hardware mode the default prints the instruction and waits for ENTER.
+%   hardware mode the default prints the instruction and waits for Enter.
 %   In simulation mode the default moves the microphones in the virtual rig.
 %   opts.report(q): (optional) called after every measurement with its
 %   quality (q.kind = 'measurement': channel, config, fracOk, coherence
 %   and SNR medians), after every channel (q.kind = 'channel': nValid,
-%   Nf, repeatability) and after the empty-section check (q.kind =
+%   Nf, repeatability) and after the empty-tube check (q.kind =
 %   'verification', q.check) - used by the GUI step list.
 %   Every raw measurement is returned in raw and saved with the calibration.
 
@@ -63,8 +66,8 @@ if strcmp(cfg.mode, 'simulation') && ~isempty(session.Rig)
     specimen = session.setSimulationSample(struct('type', 'air'));          % operator mounts the empty section
     restoreSpecimen = onCleanup(@() session.setSimulationSample(specimen));  % also on error / STOP
 end
-% step 0: preparation checklist (EMPTY specimen section mounted, anechoic /
-% absorbing termination, ports sealed); microphones in their measurement ports
+% step 0: preparation checklist (empty specimen section mounted, absorbing
+% termination, ports sealed); microphones in their measurement ports
 home0 = zeros(1, 4); home0([cfg.mics.channel]) = [cfg.mics.position];
 prompt(tim.app.msg(lang, 'calPrepare', secTxt, ab(1), ab(2)), home0);
 session.log('%s', tim.app.msg(lang, 'calPrepare', secTxt, ab(1), ab(2)));
@@ -103,13 +106,13 @@ for k = chans
     if isfield(sp, 'Irep'), o.HIrepeat = sp.Irep.H(:, k); end
     results{k} = tim.cal.switchingCorrection(sp.I.f, sp.I.H(:, k), sp.II.H(:, k), o);
     r = results{k};
-    msg = sprintf('Channel %d: %d/%d valid bins', k, r.nValid, r.Nf);
+    msg = sprintf('C%d (ch%d/ch%d): %d of %d frequency lines valid', k, k, ref, r.nValid, r.Nf);
     if ~isempty(r.repeatability)
-        msg = sprintf('%s, re-mount repeatability max %.3f dB / %.2f deg', msg, ...
+        msg = sprintf('%s; remounting repeatability max. %.3f dB / %.2f°', msg, ...
             r.repeatability.maxMag_dB, r.repeatability.maxPhase_deg);
     end
     session.log('%s', msg);
-    for n = 1:numel(r.notes), session.log('  note: %s', r.notes{n}); end
+    for n = 1:numel(r.notes), session.log('  Note: %s', r.notes{n}); end
     report(struct('kind', 'channel', 'channel', k, 'nValid', r.nValid, 'Nf', r.Nf, ...
         'repeatability', r.repeatability, 'text', msg));
 end
@@ -120,24 +123,40 @@ meta = struct('mics', session.Mics, 'positions', ab, 'refChannel', ref, ...
 [meta.software, meta.softwareInfo] = tim.app.softwareVersion();
 meta.tube = struct('specimenSection', 'empty', 'sectionLength_m', dSec, ...
     'specimenThickness_m', g.xRear - g.xFront, 'geometry', g, 'environment', cfg.environment, ...
-    'note', ['Calibrated with the EMPTY specimen section mounted (no specimen): ' ...
+    'note', ['Calibrated with the empty specimen section mounted (no specimen): ' ...
     'tube continuous, port positions as in the measurement.']);
 cal = tim.cal.buildCalibration(sp.I.f, results, ref, meta);
 [willCheck, why] = checkPossible(verify, g, cal);
+% save NOW, before the "return the microphones" step: C_k does not depend on the
+% empty-tube check; cancelling that step, a Stop or an error during the check
+% must not lose the switching measurements
 if willCheck
-    prompt(tim.app.msg(lang, 'calDone'), home);
+    cal.meta.emptyCheck = struct('performed', false, 'passed', false, 'text', 'not performed yet (calibration saved before the check)');
 else
-    prompt(tim.app.msg(lang, 'calDoneNoCheck', why), home);
+    cal.meta.emptyCheck = struct('performed', false, 'passed', false, 'text', ['not performed: ' why]);
 end
-% save NOW: C_k does not depend on the empty-tube check; an error or STOP during
-% the check must not lose the switching measurements
-cal.meta.emptyCheck = struct('performed', false, 'passed', false, 'text', ['not performed: ' why]);
 d = tim.app.outputDir(cfg, 'calibration');
 if ~exist(d, 'dir'), mkdir(d); end
 file = tim.app.uniqueName(fullfile(d, [cal.version '.mat']));
 save(file, 'cal', 'raw', '-v7.3');
 session.Calibration = cal;
 session.log('Calibration %s saved to %s', cal.version, file);
+try
+    if willCheck
+        prompt(tim.app.msg(lang, 'calDone'), home);
+    else
+        prompt(tim.app.msg(lang, 'calDoneNoCheck', why), home);
+    end
+catch err
+    if any(strcmp(err.identifier, {'tim:gui:abort', 'tim:session:stopped'}))
+        cal.meta.emptyCheck.text = 'not performed: cancelled by the operator – calibration saved without the empty-tube check';
+        save(file, 'cal', 'raw', '-v7.3');
+        session.Calibration = cal;
+        session.log('Empty-tube check (Test E): %s', cal.meta.emptyCheck.text);
+        report(struct('kind', 'verification', 'check', cal.meta.emptyCheck));
+    end
+    rethrow(err);
+end
 if willCheck
     try
         [chk, mE] = emptySectionCheck(session, cfg, cal);
@@ -146,25 +165,26 @@ if willCheck
         end
     catch err
         if strcmp(err.identifier, 'tim:session:stopped')
-            txt = 'aborted by the operator (STOP) - calibration saved without the empty-tube check';
+            txt = 'stopped by the operator – calibration saved without the empty-tube check';
         else
-            txt = ['error - calibration saved without the empty-tube check: ' err.message];
+            txt = ['error – calibration saved without the empty-tube check: ' err.message];
         end
         chk = struct('performed', false, 'passed', false, 'text', txt);
-        session.log('Empty-section check %s', txt);
+        session.log('Empty-tube check (Test E): %s', txt);
     end
     cal.meta.emptyCheck = chk;
     save(file, 'cal', 'raw', '-v7.3');                 % same file, now with the check
     session.Calibration = cal;
 end
 report(struct('kind', 'verification', 'check', cal.meta.emptyCheck));
-% back to the measurement set-up (the calibration is already saved: an abort here loses nothing)
+% back to the measurement set-up (the calibration is already saved: a stop here loses nothing)
 clear restoreSpecimen                              % simulation: the specimen section is mounted again
 try
     prompt(tim.app.msg(lang, 'calMountSpecimen'), home);
     session.log('%s', tim.app.msg(lang, 'calMountSpecimen'));
 catch err
-    session.log('Last step not confirmed (%s): mount the specimen section before measuring.', err.message);
+    session.log('Warning: last calibration step not confirmed (%s) – mount the specimen section before measuring.', ...
+        regexprep(err.message, '\.$', ''));
 end
 end
 
@@ -196,24 +216,25 @@ end
 end
 
 function [chk, m] = emptySectionCheck(session, cfg, cal)
-% Test E with the EMPTY section and the microphones in their measurement ports:
-% tau = exp(-j k_c d), R = Rterm exp(-2j k_c d). Checks the port coordinates
-% (s1, s2, M2->M3 = L1 + d + L2) and the calibration; not the L1/d/L2 split.
-% Called only when checkPossible() is true.
+% Test E (empty-tube check) with the empty specimen section and the microphones
+% in their measurement ports: tau = exp(-j k_c d), R = Rterm exp(-2j k_c d).
+% Checks the port coordinates (s1, s2, M2 -> M3 = L1 + d + L2) and the
+% calibration; not the L1/d/L2 split. Called only when checkPossible() is true.
 session.throwIfStopped();
-session.log('Empty-section check (Test E): one sweep, empty section, microphones in their measurement ports.');
+session.log(['Empty-tube check (Test E): one sweep with the empty specimen section mounted ' ...
+    'and the microphones in their measurement ports.']);
 m = session.measure('sweep');
 res = tim.app.processMeasurement(m, cfg, cal);
 r = tim.val.testDE_reference(res, 'empty', struct());
 chk = r; chk.performed = true; chk.measurementTimestamp = m.timestamp;
 if r.validBins == 0
-    chk.text = ['Test E: FAILED - no valid bins (check coherence / SNR / calibration validity; ' ...
-        'see the Validity tab of the check measurement)'];
+    chk.text = ['Test E failed: no frequency line meets the geometry and quality criteria (check coherence, ' ...
+        'SNR and calibration validity; the check measurement is saved with the raw calibration measurements)'];
 else
-    verdict = 'FAILED - check s1, L1 + d + L2 (M2->M3), s2, leaks, and that the EMPTY section is mounted';
+    verdict = 'failed – check s1, L1 + d + L2 (M2 → M3), s2, leaks, and that the empty specimen section is mounted';
     if r.passed, verdict = 'passed'; end
-    chk.text = sprintf(['Test E, empty section (d = %g mm): %s (|tau| error %.3f, tau phase error %.2f deg rms, ' ...
-        'R consistency %.3f, %d valid bins)'], round(1e3 * r.gap_m, 3), verdict, r.tauMagError_median, ...
+    chk.text = sprintf(['Test E, empty specimen section (d = %g mm): %s (|τ| error %.3f, τ phase error %.2f° rms, ' ...
+        'R consistency %.3f, %d frequency lines evaluated)'], round(1e3 * r.gap_m, 3), verdict, r.tauMagError_median, ...
         r.tauPhaseError_deg_rms, r.RconsistencyError_median, r.validBins);
 end
 session.log('%s', chk.text);

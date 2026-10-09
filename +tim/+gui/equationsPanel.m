@@ -1,68 +1,347 @@
 function equationsPanel(parent)
-%EQUATIONSPANEL Scrollable overview of all equations used by the software.
-%   tim.gui.equationsPanel(uitabOrPanel)
-%   Equations are rendered with the LaTeX interpreter of uilabel. The text
-%   mirrors docs/theory.md (detailed derivations and references there).
+%EQUATIONSPANEL The "Formula" view: every equation used by the analysis.
+%   tim.gui.equationsPanel(parent)
+%   parent: uitab, uipanel or uifigure. Builds a tim.gui.ViewPage titled
+%   'Formula' (no summary panel); its body is a scrollable list of section
+%   headings, text rows (plain text with Unicode symbols, word wrap),
+%   equations (uilabel, Interpreter 'latex') and two-column rows (a LaTeX
+%   symbol or criterion next to its description).
+%
+%   The equations are those of the code as it is (+tim/+acoustics, +tim/+dsp,
+%   +tim/+cal, tim.app.processMeasurement); docs/theory.md has the
+%   derivations and references. Thresholds, example frequency limits and
+%   air-property values are computed at run time from
+%   tim.app.defaultConfig, tim.acoustics.airProperties,
+%   tim.acoustics.wavenumber and tim.acoustics.frequencyLimits, so the
+%   numbers shown stay equal to the code defaults.
+%
+%   Symbols follow the glossary: D inner diameter, d specimen thickness,
+%   s1/s2 microphone spacings, L1/L2 distances to the faces, T temperature,
+%   p_s static pressure, g_k chain gain, H_k transfer function, C_k
+%   calibration factor, gamma^2 coherence, alpha_d dissipation coefficient,
+%   kappa ratio of specific heats (gamma is the coherence), tau measured,
+%   tau_a anechoic (from T). Every LaTeX string must render in R2022b
+%   (tests/TestFormulaPanel.m renders each one once with text()).
+%
+%   Labels carry the Tag 'formula:<type>' (h, h2, t, e, s, c) for the tests.
 
-items = {
- 'h', '0. Conventions'
- 't', 'Time dependence exp(+j omega t). Axis x from the loudspeaker towards the termination. Forward wave A, backward wave B. Velocity u positive towards +x.'
- 'e', '$p(x) = A\,e^{-jkx} + B\,e^{+jkx}, \qquad u(x) = \frac{A\,e^{-jkx} - B\,e^{+jkx}}{\rho c}$'
+P = tim.gui.palette();
+items = formulaItems(tim.app.defaultConfig());
 
- 'h', '1. Microphone calibration by sensor switching (phase and amplitude)'
- 't', 'Each complete chain (microphone + cable + CCLD + LAN-XI input) has a complex response c. Measured: Y = c p. Microphone k and the reference microphone are placed in ports a and b (configuration I), then the two microphone bodies are interchanged (configuration II); cables and inputs are NOT changed.'
- 'e', '$H^{I} = \frac{Y_k}{Y_{ref}} = \frac{c_k\,p_b}{c_{ref}\,p_a}, \qquad H^{II} = \frac{Y_k}{Y_{ref}} = \frac{c_k\,p_a}{c_{ref}\,p_b}$'
- 'e', '$C_k = \frac{c_k}{c_{ref}} = \sqrt{H^{I}\,H^{II}}, \qquad \frac{p_b}{p_a} = \sqrt{\frac{H^{I}}{H^{II}}}, \qquad \hat{H}_k = \frac{H_k}{C_k}$'
- 't', 'Branch of the square root: the phase of H^I H^II is unwrapped over valid frequencies and halved; the multiple of pi is chosen so that the phase of C_k is near 0 at low frequency (matched microphones). Low-coherence / low-SNR bins are excluded and flagged. Interpolation uses log|C| and the unwrapped phase.'
+page = tim.gui.ViewPage(parent, 'Formula', ['Every equation of the analysis in the symbols of the GUI, ' ...
+    'with the default thresholds and the units. Derivations: docs/theory.md.'], 'Summary', false);
+% rows: a small spacer before every section heading (except the first)
+types = items(:, 1);
+nSpacer = nnz(strcmp(types(2:end), 'h'));
+n = numel(types) + nSpacer;
+g = uigridlayout(page.Body, [n 1], 'Scrollable', 'on', 'RowSpacing', 5, ...
+    'Padding', [16 8 16 18], 'RowHeight', repmat({'fit'}, 1, n), 'BackgroundColor', 'w');
+row = 0;
+for i = 1:numel(types)
+    if strcmp(types{i}, 'h') && i > 1
+        row = row + 1;
+        g.RowHeight{row} = 10;
+    end
+    row = row + 1;
+    c = items{i, 2};
+    switch types{i}
+        case 'h'        % section heading
+            l = uilabel(g, 'Text', c, 'FontWeight', 'bold', 'FontSize', 15, 'FontColor', P.ui.bar);
+        case 'h2'       % sub-heading
+            l = uilabel(g, 'Text', c, 'FontWeight', 'bold', 'FontSize', 13, 'FontColor', P.ui.text);
+        case 't'        % plain text (Unicode symbols)
+            l = uilabel(g, 'Text', c, 'WordWrap', 'on', 'FontSize', 12, 'FontColor', P.ui.text);
+        case 'e'        % equation
+            l = uilabel(g, 'Text', c, 'Interpreter', 'latex', 'FontSize', 15, 'FontColor', P.ui.text);
+        case {'s', 'c'} % LaTeX symbol / criterion | description
+            w = 230; if strcmp(types{i}, 'c'), w = 400; end
+            l = uigridlayout(g, [1 2], 'ColumnWidth', {w, '1x'}, 'RowHeight', {'fit'}, ...
+                'Padding', [0 0 0 0], 'ColumnSpacing', 14, 'BackgroundColor', 'w');
+            uilabel(l, 'Text', c{1}, 'Interpreter', 'latex', 'FontSize', 14, 'FontColor', P.ui.text, ...
+                'Tag', ['formula:' types{i}]);
+            uilabel(l, 'Text', c{2}, 'WordWrap', 'on', 'FontSize', 12, 'FontColor', P.ui.text, ...
+                'Tag', ['formula:' types{i} 'text']);
+    end
+    if ~any(strcmp(types{i}, {'s', 'c'})), l.Tag = ['formula:' types{i}]; end
+    l.Layout.Row = row; l.Layout.Column = 1;
+end
+end
 
- 'h', '2. Relative responses from the swept sine (no generator/DAQ synchronisation needed)'
- 'e', '$Y_c(f) = P(x_c,f)\,c_c(f)\,S(f) \;\Rightarrow\; H_c = \frac{\sum Y_c\,Y_{ref}^{*}}{\sum |Y_{ref}|^{2}}, \qquad \gamma_c^{2} = \frac{|\sum Y_c\,Y_{ref}^{*}|^{2}}{\sum |Y_{ref}|^{2}\,\sum |Y_c|^{2}}$'
- 't', 'The unknown excitation spectrum S(f) cancels (sweep law, trigger time, generator clock, loudspeaker distortion). Sums over FFT bins within each band and over repetitions.'
+% ===========================================================================
+function it = formulaItems(cfg)
+% n x 2 cell {type, content}; content is char, or {latex, text} for 's'/'c'
+a = cfg.analysis;
+fs = cfg.acquisition.sampleRate;
+air = tim.acoustics.airProperties(cfg.environment);
+D = cfg.geometry.diameter;
+sp = [cfg.geometry.spacingUp, cfg.geometry.spacingDown];
+lim = tim.acoustics.frequencyLimits(D, sp, air, 'LowerFraction', a.lowerFraction, ...
+    'UpperFraction', a.upperFraction);
+% numbers of the 'kirchhoff' formulas, from the code itself
+fx = [a.fMin; a.fMax];
+[k, Zc] = tim.acoustics.wavenumber(fx, air, D, 'kirchhoff');
+k0 = 2 * pi * fx / air.c;
+kpp = -imag(k);                                  % attenuation k''
+Cw = kpp(1) * air.c * D / sqrt(fx(1));
+relZ = abs(Zc / air.Z0 - 1);
+Psi = real(Zc(1) / air.Z0 - 1) / (kpp(1) / k0(1));
+% stepped-sine block length
+st = cfg.excitation.stepped;
+Nrec = round(st.recordTime * fs);
+N = floor(Nrec / max(1, st.nBlocks));
+calPos = cfg.calibration.positions;
 
- 'h', '3. Plane-wave decomposition (pair M1/M2 upstream, M3/M4 downstream)'
- 'e', '$A = \frac{p_1\,e^{jkx_2} - p_2\,e^{jkx_1}}{2j\,\sin k(x_2 - x_1)}, \qquad B = \frac{p_2\,e^{-jkx_1} - p_1\,e^{-jkx_2}}{2j\,\sin k(x_2 - x_1)}$'
- 't', 'Singular when k s = n pi (s = microphone spacing). The condition number of this 2x2 system is reported per frequency.'
+lf = frac(a.lowerFraction); uf = frac(a.upperFraction);
+kpr = 'k^{\prime}'; kpp2 = 'k^{\prime\prime}';
+pass = num(1 + a.passivityTol); anR = num(a.anechoicRmax); vm = frac(a.velocityMismatchMax);
+mm = @(x) num(round(1e3 * x, 2));
 
- 'h', '4. Pressure and particle velocity at the sample faces (x_L front, x_R rear)'
- 'e', '$p_L = A_1 e^{-jkx_L} + B_1 e^{jkx_L}, \quad u_L = \frac{A_1 e^{-jkx_L} - B_1 e^{jkx_L}}{\rho c}, \quad p_R = A_2 e^{-jkx_R} + B_2 e^{jkx_R}, \quad u_R = \frac{A_2 e^{-jkx_R} - B_2 e^{jkx_R}}{\rho c}$'
+it = {
+ 'h', '0. Conventions and symbols'
+ 't', ['Time dependence exp(+jωt). The x axis points from the loudspeaker towards the termination; ' ...
+       'M1 is the port nearest the loudspeaker. A is the forward wave (towards +x), B the backward wave, ' ...
+       'and the particle velocity u is positive towards +x. SI units throughout.']
+ 'e', ['$p(x) = A\,e^{-jkx} + B\,e^{+jkx}, \qquad u(x) = \frac{A\,e^{-jkx} - B\,e^{+jkx}}{Z_c}, \qquad k = ' ...
+       kpr ' - j\,' kpp2 ',\;\; ' kpp2 ' \ge 0$']
+ 't', 'Axial positions as entered in Tube setup (specimen front face at x = 0):'
+ 'e', ['$x_L = 0, \quad x_R = d, \quad x_{\mathrm{M1}} = -L_1 - s_1, \quad x_{\mathrm{M2}} = -L_1, \quad ' ...
+       'x_{\mathrm{M3}} = d + L_2, \quad x_{\mathrm{M4}} = d + L_2 + s_2$']
+ 's', {'$D$', 'inner diameter of the tube'}
+ 's', {'$d$', 'specimen thickness (distance between the specimen faces)'}
+ 's', {'$s_1,\ s_2$', 'microphone spacings M1–M2 and M3–M4'}
+ 's', {'$L_1,\ L_2$', 'distances M2 → specimen front face and specimen rear face → M3'}
+ 's', {'$T,\ p_s$', 'air temperature [K] and static pressure [Pa]'}
+ 's', {'$c,\ \rho,\ \rho c$', 'speed of sound, density and characteristic impedance of the air'}
+ 's', {'$k,\ Z_c$', 'complex wavenumber and characteristic impedance in the tube (tube-loss model, section 9)'}
+ 's', {'$g_k,\ C_k = g_k/g_{\mathrm{ref}}$', ['complex gain of measurement chain k (microphone, cable, ' ...
+       'CCLD supply, LAN-XI input) and calibration factor']}
+ 's', {'$H_k = p(x_k)/p(x_{\mathrm{ref}})$', 'calibrated transfer function of port k to the reference microphone'}
+ 's', {'$\gamma_k^{2}$', 'coherence'}
+ 's', {'$R,\ \tau,\ R_{\mathrm{term}}$', ['reflection coefficient at the front face, transmission coefficient ' ...
+       'to the rear face, termination reflection coefficient at the rear face']}
+ 's', {'$\alpha_d$', 'dissipation coefficient'}
+ 's', {'$Z_t,\ \delta_u$', 'transfer impedance and velocity mismatch (thin-element model)'}
+ 's', {'$\mathrm{TL},\ \mathrm{TL}_{\tau}$', 'transmission loss from Zt and from τ'}
+ 's', {'$\mathbf{T},\ \tau_a,\ R_a$', ['transfer matrix and the transmission and reflection coefficients it ' ...
+       'gives for an anechoic termination (scripts only)']}
 
- 'h', '5. Reflection and transmission coefficients'
- 'e', '$R = \frac{B_1\,e^{jkx_L}}{A_1\,e^{-jkx_L}}, \qquad \tau = \frac{A_2\,e^{-jkx_R}}{A_1\,e^{-jkx_L}}, \qquad R_{term} = \frac{B_2\,e^{jkx_R}}{A_2\,e^{-jkx_R}}, \qquad \alpha = 1 - |R|^{2} - |\tau|^{2}$'
- 't', 'tau and alpha are intrinsic sample properties only for an anechoic termination (|R_term| small).'
+ 'h', '1. Transfer functions'
+ 'e', ['$Y_k(f) = g_k(f)\,p(x_k, f)\,S(f) \;\Rightarrow\; H_k^{\mathrm{m}} = \frac{Y_k}{Y_{\mathrm{ref}}} = ' ...
+       'C_k\,\frac{p(x_k)}{p(x_{\mathrm{ref}})}$']
+ 't', ['S(f) is the unknown spectrum of the loudspeaker drive. It cancels in the ratio, so the generator and ' ...
+       'the LAN-XI module need no synchronisation: sweep law, trigger time, generator clock and loudspeaker ' ...
+       'distortion do not enter. The measured ratio is corrected with the calibration factor (section 2).']
+ 'h2', '1a. Swept sine (H1 estimator)'
+ 'e', ['$H_k^{\mathrm{m}} = \frac{\sum Y_k\,Y_{\mathrm{ref}}^{*}}{\sum |Y_{\mathrm{ref}}|^{2}}, \qquad ' ...
+       '\gamma_k^{2} = \frac{|\sum Y_k\,Y_{\mathrm{ref}}^{*}|^{2}}{\sum |Y_{\mathrm{ref}}|^{2}\,\sum |Y_k|^{2}}$']
+ 'e', ['$\mathrm{SNR}_k = 10\log_{10}\frac{\max\left(\sum |Y_k|^{2} - \sum E|N_k|^{2},\; ' ...
+       '10^{-4}\sum E|N_k|^{2}\right)}{\sum E|N_k|^{2}}, \qquad E|N_k|^{2} = \frac{G_{\mathrm{n},k}}{2}\,f_s\sum_m w_m^{2}$']
+ 's', {'$\sum$', ['over the FFT bins of each frequency line [f − Δf/2, f + Δf/2), Δf = ' num(a.df) ' Hz, ' ...
+       'and over the repetitions']}
+ 's', {'$w_m$', ['taper of the analysed segment: detected sweep start − 10 ms to sweep end + ring-down ' ...
+       '(at most 0.5 s), 10 ms raised-cosine edges']}
+ 's', {'$G_{\mathrm{n},k}$', ['one-sided Welch PSD of channel k in the pre-roll before the sweep (at least ' ...
+       '0.1 s, otherwise the repetition is left out of the SNR); the floor 10⁻⁴ gives −40 dB']}
+ 'h2', '1b. Stepped sine (3-parameter sine fit, IEEE 1057)'
+ 'e', ['$\hat{f} = \arg\max_{f} \left| \sum_m w_m\, x_{\mathrm{ref}}(t_m)\, e^{-j 2\pi f t_m} \right|, ' ...
+       '\qquad |f - f_{\mathrm{nom}}| \le \max\left(5\cdot10^{-4} f_{\mathrm{nom}},\; 2 f_s/N_{\mathrm{rec}}\right)$']
+ 'e', ['$x_k(t) \approx \mathrm{Re}\{Y_{k,i}\, e^{j 2\pi \hat{f} t}\} + o_{k,i}, \qquad i = 1 \ldots n_b ' ...
+       '\quad (\mathrm{least\ squares\ on}\ \cos,\ -\sin,\ 1)$']
+ 'e', ['$H_k^{\mathrm{m}} = \frac{\sum_i Y_{k,i}\,Y_{\mathrm{ref},i}^{*}}{\sum_i |Y_{\mathrm{ref},i}|^{2}}, \qquad ' ...
+       '\gamma_k^{2} = \frac{|\sum_i Y_{k,i}\,Y_{\mathrm{ref},i}^{*}|^{2}}{\sum_i |Y_{\mathrm{ref},i}|^{2}\,' ...
+       '\sum_i |Y_{k,i}|^{2}}, \qquad \sigma_{H_k} = \frac{\mathrm{std}_i\left(Y_{k,i}/Y_{\mathrm{ref},i}\right)}{\sqrt{n_b}}$']
+ 'e', ['$\mathrm{SNR}_k = 10\log_{10}\frac{\overline{|Y_{k,i}|^{2}}/2}{G_{\mathrm{n},k}\,f_s/N}, \qquad ' ...
+       'N = \lfloor N_{\mathrm{rec}}/n_b \rfloor$']
+ 's', {'$w_m,\ \hat{f}$', ['Hann window over the settled record of the step (mean removed); the frequency ' ...
+       'seen by the LAN-XI module, estimated on the reference channel and used for all channels']}
+ 's', {'$N_{\mathrm{rec}},\ n_b,\ N$', sprintf(['samples of the settled record, number of blocks, samples per ' ...
+       'block (default: %g s, %d blocks at %d Hz: N = %d, noise bandwidth %g Hz)'], ...
+       st.recordTime, st.nBlocks, fs, N, fs / N)}
+ 's', {'$G_{\mathrm{n},k}$', ['one-sided Welch PSD of the fit residual: mean over 10–100 Hz on both sides ' ...
+       'of the tone, after removing lines above 10 × the median (other steps, harmonics, mains)']}
+ 't', sprintf(['The denominator is the noise power in the bandwidth of an N-sample fit, so the SNR is that of ' ...
+       'one block; the mean of the %d blocks has %.1f dB more. The dotted noise level in Spectrum is this noise ' ...
+       'power. With several repetitions the transfer function is the mean, coherence and SNR are the minimum; ' ...
+       'σ is the standard error from the scatter of the blocks.'], st.nBlocks, 10 * log10(st.nBlocks))
+ 'h2', '1c. Random noise (scripts only)'
+ 'e', ['$H_k^{\mathrm{m}} = \frac{G_{k,\mathrm{ref}}}{G_{\mathrm{ref,ref}}}, \qquad \gamma_k^{2} = ' ...
+       '\frac{|G_{k,\mathrm{ref}}|^{2}}{G_{\mathrm{ref,ref}}\,G_{k,k}}, \qquad \mathrm{SNR}_k = ' ...
+       '10\log_{10}\frac{\gamma_k^{2}}{1 - \gamma_k^{2}}$']
+ 't', 'Welch cross and auto spectra (Hann window, 50 % overlap), interpolated onto the analysis grid.'
 
- 'h', '6. Transfer impedance (thin element)'
- 'e', '$Z_t = \frac{p_L - p_R}{u}, \qquad u = \frac{u_L + u_R}{2}, \qquad \delta_u = \frac{|u_L - u_R|}{\max(|u_L|,|u_R|)}$'
- 't', 'Valid for an element of negligible thickness with (nearly) continuous velocity; frequencies with velocity mismatch above 10 % are flagged invalid. Normalised: Z_t / rho c.'
+ 'h', '2. Switching calibration'
+ 't', sprintf(['Empty specimen section mounted. Configuration I: reference microphone in calibration port a ' ...
+       '(M%d), microphone k in port b (M%d). Configuration II: the two microphones are interchanged; cables ' ...
+       'and inputs are not changed.'], calPos(1), calPos(2))
+ 'e', ['$H^{\mathrm{I}} = \frac{Y_k}{Y_{\mathrm{ref}}} = \frac{g_k\,p_b}{g_{\mathrm{ref}}\,p_a}, \qquad ' ...
+       'H^{\mathrm{II}} = \frac{Y_k}{Y_{\mathrm{ref}}} = \frac{g_k\,p_a}{g_{\mathrm{ref}}\,p_b}$']
+ 'e', ['$C_k = \frac{g_k}{g_{\mathrm{ref}}} = \sqrt{H^{\mathrm{I}}\,H^{\mathrm{II}}}, \qquad \frac{p_b}{p_a} = ' ...
+       '\sqrt{\frac{H^{\mathrm{I}}}{H^{\mathrm{II}}}}, \qquad H_k = \frac{H_k^{\mathrm{m}}}{C_k}$']
+ 't', ['Branch of the square roots: the phase of the product (and of the quotient) is unwrapped over the ' ...
+       'valid frequency lines and halved; the multiple of π is chosen so that the median phase over the ' ...
+       'lowest 10 % of the valid range is closest to 0 (matched microphones differ by less than 90°). Lines ' ...
+       'that are not valid get interpolated phase and stay not valid. On the analysis grid, log|Ck| and the ' ...
+       'unwrapped phase are interpolated linearly, without extrapolation.']
+ 't', sprintf(['A calibration line is valid when γ² ≥ %s and SNR ≥ %s dB (reference and channel k) in both ' ...
+       'configurations, 0.5 ≤ |Ck| ≤ 2 and |∠Ck| ≤ 45°. A frequency line of a measurement has a valid ' ...
+       'calibration when the calibration lines on both sides are valid for all four channels.'], ...
+       num(cfg.calibration.coherenceMin), num(cfg.calibration.snrMin_dB))
+
+ 'h', '3. Plane-wave decomposition (each microphone pair)'
+ 'e', ['$A = \frac{p_1\,e^{jkx_2} - p_2\,e^{jkx_1}}{2j\,\sin k(x_2 - x_1)}, \qquad ' ...
+       'B = \frac{p_2\,e^{-jkx_1} - p_1\,e^{-jkx_2}}{2j\,\sin k(x_2 - x_1)}$']
+ 't', ['Upstream pair M1/M2 gives A1 and B1, downstream pair M3/M4 gives A2 and B2. The pressures are the ' ...
+       'calibrated transfer functions Hk; a factor common to all four cancels in every result.']
+ 'e', ['$\mathrm{cond} = \max\left(\left|\cot\frac{ks}{2}\right|,\; \left|\tan\frac{ks}{2}\right|\right)\ \ ' ...
+       '(\mathrm{lossless}\ k), \qquad f_{\mathrm{sing}} = \frac{c}{2s}\ \ (ks = \pi)$']
+ 't', ['cond is the 2-norm condition number of the 2 × 2 system in pair-local coordinates, computed with ' ...
+       'the lossy k (s = s1 or s2). The system is singular at ks = nπ.']
+
+ 'h', '4. Pressure and particle velocity at the specimen faces'
+ 'e', '$p_L = A_1 e^{-jkx_L} + B_1 e^{jkx_L}, \qquad u_L = \frac{A_1 e^{-jkx_L} - B_1 e^{jkx_L}}{Z_c}$'
+ 'e', '$p_R = A_2 e^{-jkx_R} + B_2 e^{jkx_R}, \qquad u_R = \frac{A_2 e^{-jkx_R} - B_2 e^{jkx_R}}{Z_c}$'
+ 't', ['Zc is the characteristic impedance that belongs to k in the Euler equation of the lossy plane wave ' ...
+       '(section 9); without losses Zc = ρc.']
+
+ 'h', '5. Reflection, transmission and dissipation'
+ 'e', ['$R = \frac{B_1\,e^{jkx_L}}{A_1\,e^{-jkx_L}}, \qquad \tau = \frac{A_2\,e^{-jkx_R}}{A_1\,e^{-jkx_L}}, ' ...
+       '\qquad R_{\mathrm{term}} = \frac{B_2\,e^{jkx_R}}{A_2\,e^{-jkx_R}}$']
+ 'e', '$\alpha_d = 1 - |R|^{2} - |\tau|^{2}$'
+ 't', sprintf(['R, τ and αd describe the specimen as mounted, together with the actual downstream ' ...
+       'termination. They equal the values of the specimen with an anechoic termination only when |Rterm| ≈ 0 ' ...
+       '(for a specimen that transmits nothing R needs no condition). τ and αd are therefore valid only for ' ...
+       '|Rterm| ≤ %s; R comes from the upstream pair M1/M2 alone and has no termination condition. ' ...
+       'Termination-independent values: τa and Ra from the transfer matrix (section 8).'], anR)
+ 't', sprintf(['With a reflecting termination the net power balance is 1 − |R|² − |τ|²(1 − |Rterm|²); for ' ...
+       '|Rterm| ≤ %s it differs from αd by at most %s·|τ|².'], anR, num(a.anechoicRmax^2))
+
+ 'h', '6. Transfer impedance (thin-element model)'
+ 'e', ['$Z_t = \frac{p_L - p_R}{u}, \qquad u = \frac{u_L + u_R}{2}, \qquad \delta_u = ' ...
+       '\frac{|u_L - u_R|}{\max(|u_L|,\,|u_R|)}$']
+ 't', sprintf(['Specimen of negligible thickness with (nearly) continuous velocity. δu is checked, not ' ...
+       'enforced: Zt is valid only for δu ≤ %s. With analysis.velocityRef = upstream or downstream, u = uL ' ...
+       'or u = uR (default: mean). The views show Zt/(ρc), normalised by the real ρc of the air.'], vm)
+ 't', ['Thick specimen: the Transfer impedance and Transmission loss views hide Zt and the TL from Zt when ' ...
+       'Re(k)·d > 1 anywhere in the analysis band (d = specimen thickness).']
 
  'h', '7. Transmission loss'
- 'e', '$\mathbf{T}_{thin}:\; T_{11}=1,\; T_{12}=Z_t,\; T_{21}=0,\; T_{22}=1 \;\Rightarrow\; \tau = \frac{2}{2 + Z_t/\rho c}, \qquad TL = 20\log_{10}\left|1 + \frac{Z_t}{2\rho c}\right|$'
- 'e', '$TL_{\tau} = -20\log_{10}|\tau| \qquad (\mathrm{anechoic\ termination\ only})$'
+ 'e', ['$T_{11} = 1,\; T_{12} = Z_t,\; T_{21} = 0,\; T_{22} = 1 \;\Rightarrow\; \tau_a = \frac{2}{2 + Z_t/Z_c}, ' ...
+       '\qquad \mathrm{TL} = -20\log_{10}|\tau_a| = 20\log_{10}\left|1 + \frac{Z_t}{2 Z_c}\right|$']
+ 'e', '$\mathrm{TL}_{\tau} = -20\log_{10}|\tau|$'
+ 't', sprintf(['TL from Zt: transmission loss of the thin element with an anechoic termination; it does not ' ...
+       'depend on the actual termination and has the validity of Zt. TL from τ uses the measured τ and is ' ...
+       'valid only with an anechoic termination (|Rterm| ≤ %s). Both assume equal cross-sections on both ' ...
+       'sides.'], anR)
 
- 'h', '8. General two-port (thick samples): two-load method'
+ 'h', '8. Transfer matrix (scripts only, two-load method)'
+ 't', 'Not computed by the GUI; script function tim.acoustics.transferMatrix.'
  'e', '$p_L = T_{11}\,p_R + T_{12}\,u_R, \qquad u_L = T_{21}\,p_R + T_{22}\,u_R$'
- 'e', '$\mathbf{T} = \mathbf{P}\,\mathbf{Q}^{-1}, \qquad \mathbf{P} = [\,(p_L^{a}, u_L^{a})^{T} \;\; (p_L^{b}, u_L^{b})^{T}\,], \qquad \mathbf{Q} = [\,(p_R^{a}, u_R^{a})^{T} \;\; (p_R^{b}, u_R^{b})^{T}\,]$'
- 'e', '$TL = 20\log_{10}\left|\frac{T_{11} + T_{12}/\rho c + \rho c\,T_{21} + T_{22}}{2}\right|$'
- 't', 'Two measurements (a, b) with different terminations are required: one excitation state gives only 2 equations for the 4 unknowns.'
+ 'e', ['$\mathbf{T} = \mathbf{P}\,\mathbf{Q}^{-1}, \qquad \mathbf{P} = \left[\matrix{p_L^{(1)} & p_L^{(2)} \cr ' ...
+       'u_L^{(1)} & u_L^{(2)}}\right], \qquad \mathbf{Q} = \left[\matrix{p_R^{(1)} & p_R^{(2)} \cr ' ...
+       'u_R^{(1)} & u_R^{(2)}}\right]$']
+ 't', ['Two-load method (ASTM E2611): two measurements (1) and (2) of the same specimen with different ' ...
+       'terminations. cond(Q), with the velocity row multiplied by Zc, shows whether the loads differ enough.']
+ 'e', ['$\tau_a = \frac{2}{T_{11} + T_{12}/Z_c + Z_c\,T_{21} + T_{22}}, \qquad ' ...
+       '\mathrm{TL} = -20\log_{10}|\tau_a|$']
+ 'e', '$R_a = \frac{T_{11} + T_{12}/Z_c - Z_c\,T_{21} - T_{22}}{T_{11} + T_{12}/Z_c + Z_c\,T_{21} + T_{22}}$'
+ 't', ['τa and Ra: transmission and reflection coefficients of the specimen with an anechoic termination, ' ...
+       'independent of the actual termination.']
+ 'e', ['$T_{11} = T_{22} = \frac{p_R u_R + p_L u_L}{q}, \quad T_{12} = \frac{p_L^{2} - p_R^{2}}{q}, \quad ' ...
+       'T_{21} = \frac{u_L^{2} - u_R^{2}}{q}, \quad q = p_L u_R + p_R u_L$']
+ 't', ['One-load method: only for a reciprocal (det T = 1) and symmetric (T11 = T22) specimen. It is a ' ...
+       'reconstruction under these assumptions, not a general measurement.']
+ 'e', ['$\epsilon_{\mathrm{rec}} = |\det\mathbf{T} - 1|, \qquad \epsilon_{\mathrm{sym}} = ' ...
+       '\frac{|T_{11} - T_{22}|}{|T_{11}| + |T_{22}|}$']
+ 't', 'Reported diagnostics: reciprocity error and symmetry error.'
 
- 'h', '9. Air and tube losses (ISO 10534-2)'
- 'e', '$c = 343.2\sqrt{\frac{T}{293\,\mathrm{K}}}, \qquad \rho = 1.186\,\frac{p_a}{101325}\,\frac{293\,\mathrm{K}}{T}, \qquad k = \frac{\omega}{c} - j\,\frac{1.94\cdot10^{-2}\sqrt{f}}{c\,d}$'
+ 'h', '9. Air properties and tube losses'
+ 'e', ['$c = 343.2\ \mathrm{m/s}\,\sqrt{\frac{T}{293\ \mathrm{K}}}, \qquad \rho = ' ...
+       '\frac{p_s}{287.05\ \mathrm{J/(kg\,K)}\cdot T}$']
+ 't', 'T in kelvin (temperature in °C + 273.15). c: ISO 10534-2; ρ: ideal-gas law for dry air.'
+ 'e', ['$\mu = 1.716\cdot10^{-5}\ \mathrm{Pa\,s}\left(\frac{T}{273.15\ \mathrm{K}}\right)^{3/2}' ...
+       '\frac{383.55\ \mathrm{K}}{T + 110.4\ \mathrm{K}}, \qquad \nu = \frac{\mu}{\rho}, \qquad \kappa = ' ...
+       num(air.gamma) ', \qquad \mathrm{Pr} = ' num(air.Pr) '$']
+ 't', ['Viscosity (Sutherland), kinematic viscosity, ratio of specific heats κ and Prandtl number; used only ' ...
+       'by the tube-loss model.']
+ 'h2', ['Tube-loss model (analysis.lossModel, default: ' a.lossModel ')']
+ 'e', ['$\mathrm{kirchhoff{:}}\quad k = \frac{\omega}{c} + (1 - j)\,' kpp2 ', \qquad ' kpp2 ' = C_w\,' ...
+       '\frac{\sqrt{f}}{c\,D}, \qquad C_w = 2\sqrt{\pi\nu}\left(1 + \frac{\kappa - 1}{\sqrt{\mathrm{Pr}}}\right)$']
+ 'e', ['$Z_c = \rho c\left[1 + (1 - j)\,\Psi\,\frac{' kpp2 '}{\omega/c}\right], \qquad \Psi = ' ...
+       '\frac{1 - (\kappa - 1)/\sqrt{\mathrm{Pr}}}{1 + (\kappa - 1)/\sqrt{\mathrm{Pr}}}$']
+ 't', ['Visco-thermal wall losses of a wide tube (Kirchhoff; first-order Zwikker–Kosten model). The phase ' ...
+       'velocity drops by the same amount as the wave is attenuated: Re k = ω/c + k″.']
+ 'e', sprintf(['$%g\\ ^{\\circ}\\mathrm{C},\\ %.3f\\ \\mathrm{kPa}{:}\\quad \\rho = %.4f\\ \\mathrm{kg/m^{3}},' ...
+       '\\quad \\rho c = %.1f\\ \\mathrm{Pa\\,s/m}$'], cfg.environment.temperature_C, ...
+       cfg.environment.pressure_Pa / 1e3, air.rho, air.Z0)
+ 'e', sprintf('$C_w = %.3f\\cdot10^{-2}\\ \\mathrm{m\\,s^{-1/2}},\\quad \\Psi = %.3f$', 100 * Cw, Psi)
+ 't', sprintf(['For D = %s mm: k″/(ω/c) = %.2f %% at %g Hz and %.2f %% at %g Hz; |Zc/(ρc) − 1| = %.2f %% and ' ...
+       '%.2f %%.'], mm(D), 100 * kpp(1) / k0(1), fx(1), 100 * kpp(2) / k0(2), fx(2), 100 * relZ(1), 100 * relZ(2))
+ 'e', ['$\mathrm{iso10534{:}}\quad k = \frac{\omega}{c} - j\,1.94\cdot10^{-2}\,\frac{\sqrt{f}}{c\,D}, \quad ' ...
+       'Z_c = \rho c \qquad\qquad \mathrm{none{:}}\quad k = \frac{\omega}{c}, \quad Z_c = \rho c$']
+ 't', ['f in Hz, c in m/s, D in m (the constants carry units). iso10534: the ISO 10534-2 attenuation without ' ...
+       'the phase-velocity reduction; conformant for absorption work, but it biases a thin-element Zt by ' ...
+       '3–17 % at |Zt|/(ρc) ≈ 0.05 and by 1–2 % at |Zt|/(ρc) ≈ 1. none: lossless. Humidity is neglected ' ...
+       '(20 °C, 50 % RH: c is 0.18 % higher and ρ 0.44 % lower than for dry air).']
 
- 'h', '10. Frequency limits (d = 29 mm, s = 29 mm: 118 Hz ... 4.73 kHz)'
- 'e', '$0.01\,\frac{c}{s} \;<\; f \;<\; \min\left(0.40\,\frac{c}{s},\; \frac{1.84\,c}{\pi d}\right), \qquad f_{singular} = \frac{c}{2s}$'
- 't', 'Valid = measured AND geometry-permitted AND quality OK (coherence, SNR, complex calibration) AND passive. "Validated" only inside experimentally validated bands.'
+ 'h', '10. Geometric validity range'
+ 'e', ['$' lf '\,\frac{c}{s} \;\le\; f \;\le\; ' uf '\,\frac{c}{s}, \qquad f \;<\; 0.58\,\frac{c}{D}, ' ...
+       '\qquad f_{(1,1)} = \frac{1.8412\,c}{\pi D} = 0.586\,\frac{c}{D}, \qquad f_{\mathrm{sing}} = \frac{c}{2s}$']
+ 't', sprintf(['Applied to both spacings s = s1, s2 (the larger lower and the smaller upper limit). Spacing ' ...
+       'rules of ASTM E1050/E2611: s at least %s %% of the wavelength, ks ≤ %sπ. Diameter rule of ' ...
+       'ISO 10534-2: f·D < 0.58·c; it lies 1 %% below the cut-on frequency of the (1,1) mode and is therefore ' ...
+       'the binding diameter limit. ISO 10534-2 allows f·s < 0.45·c and recommends s > 5 %% of the wavelength ' ...
+       '(0.05·c/s) for better accuracy. These are rules of thumb, not uncertainty statements.'], ...
+       num(100 * a.lowerFraction), num(2 * a.upperFraction))
+ 't', sprintf(['Default tube (D = %s mm, s1 = %s mm, s2 = %s mm, %g °C, c = %.1f m/s): %.0f–%.0f Hz; ' ...
+       'singularity %.0f Hz; ISO diameter rule %.0f Hz; (1,1) cut-on %.0f Hz.'], mm(D), mm(sp(1)), mm(sp(2)), ...
+       cfg.environment.temperature_C, air.c, lim.fLower, lim.fUpper, min(lim.singular), ...
+       lim.isoDiameterLimit, lim.cutOn11)
+
+ 'h', '11. Validity criteria (default thresholds)'
+ 'c', {'$f_{\mathrm{min}} \le f \le f_{\mathrm{max}}$', sprintf(['in the analysis band %g–%g Hz ' ...
+       '(analysis.fMin, analysis.fMax), wave amplitudes finite; band edges tolerant by 10⁻⁹ relative'], a.fMin, a.fMax)}
+ 'c', {['$' lf '\,c/s \le f \le ' uf '\,c/s, \quad f < 0.58\,c/D$'], 'geometric validity range (section 10), each pair'}
+ 'c', {['$|\sin(' kpr 's)| \ge \sin(0.2\pi)\ \ \mathrm{or}\ \ ' kpr 's \le \pi/2$'], ...
+       'not near the singularity ks = nπ, each pair (k′ = Re k)'}
+ 'c', {['$\mathrm{cond} \le ' num(a.condMax) '$'], 'condition number of the decomposition, each pair'}
+ 'c', {['$\delta\varphi/(' kpr 's) \le ' num(a.maxPhaseSensitivity) ', \quad \delta\varphi = ' ...
+       num(a.phaseUncertainty_rad) '\ \mathrm{rad}$'], ['low-frequency phase sensitivity: relative error from ' ...
+       'a residual phase error δφ between the two microphones of a pair']}
+ 'c', {['$\gamma_k^{2} \ge ' num(a.coherenceMin) '$'], 'coherence at every port (for R: M1 and M2 only)'}
+ 'c', {['$\mathrm{SNR}_k \ge ' num(a.snrMin_dB) '\ \mathrm{dB}$'], ['SNR of the estimator (section 1) at ' ...
+       'every port (for R: M1 and M2 only)']}
+ 'c', {'$C_k\ \mathrm{valid}$', ['calibration valid for all four channels (section 2); without a ' ...
+       'calibration nothing is valid']}
+ 'c', {['$|R| \le ' pass ', \quad |R|^{2} + |\tau|^{2} \le ' pass '\ \ \mathrm{if}\ \ |R_{\mathrm{term}}| \le ' ...
+       anR '$'], 'passivity'}
+ 'c', {['$|R_{\mathrm{term}}| \le ' anR '$'], 'anechoic termination: required for τ, αd and TL from τ'}
+ 'c', {['$\delta_u \le ' vm '$'], 'velocity continuity: required for Zt and TL from Zt'}
+ 't', sprintf(['Valid = in the analysis band, all geometry criteria met (both pairs), all quality criteria met ' ...
+       '(all four ports and the calibration) and passive. R: upstream pair M1/M2 only (its geometry, γ² and ' ...
+       'SNR at M1 and M2, calibration, |R| ≤ %s, face positions known); the data of M3/M4 do not reject R. ' ...
+       'τ, αd and TL from τ: valid and |Rterm| ≤ %s. Zt and TL from Zt: valid and δu ≤ %s. Validated ' ...
+       '(experimental): valid and inside analysis.validatedBands (none by default).'], pass, anR, vm)
+
+ 'h', '12. Units and level references'
+ 'e', ['$L_p = 20\log_{10}\frac{p_{\mathrm{rms}}}{20\ \mu\mathrm{Pa}}\ \ \mathrm{dB\ SPL}, \qquad ' ...
+       'L_{\mathrm{PSD}} = 10\log_{10}\frac{G_{pp}}{(20\ \mu\mathrm{Pa})^{2}/\mathrm{Hz}}\ \ \mathrm{dB}$']
+ 'e', ['$|H_k|,\ |C_k|\ [\mathrm{dB}] = 20\log_{10}|\cdot|, \qquad \mathrm{TL}\ [\mathrm{dB}], \qquad ' ...
+       '\angle\ [^{\circ}]$']
+ 't', ['p in Pa, u in m/s, Zt and ρc in Pa·s/m (Zt/(ρc), R, τ, αd and γ² are dimensionless), k in rad/m, ' ...
+       'f in Hz, positions in m (mm in the GUI). The PSD is the one-sided Welch estimate. Tone level of a ' ...
+       'step: rms pressure = fitted amplitude/(√2 · sensitivity). Without sensitivities the levels are in ' ...
+       'dB re 1 V and dB re 1 V²/Hz. Octave-band summaries: mean over the valid frequency lines between ' ...
+       'fc/√2 and fc·√2; TL as the energy mean −10·log10(mean |τ|²).']
 };
-
-g = uigridlayout(parent, [size(items, 1) 1], 'Scrollable', 'on', 'RowSpacing', 6, ...
-    'Padding', [20 15 20 15], 'RowHeight', repmat({'fit'}, 1, size(items, 1)));
-for i = 1:size(items, 1)
-    switch items{i, 1}
-        case 'h'
-            l = uilabel(g, 'Text', items{i, 2}, 'FontWeight', 'bold', 'FontSize', 15, 'FontColor', [0 0.3 0.6]);
-        case 't'
-            l = uilabel(g, 'Text', items{i, 2}, 'WordWrap', 'on', 'FontSize', 12, 'FontColor', [0.25 0.25 0.25]);
-        case 'e'
-            l = uilabel(g, 'Text', items{i, 2}, 'Interpreter', 'latex', 'FontSize', 17);
-    end
-    l.Layout.Row = i;
 end
+
+function s = num(x)
+% shortest exact representation, e.g. 0.98, 20, 1.05, 0.002
+s = sprintf('%.10g', x);
+end
+
+function s = frac(x)
+% two decimals when exact (0.40, 0.01, 0.10), otherwise the shortest form
+s = sprintf('%.2f', x);
+if abs(str2double(s) - x) > 1e-12, s = num(x); end
 end

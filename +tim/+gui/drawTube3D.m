@@ -11,8 +11,11 @@ function out = drawTube3D(ax, geom, drawing, mapping, opts)
 %     opts.section     true (default): half section - the half towards the
 %                      viewer is removed, cut faces are hatched; the bore,
 %                      the specimen and the microphone tips are visible
-%     opts.dimensions  true (default): dimension lines s1, L1, d, L2, s2
-%                      (black) and the overall lengths (grey)
+%     opts.dimensions  true (default): chain dimension s1, L1, d, L2, s2 on
+%                      one line above the microphones (the extension lines
+%                      end at that line, so no value is ever crossed; a value
+%                      wider than its span goes outside (s1, s2) or one row
+%                      up (L1, d, L2)) and the overall lengths (lighter grey)
 %     opts.view        'keep' (default: keep the user's rotation), or
 %                      'default' | 'side' | 'perspective' | 'top' | [az el]
 %     opts.mode        'setup' (default) | 'calibration': the specimen section
@@ -40,6 +43,11 @@ function out = drawTube3D(ax, geom, drawing, mapping, opts)
 %   Positions follow the entered geometry immediately; part sizes come
 %   from cfg.tubeDrawing (CAD assembly Assy_SIT). Microphones, holders and
 %   bolts are drawn whole (not sectioned), as in a technical drawing.
+%   The specimen is GENERIC (perforated plate, screen, membrane or porous
+%   layer alike): a plain blue-grey block (Tag 'specimen'), d < 1 mm a thin
+%   plate clamped in the joint, labelled 'specimen' with d below the tube.
+%   Every text has a transparent background (no boxes) and sits where no
+%   geometry is behind it; texts are 11 pt like the axes (secondary 10 pt).
 %   Nothing drawn here is used by the analysis.
 
 out = struct();
@@ -53,6 +61,7 @@ cal = strcmp(opts.mode, 'calibration');
 if cal, opts.dimensions = false; end         % the lifted microphones travel through that space
 hiP = opts.highlightPorts(:).'; hiP = hiP(hiP >= 1 & hiP <= 4);
 P = tim.gui.palette();
+C = colours();
 td = drawing;
 mm = @(v) 1e3 * v;
 
@@ -61,6 +70,9 @@ known = all(isfinite(geom.micPositions)) && isfinite(geom.xFront) && isfinite(ge
 s1 = mm(geom.spacingUp); s2 = mm(geom.spacingDown);
 if known
     x = mm(geom.micPositions); xF = mm(geom.xFront); xR = mm(geom.xRear);
+    % the spacings the analysis uses (analyzeFourMic: |x2 - x1|, |x4 - x3|
+    % when the positions are known) - also what the dimension lines span
+    s1 = abs(x(2) - x(1)); s2 = abs(x(4) - x(3));
 else                                   % schematic until L1, d and L2 are entered
     xF = 0; xR = 40; x = [-40 - s1, -40, xR + 40, xR + 40 + s2];
 end
@@ -93,26 +105,37 @@ portGaps = [x(:) - rHo * 0.75, x(:) + rHo * 0.75];  % holder spigots replace the
 S = shell(S, xS, xS + tSF, rb, rSF, metal, [], 'tube');
 S = shell(S, xS + tSF, xF - tf, rb, rB, metal, portGaps(1:2, :), 'tube');
 S = shell(S, max(xF - tf, xS + tSF), xF, rb, ro, metal, [], 'tube');
-% specimen section (the specimen fills it) and the specimen
-if xR - xF >= 1
+% specimen section (the specimen fills it) and the specimen: GENERIC look
+% (plain blue-grey block, no material texture - perforated plates, screens,
+% membranes and porous layers are all drawn alike); d < 1 mm: a thin plate
+% clamped between the two joint flanges (drawn at least 2 mm thick and
+% proud of the flanges, so that it stays visible)
+d = xR - xF; thin = d < 1;
+if ~thin
     S = shell(S, xF, xR, rb, ro, metal, [], 'specimenSection');
-    if ~cal, S = solid(S, xF, xR, rb - 0.05, porous([0.86 0.70 0.42]), 'specimen'); end
-elseif ~cal                                       % thin screen between two flanges
-    S = solid(S, xF - 0.4, xF + 0.4, rb, porous([0.86 0.70 0.42]), 'specimen');
+    if ~cal, S = specimenSolid(S, xF, xR, rb - 0.05, C, -0.03); end
+elseif ~cal
+    tv = max(d, 2); xc = (xF + xR) / 2;
+    S = specimenSolid(S, xc - tv / 2, xc + tv / 2, ro + 1.2, C, -0.07);
+end
+if ~cal                                           % part label below the tube (white background)
+    if ~known, dl = 'd = ? (enter)'; else, dl = sprintf('d = %g mm', round(d, 3)); end
+    if thin && known, sl = 'thin specimen'; else, sl = 'specimen'; end
+    text(ax, (xF + xR) / 2, 0, -ro - 5, {sl, dl}, 'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', ...
+        'FontSize', C.fs, 'FontWeight', 'bold', 'Color', C.specText, 'Tag', 'specimenLabel');
 end
 if cal                                            % calibration: the section is mounted EMPTY
-    blue = [0.15 0.42 0.72];
-    plot3(ax, [xF xR xR xF xF], -0.3 * ones(1, 5), [-rb -rb rb rb -rb], '--', 'Color', blue, ...
+    plot3(ax, [xF xR xR xF xF], -0.3 * ones(1, 5), [-rb -rb rb rb -rb], '--', 'Color', C.specEdge, ...
         'LineWidth', 1.2, 'Tag', 'specimenOutline');
-    if known && xR - xF >= 1
-        t1 = {sprintf('EMPTY %g mm section', round(xR - xF, 3)), '(no specimen)'};
+    if known && ~thin
+        t1 = {sprintf('EMPTY %g mm section', round(d, 3)), '(no specimen)'};
     elseif known
         t1 = {'thin specimen removed', '(empty tube at the joint)'};
     else
         t1 = {'EMPTY specimen section', '(no specimen)'};
     end
-    text(ax, (xF + xR) / 2, 0, -ro - 4, t1, 'HorizontalAlignment', 'center', ...
-        'VerticalAlignment', 'top', 'FontSize', 10, 'FontWeight', 'bold', 'Color', blue, 'Tag', 'emptyLabel');
+    text(ax, (xF + xR) / 2, 0, -ro - 5, t1, 'HorizontalAlignment', 'center', ...
+        'VerticalAlignment', 'top', 'FontSize', C.fs, 'FontWeight', 'bold', 'Color', C.specText, 'Tag', 'emptyLabel');
 end
 % downstream tube: joint flanges and body; extension; end cap
 S = shell(S, xR, xR + tf, rb, ro, metal, [], 'tube');
@@ -150,8 +173,13 @@ for p = 1:4
     if cal       % port name fixed below the tube; the channel label moves with the microphone
         pl = sprintf('M%d', p); k = find(hiP == p, 1);
         if ~isempty(k), pl = sprintf('M%d (%c)', p, 'a' + k - 1); end
-        out.portLabel(p) = text(ax, x(p), 0, -rB - 3, pl, 'HorizontalAlignment', 'center', ...
-            'VerticalAlignment', 'top', 'FontWeight', 'bold', 'FontSize', 10, 'Tag', sprintf('portLabel%d', p));
+        % neighbouring ports are only s apart: the labels of a pair point away
+        % from each other (M1 / M3 to the left, M2 / M4 to the right) so they
+        % never overlap, however small the drawing is
+        sp = out.labelSide(p); hp = {'right', 'left'};
+        out.portLabel(p) = text(ax, x(p) - sp * 2, 0, -rB - 3, pl, 'HorizontalAlignment', hp{(sp > 0) + 1}, ...
+            'VerticalAlignment', 'top', 'FontWeight', 'bold', 'FontSize', C.fs, 'Color', C.text, ...
+            'Tag', sprintf('portLabel%d', p));
         if isempty(c)
             lbl = 'plug';
         elseif numel(opts.micLabels) >= c && ~isempty(opts.micLabels{c})
@@ -161,10 +189,10 @@ for p = 1:4
         end
         s = out.labelSide(p); ha = {'right', 'left'};
         ht = text(ax, x(p) + s * out.labelGap, 0, zTip + lM + 10, lbl, 'Color', col, 'FontWeight', 'bold', ...
-            'FontSize', 10, 'HorizontalAlignment', ha{(s > 0) + 1}, 'VerticalAlignment', 'middle', 'Tag', 'chLabel');
-    else         % Tube setup
+            'FontSize', C.fs, 'HorizontalAlignment', ha{(s > 0) + 1}, 'VerticalAlignment', 'middle', 'Tag', 'chLabel');
+    else         % Tube setup: port name and channel right of the plug (the cable bends away)
         lbl = sprintf('M%d', p); if ~isempty(c), lbl = {sprintf('M%d', p), sprintf('ch%d', c)}; end
-        ht = text(ax, x(p) + 5.5, 0, zTip + lM + 12, lbl, 'Color', col, 'FontWeight', 'bold', 'FontSize', 11, ...
+        ht = text(ax, x(p) + 5.5, 0, zTip + lM + 12, lbl, 'Color', col, 'FontWeight', 'bold', 'FontSize', C.fs, ...
             'VerticalAlignment', 'middle', 'Tag', sprintf('label%d', p));
     end
     if ~isempty(c)
@@ -190,7 +218,14 @@ if ~isempty(S.edges)
 end
 
 % ---------------------------------------------------------------- annotation
-text(ax, xH0 + lH / 2, 0, rH + 9, 'loudspeaker (large end)', 'HorizontalAlignment', 'center', 'FontSize', 11);
+% transparent texts only (no background boxes), each placed on white
+% background: part labels above / below the parts, dimension values above
+% the ends of their extension lines
+xl = [xH0 - 20, xT + tc + 20];                       % x limits of the drawing
+T = drawScale(ax, xl);                               % screen scale for the label layout
+% left-aligned on the housing back: stays inside the drawing, above the tube
+text(ax, xH0, 0, rH + 6, 'loudspeaker (large end)', 'HorizontalAlignment', 'left', 'VerticalAlignment', 'bottom', ...
+    'FontSize', C.fs, 'Color', C.text, 'Tag', 'speakerLabel');
 if cal && laGiven
     tl = {'absorbing termination', sprintf('absorber %g mm', round(la, 3))};
 elseif cal
@@ -200,39 +235,54 @@ elseif laGiven
 else
     tl = {'termination', '(absorber side)'};
 end
-text(ax, xT + tc / 2, 0, ro + 14, tl, 'HorizontalAlignment', 'center', 'FontSize', 11, 'Tag', 'endLabel');
+% right-aligned on the end cap: stays inside the drawing, above the extension tube
+text(ax, xT + tc, 0, ro + 6, tl, 'HorizontalAlignment', 'right', 'VerticalAlignment', 'bottom', ...
+    'FontSize', C.fs, 'Color', C.text, 'Tag', 'endLabel');
+zDimTop = zTop;
+zDimBottom = min(-rH, -ro - 5 - 2 * rowHeight(C.fs, T));   % two-line specimen / empty-section label
 if opts.dimensions
     if known, f = @(v) sprintf('%g mm', round(v, 3)); else, f = @(v) '? (enter)'; end
-    z1 = zTop + 16; z2 = zTop + 33; k = [0.12 0.12 0.12];
-    for xx = x, line3(ax, [xx xx], [zTop + 2, z2 + 3], [0.6 0.6 0.6], 0.5); end
-    for xx = [xF xR], line3(ax, [xx xx], [ro + 1, z2 + 3], [0.6 0.6 0.6], 0.5); end
-    dimH(ax, x(1), x(2), z1, sprintf('s1 = %g mm', round(s1, 3)), k, 12, 'dim_s1');
-    dimH(ax, x(2), xF, z2, ['L1 = ' f(xF - x(2))], k, 12, 'dim_L1');
-    dimH(ax, xF, xR, z1, ['d = ' f(xR - xF)], k, 12, 'dim_d');
-    dimH(ax, xR, x(3), z2, ['L2 = ' f(x(3) - xR)], k, 12, 'dim_L2');
-    dimH(ax, x(3), x(4), z1, sprintf('s2 = %g mm', round(s2, 3)), k, 12, 'dim_s2');
-    % overall lengths (drawing values from the CAD assembly), below the tube
-    g = [0.45 0.45 0.45]; zb = -ro - 14;
-    for xx = [xS x(1) x(4) xT], line3(ax, [xx xx], [-rb - 1, zb - 3], [0.75 0.75 0.75], 0.5); end
-    dimH(ax, xS, x(1), zb, sprintf('bore end -> M1  %g mm', round(x(1) - xS, 3)), g, 10, 'dim_up');
-    dimH(ax, x(4), xT, zb, sprintf('M4 -> termination  %g mm', round(xT - x(4), 3)), g, 10, 'dim_down');
+    % chain dimension on ONE line above the microphones; every extension line
+    % ends just above it, so it never crosses a value
+    z1 = zTop + 14;
+    for xx = x, line3(ax, [xx xx], [zTop + 3, z1 + 1.2], C.ext, 0.5, 'dimExt'); end
+    for xx = unique([xF xR]), line3(ax, [xx xx], [ro + 2, z1 + 1.2], C.ext, 0.5, 'dimExt'); end
+    D = struct('xa', {x(1), x(3), x(2), xR, xF}, 'xb', {x(2), x(4), xF, x(3), xR}, ...
+        'label', {sprintf('s1 = %g mm', round(s1, 3)), sprintf('s2 = %g mm', round(s2, 3)), ...
+        ['L1 = ' f(xF - x(2))], ['L2 = ' f(x(3) - xR)], ['d = ' f(xR - xF)]}, ...
+        'tag', {'dim_s1', 'dim_s2', 'dim_L1', 'dim_L2', 'dim_d'}, ...
+        'outside', {-1, +1, 0, 0, 0});               % s1 / s2: value outside when it does not fit
+    zDimTop = chainDims(ax, D, z1, C, T);
+    % overall lengths (drawing values from the CAD assembly) below the tube,
+    % values under their lines (white background), clear of the housing
+    zb = -ro - 10; r2 = rowHeight(C.fs2, T);
+    line3(ax, [xS xS], [-rb - 1, zb - 1], C.ext, 0.5, 'dimExt');
+    for xx = x([1 4]), line3(ax, [xx xx], [-rB - 1.5, zb - 1], C.ext, 0.5, 'dimExt'); end
+    line3(ax, [xT xT], [-ro - 1.5, zb - 1], C.ext, 0.5, 'dimExt');
+    xHousing = xS + tSF + 14;                      % right of the loudspeaker housing (also in the full view)
+    dimBelow(ax, xS, x(1), zb, sprintf('bore end %s M1: %g mm', char(8211), round(x(1) - xS, 3)), ...
+        C.dim2, C.fs2, 'dim_up', xHousing, T);
+    dimBelow(ax, x(4), xT, zb, sprintf('M4 %s termination: %g mm', char(8211), round(xT - x(4), 3)), ...
+        C.dim2, C.fs2, 'dim_down', xHousing, T);
+    zDimBottom = min(zDimBottom, zb - 1.5 - r2);
     if S.section
-        dimV(ax, (xJ + xT) / 2, -rb, rb, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), g, 10);
-    else
-        text(ax, (xJ + xT) / 2, 0, zb - 12, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), ...
-            'HorizontalAlignment', 'center', 'FontSize', 10, 'Color', g);
+        dimV(ax, (xJ + xT) / 2, -rb, rb, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), C.dim2, C.fs2);
+    else                                           % (bore hidden) one row below the overall length
+        text(ax, (x(4) + xT) / 2, 0, zb - 1.5 - r2, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), ...
+            'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', 'FontSize', C.fs2, 'Color', C.dim2, 'Tag', 'dim_bore');
+        zDimBottom = min(zDimBottom, zb - 1.5 - 2 * r2);
     end
 end
 hold(ax, 'off');
 
 % ---------------------------------------------------------------- axes, light, view
 axis(ax, 'equal');
-ax.XLim = [xH0 - 20, xT + tc + 20];
+ax.XLim = xl;
 ax.YLim = [-rH - 5, max(rH, 70) + 5];
 if cal
-    ax.ZLim = [-rH - 8, zTop + out.lift(end) + 8];
+    ax.ZLim = [zDimBottom - 8, zTop + out.lift(end) + 8];
 else
-    ax.ZLim = [min(-rH, -ro - 42) - 8, zTop + 52];
+    ax.ZLim = [min(-ro - 42, zDimBottom) - 8, max(zTop + 24, zDimTop + 8)];
 end
 ax.Visible = 'off'; ax.Projection = 'orthographic';
 delete(findobj(ax, 'Type', 'light'));
@@ -501,28 +551,148 @@ tex = zeros(48, 160, 3);
 for c = 1:3, tex(:, :, c) = min(1, base(c) * (0.80 + 0.40 * n)); end
 end
 
-% ====================================================================== annotation
-function line3(ax, xx, zz, col, w)
-plot3(ax, xx, [0 0], zz, '-', 'Color', col, 'LineWidth', w);
+function S = specimenSolid(S, x0, x1, r, C, yFace)
+% GENERIC specimen: plain blue-grey solid with a crisp outline, no material
+% texture (Tag 'specimen'; outline 'specimenEdge'). yFace: depth of the cut
+% face (a thin plate lies in front of the flange hatching: -0.07)
+ax = S.ax;
+rev(ax, x0, x1, r, S.phi, C.spec, 0.10, 'specimen');
+annulus(S, x0, 0, r, C.spec, 'specimen'); annulus(S, x1, 0, r, C.spec, 'specimen');
+if S.section
+    [X, Z] = meshgrid([x0 x1], [-r r]);
+    surf(ax, X, yFace + zeros(2), Z, 'FaceColor', C.specCut, 'EdgeColor', 'none', 'FaceLighting', 'none', ...
+        'Tag', 'specimen');
+    plot3(ax, [x0 x1 x1 x0 x0], (yFace - 0.03) * ones(1, 5), [-r -r r r -r], '-', 'Color', C.specEdge, ...
+        'LineWidth', 0.9, 'Tag', 'specimenEdge');
+else                                               % rim of the specimen (visible for a thin plate)
+    t = linspace(0, 2 * pi, 97);
+    plot3(ax, [x0 * ones(size(t)), NaN, x1 * ones(size(t))], (r + 0.02) * [cos(t), NaN, cos(t)], ...
+        (r + 0.02) * [sin(t), NaN, sin(t)], '-', 'Color', C.specEdge, 'LineWidth', 0.6, 'Tag', 'specimenEdge');
+end
 end
 
-function dimH(ax, xa, xb, z, label, col, fs, tag)
-% horizontal dimension line with arrow heads (plane y = 0), label above
-plot3(ax, [xa xb], [0 0], [z z], '-', 'Color', col, 'LineWidth', 0.8, 'Tag', tag);
-ah = min(4, abs(xb - xa) / 3);
-if ah > 0.5
-    patch(ax, [xa xa + ah xa + ah], [0 0 0], [z z + 1.3 z - 1.3], col, 'EdgeColor', 'none');
-    patch(ax, [xb xb - ah xb - ah], [0 0 0], [z z + 1.3 z - 1.3], col, 'EdgeColor', 'none');
+% ====================================================================== annotation
+function C = colours()
+% annotation and specimen colours (calm technical-drawing style)
+C.fs = 11;                          % every label (parts, microphones, dimensions; = axes font)
+C.fs2 = 10;                         % secondary values (overall lengths, bore)
+C.text = [0.22 0.23 0.26];          % part labels
+C.dim = [0.30 0.34 0.40];           % chain dimension: lines, arrows, values (muted slate)
+C.dim2 = [0.50 0.52 0.56];          % overall lengths, bore (lighter)
+C.ext = [0.70 0.72 0.75];           % extension lines
+C.spec = [0.55 0.62 0.70];          % specimen body (neutral blue-grey, lit)
+C.specCut = [0.50 0.57 0.66];       % specimen cut face (unlit, darker than the metal cut)
+C.specEdge = [0.20 0.27 0.36];      % specimen outline, empty-section outline
+C.specText = [0.18 0.26 0.36];      % specimen / empty-section label
 end
-if fs >= 12, fw = 'bold'; else, fw = 'normal'; end
-text(ax, (xa + xb) / 2, 0, z + 4, label, 'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
-    'FontSize', fs, 'FontWeight', fw, 'Color', col, 'BackgroundColor', 'w', 'Margin', 1, 'Tag', tag);
+
+function line3(ax, xx, zz, col, w, tag)
+plot3(ax, xx, [0 0], zz, '-', 'Color', col, 'LineWidth', w, 'Tag', tag);
+end
+
+function arrows(ax, xa, xb, z, col, tag)
+% filled arrow heads at both ends of a horizontal dimension line (inside)
+ah = min(3.5, abs(xb - xa) / 3); s = sign(xb - xa);
+if ah > 0.5
+    patch(ax, [xa xa + s * ah xa + s * ah], [0 0 0], [z z + 1.1 z - 1.1], col, 'EdgeColor', 'none', 'Tag', tag);
+    patch(ax, [xb xb - s * ah xb - s * ah], [0 0 0], [z z + 1.1 z - 1.1], col, 'EdgeColor', 'none', 'Tag', tag);
+end
+end
+
+function zTopText = chainDims(ax, D, z, C, T)
+% chain dimension: all segments on ONE line at height z, values above it.
+% A value wider than its segment is drawn OUTSIDE (D.outside = -1 left of xa,
+% +1 right of xb, on an extension of the dimension line) or, for the inner
+% segments, one row higher when it would overlap a value already placed
+% (with a thin leader when the path down to the line is free).
+% Returns the top of the highest value [mm].
+rowH = rowHeight(C.fs, T);                         % text row [mm]
+gap = 8 / T.pxmm;                                  % free space between two values [mm]
+zt = z + 1.5;
+placed = zeros(0, 3);                              % [row, left, right]
+for i = 1:numel(D)
+    xa = min(D(i).xa, D(i).xb); xb = max(D(i).xa, D(i).xb);
+    w = textWidth(D(i).label, C.fs, T);
+    if xb - xa > 1e-6
+        plot3(ax, [xa xb], [0 0], [z z], '-', 'Color', C.dim, 'LineWidth', 0.7, 'Tag', D(i).tag);
+        arrows(ax, xa, xb, z, C.dim, D(i).tag);
+    end
+    o = D(i).outside;
+    if o ~= 0 && w > xb - xa - 2 * gap
+        % value outside the segment, on an extension of the dimension line
+        if o < 0
+            xt = xa - 1.5; xe = xt - w; xs = [xe xa]; ha = 'right';
+        else
+            xt = xb + 1.5; xe = xt + w; xs = [xb xe]; ha = 'left';
+        end
+        plot3(ax, xs, [0 0], [z z], '-', 'Color', C.dim, 'LineWidth', 0.7, 'Tag', D(i).tag);
+        text(ax, xt, 0, zt, D(i).label, 'HorizontalAlignment', ha, 'VerticalAlignment', 'bottom', ...
+            'FontSize', C.fs, 'Color', C.dim, 'Tag', D(i).tag);
+        placed(end + 1, :) = [1, sort([xt, xe])]; %#ok<AGROW>
+        continue
+    end
+    xc = (xa + xb) / 2; l = xc - w / 2; r = xc + w / 2;
+    row = 1;
+    while any(placed(:, 1) == row & placed(:, 2) < r + gap & placed(:, 3) > l - gap)
+        row = row + 1;
+    end
+    if row > 1 && ~any(placed(:, 1) < row & placed(:, 2) < xc + gap & placed(:, 3) > xc - gap)
+        % thin leader from the dimension line up to a raised value (free path only)
+        plot3(ax, [xc xc], [0 0], [z + 1.5, zt + (row - 1) * rowH - 1], '-', 'Color', C.ext, ...
+            'LineWidth', 0.5, 'Tag', 'dimLeader');
+    end
+    placed(end + 1, :) = [row, l, r]; %#ok<AGROW>
+    text(ax, xc, 0, zt + (row - 1) * rowH, D(i).label, 'HorizontalAlignment', 'center', ...
+        'VerticalAlignment', 'bottom', 'FontSize', C.fs, 'Color', C.dim, 'Tag', D(i).tag);
+end
+zTopText = zt + max(placed(:, 1)) * rowH;
+end
+
+function w = textWidth(s, fs, T)
+% estimated width of a one-line label [mm] (Helvetica / Arial metrics)
+s = char(s); em = 0.56 * ones(size(s));
+em(isstrprop(s, 'upper')) = 0.67;
+em(ismember(s, ' .,:;()[]il|')) = 0.28;
+em(ismember(s, 'mwMW')) = 0.84;
+w = (fs * T.ptpx * sum(em) + 4) / T.pxmm;
+end
+
+function T = drawScale(ax, xl)
+% screen scale of the drawing for the label layout: T.pxmm [px/mm] from the
+% axes width (the long tube fills the width), at most 1.6 px/mm so that the
+% layout also holds when the window is made smaller after drawing;
+% T.ptpx [px/pt] (a uifigure draws 1 pt as 1 px, a figure as 96/72 px)
+p = getpixelposition(ax);
+w = p(3); if w < 300, w = 1100; end                % not laid out yet
+T.pxmm = min(1.6, 0.92 * w / diff(xl));
+T.ptpx = 96 / 72;
+try
+    if matlab.ui.internal.isUIFigure(ancestor(ax, 'figure')), T.ptpx = 1; end
+catch                                              % internal function missing: conservative
+end
+end
+
+function h = rowHeight(fs, T)
+% height of one text row [mm]
+h = 1.45 * fs * T.ptpx / T.pxmm;
+end
+
+function dimBelow(ax, xa, xb, z, label, col, fs, tag, xMin, T)
+% horizontal dimension with the value BELOW the line (under the tube), kept
+% right of xMin (the loudspeaker housing) when it is wider than the span
+plot3(ax, [xa xb], [0 0], [z z], '-', 'Color', col, 'LineWidth', 0.7, 'Tag', tag);
+arrows(ax, xa, xb, z, col, tag);
+w = textWidth(label, fs, T); xc = (xa + xb) / 2;
+if xc - w / 2 < xMin, xc = xMin + w / 2; end
+text(ax, xc, 0, z - 1.5, label, 'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', ...
+    'FontSize', fs, 'Color', col, 'Tag', tag);
 end
 
 function dimV(ax, x, za, zb, label, col, fs)
-plot3(ax, [x x], [0 0], [za zb], '-', 'Color', col, 'LineWidth', 0.8);
+% vertical dimension (bore) in the cut plane, value right of it, inside the bore
+plot3(ax, [x x], -0.1 * [1 1], [za zb], '-', 'Color', col, 'LineWidth', 0.7, 'Tag', 'dim_bore');
 ah = min(3, abs(zb - za) / 4);
-patch(ax, [x x - 1 x + 1], -0.1 * [1 1 1], [za za + ah za + ah], col, 'EdgeColor', 'none');
-patch(ax, [x x - 1 x + 1], -0.1 * [1 1 1], [zb zb - ah zb - ah], col, 'EdgeColor', 'none');
-text(ax, x + 3, -0.2, 0, label, 'FontSize', fs, 'Color', col, 'BackgroundColor', 'w', 'Margin', 1);
+patch(ax, [x x - 1 x + 1], -0.1 * [1 1 1], [za za + ah za + ah], col, 'EdgeColor', 'none', 'Tag', 'dim_bore');
+patch(ax, [x x - 1 x + 1], -0.1 * [1 1 1], [zb zb - ah zb - ah], col, 'EdgeColor', 'none', 'Tag', 'dim_bore');
+text(ax, x + 3, -0.2, 0, label, 'FontSize', fs, 'Color', col, 'VerticalAlignment', 'middle', 'Tag', 'dim_bore');
 end

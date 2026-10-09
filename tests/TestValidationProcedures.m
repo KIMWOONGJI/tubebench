@@ -66,15 +66,27 @@ classdef TestValidationProcedures < matlab.unittest.TestCase
         end
 
         function testDrigid(tc)
+            % rigid plug 5 cm behind xFront, i.e. UPSTREAM of M3/M4 (0.071/0.100 m):
+            % as in the lab with the plug in the specimen section, M3/M4 sit behind
+            % the plug and receive no sound (virtual tube: p = 0 there, only noise).
+            % Test D uses the upstream pair only (formula review calval-1).
             c = tc.cfg;
             c.simulation.Sample = struct('type', 'air');
             c.simulation.Geometry.xRear = 0; c.geometry.xRear = 0;
-            c.simulation.Termination = struct('R', 1, 'x', 0.05);     % rigid plug 5 cm behind xFront
+            c.simulation.Termination = struct('R', 1, 'x', 0.05);
             s = tc.session(c); cl = onCleanup(@() s.close());
             cal = tim.app.runCalibration(s);
             res = tim.app.processMeasurement(s.measure('sweep'), c, cal);
+            t = s.Rig.trueResponse(res.analysis.f);
+            tc.verifyEqual(t.p(:, 3:4), zeros(numel(res.analysis.f), 2), 'no sound behind the plug');
             r = tim.val.testDE_reference(res, 'rigid', struct('L', 0.05));
             tc.verifyTrue(r.passed);
+            tc.verifyGreaterThan(r.validBins, 0.5 * nnz(res.analysis.valid.measured));
+            tc.verifyEqual(r.nonPassiveBins, 0);
+            tc.verifyEmpty(r.warning);
+            % the all-position mask fails (M3/M4 noise); R stays valid from M1/M2
+            tc.verifyLessThan(nnz(res.analysis.valid.valid), 0.05 * r.validBins);
+            tc.verifyGreaterThan(nnz(res.analysis.valid.validR), 0.5 * r.validBins);
         end
 
         function testEempty(tc)

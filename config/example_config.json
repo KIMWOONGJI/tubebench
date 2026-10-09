@@ -129,7 +129,7 @@
     "fMin": 120,
     "fMax": 4500,
     "df": 2,
-    "lossModel": "iso10534",
+    "lossModel": "kirchhoff",
     "velocityRef": "mean",
     "condMax": 40,
     "phaseUncertainty_rad": 0.002,

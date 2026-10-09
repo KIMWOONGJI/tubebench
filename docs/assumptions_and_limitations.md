@@ -4,33 +4,58 @@
 
 **Physics**
 
-1. Linear, time-invariant tube and sample during each measurement (the loudspeaker may be
+1. Linear, time-invariant tube and specimen during each measurement (the loudspeaker may be
    non-linear).
-2. Plane-wave propagation between each microphone pair and the adjacent sample face. This holds
-   below the (1,1) cut-on (6.94 kHz for d = 29 mm) and outside the near field of the sample and the
-   loudspeaker. ISO 10534-2 recommends microphones ≥ 1–2 diameters from the sample surface, a
+2. Plane-wave propagation between each microphone pair and the adjacent specimen face. This holds
+   below the ISO 10534-2 diameter limit `0.58·c/D` (6.87 kHz for the inner diameter D = 29 mm; the
+   (1,1) mode cuts on 1 % higher, at 6.94 kHz) and outside the near field of the specimen and the
+   loudspeaker. ISO 10534-2 recommends microphones ≥ 1–2 diameters from the specimen surface, a
    recommendation for **your** geometry.
-3. Tube wall losses follow the empirical ISO 10534-2 attenuation constant (`lossModel =
-   'iso10534'`), with `Zc = ρc` (the dispersion of Zc is neglected), or no losses at all (`'none'`).
-4. Air properties from the ISO 10534-2 formulas. Humidity is neglected (≈ 0.1–0.3 % on c). Enter
-   the measured temperature and pressure.
-5. The same medium and cross-section on both sides of the sample (power coefficients, TL).
-6. Thin-element `Zt`: negligible thickness and approximately continuous velocity. This is checked
-   (`velocityMismatch`), never enforced.
-7. One-load transfer matrix: reciprocal and symmetric sample (stated assumption). The two-load
+3. Tube wall losses (`cfg.analysis.lossModel`):
+   * `'kirchhoff'` (default): visco-thermal wall losses of a wide tube, first order of the
+     Zwikker–Kosten model: `k = ω/c + (1 − j)·k″`, `k″ = C_w·√f/(c·D)`,
+     `C_w = 2√(πν)·(1 + (κ − 1)/√Pr)` = 2.03·10⁻² m·s^−1/2 at 20 °C, and the matching
+     characteristic impedance `Z_c = ρc·[1 + (1 − j)·Ψ·k″/k0]`, `Ψ = 0.356`. `Re k` includes the
+     phase-velocity reduction, which is as large as the attenuation. Against the exact
+     circular-tube solution the error is about 10⁻⁴ in `k` and `Z_c` and below 0.1 % in a
+     thin-element `Z_t` (`TestAcoustics/kirchhoffMatchesExactTube`). It needs `a/δ_v ≫ 1`
+     (radius over viscous boundary layer; 66 at 100 Hz for D = 29 mm).
+   * `'iso10534'`: the empirical ISO 10534-2 attenuation `k = ω/c − j·1.94·10⁻²·√f/(c·D)` with
+     `Z_c = ρc`. It is the ISO-conformant option for absorption work. It omits the phase-velocity
+     reduction, which biases a thin-element `Z_t` by 3–17 % at `|Z_t|/(ρc) ≈ 0.05` and by 1–2 % at
+     `|Z_t|/(ρc) ≈ 1` (lab tube); the effect on `|R|` is below 0.008.
+   * `'none'`: no losses.
+4. Air properties: `c = 343.2 m/s·√(T/293 K)` (ISO 10534-2) and the ideal-gas density of dry air
+   `ρ = p_s/(287.05 J/(kg K)·T)` = 1.2041 kg/m³ at 20 °C and 101.325 kPa. (Until 2026-10-09 the ISO
+   expression `1.186·(p_s/101325)·(293/T)` was used; it is 1.55 % low, so absolute `Z_t`, `T12` and
+   `T21` in Pa·s/m are now 1.6 % higher than before. Normalised quantities are unchanged.)
+   Humidity is neglected: at 20 °C and 50 % RH, `c` is 0.18 % higher and `ρ` 0.44 % lower than for
+   dry air. Enter the measured temperature and static pressure. For thin elements of low impedance
+   these errors are amplified: `|ΔZ_t|/(ρc) ≈ |δφ_interpair| + |Δk′|·(x3 − x2)`, an absolute error
+   (0.18 % on `c` gives about 9–12 % in `Z_t` at 1–4 kHz for `|Z_t|/(ρc) ≈ 0.05–0.2`). Neither the
+   phase-sensitivity nor the velocity-mismatch mask detects it; see `theory.md` section 3A.
+5. The same medium and cross-section on both sides of the specimen (power coefficients, TL).
+6. Thin-element `Z_t`: negligible thickness and approximately continuous velocity. This is checked
+   (`velocityMismatch`), never enforced. The views hide `Z_t` and the TL from `Z_t` when
+   `Re(k)·d > 1` in the analysis band (d = specimen thickness).
+7. One-load transfer matrix: reciprocal and symmetric specimen (stated assumption). The two-load
    method needs only linearity, plus two sufficiently different loads.
-8. `τ` from the wave amplitudes is the intrinsic transmission coefficient only for an anechoic
-   termination (`|Rterm|` ≤ 0.1).
+8. `R`, `τ` and the dissipation coefficient `α_d = 1 − |R|² − |τ|²` are the **as-mounted** values:
+   specimen plus the actual downstream termination. They equal the specimen's anechoic-backed
+   values only for an anechoic termination (`|R_term|` ≈ 0); `R` of a specimen that transmits nothing
+   is intrinsic. `τ`, `α_d` and `TL_τ` are therefore valid only for `|R_term|` ≤ 0.1
+   (`anechoicRmax`). `R` is computed from the upstream pair M1/M2 alone and has no termination
+   condition. Termination-independent values: `τ_a` and `R_a` from the transfer matrix (scripts).
 
 **Instrumentation**
 
 9. The four LAN-XI channels share one sample clock, so their relative timing is exact. This is a
-   property of a single LAN-XI module. Generator and DAQ do **not** share a clock, and the method
-   does not need them to.
+   property of a single LAN-XI module. The generator and the LAN-XI module do **not** share a
+   clock, and the method does not need them to.
 10. The complete microphone chains are stable between calibration and measurement (same cables,
     channels, range, filter, sample rate, temperature within a few K).
-11. Sensor switching: microphones are interchanged without changing cables or channels, the sound
-    field is identical in configurations I and II (no leaks, same insertion depth), and the
+11. Switching calibration: microphones are interchanged without changing cables or channels, the
+    sound field is identical in configurations I and II (no leaks, same insertion depth), and the
     chains differ in phase by < 90° at low frequency (branch rule; polarity reversal cannot be
     detected).
 12. The LAN-XI stream is configured in volts (default transducer, sensitivity 1). The sensitivity
@@ -38,7 +63,7 @@
 
 ## Known limitations
 
-* **Geometry not yet provided**: microphone positions and sample faces are unknown, so boundary
+* **Geometry not yet provided**: microphone positions and specimen faces are unknown, so boundary
   quantities are disabled until they are entered.
 * **Hardware-dependent functions are partly unverified**. See `hardware_status.md`: generator
   output, sweep triggering, the microphone signal chain, TEDS and calibration on hardware are
@@ -54,9 +79,14 @@
   are only used as a continuity diagnostic.
 * Raw stream bytes are stored for the **last** repetition of each measurement. All repetitions are
   stored as decoded volts. The decoder is deterministic and HW-verified bit-identical.
-* `|Rterm|` > 0.1 makes `τ` and `α` invalid. For reflecting terminations use the two-load transfer
-  matrix.
-* The calibration is not temperature compensated. Re-calibrate after temperature changes > 3 K.
+* `|R_term|` > 0.1 makes `τ`, `α_d` and `TL_τ` invalid. `R` stays valid, but it is the as-mounted
+  value, which with a reflecting termination differs from the anechoic-backed `R` of a transmitting
+  specimen (up to about 30 % at `|R_term|` = 0.1 for a thin screen `Z_t = 0.5ρc`). For reflecting
+  terminations use the two-load transfer matrix (`τ_a`, `R_a`).
+* Thin elements of low impedance (`|Z_t|/(ρc)` below about 0.2) are sensitive to the inter-pair
+  phase residual of the calibration and to errors in `c` (temperature, humidity); no validity mask
+  covers this (assumption 4).
+* The calibration is not temperature compensated. Recalibrate after temperature changes > 3 K.
 * Uncertainty: the software reports diagnostics (condition number, coherence, SNR, phase
   sensitivity, calibration repeatability, block scatter for stepped sine) but **no complete
   uncertainty budget** (GUM). The tolerances in `validation_procedure.md` are not uncertainty
@@ -66,7 +96,11 @@
   than the scripts (for example, the two-load transfer matrix is scripted only).
 * Simulation: the virtual rig models the loudspeaker as an ideal incident-wave source, with no
   source reflection or tube resonances on the upstream side. That is sufficient for estimator and
-  decomposition tests, but not a model of the real tube.
+  decomposition tests, but not a model of the real tube. The virtual tube (`tim.sim.tubeModel`)
+  uses the same air properties, wavenumber and `Z_c` as the analysis, so the round trip (Test F)
+  checks the algebra only, not the tube physics; the independent physics check of the loss model is
+  `TestAcoustics/kirchhoffMatchesExactTube` (exact Bessel-function tube). Microphones behind the
+  termination plane (for example behind a rigid plug) receive no sound in the virtual tube (p = 0).
 
 ## Recommendations for future development
 

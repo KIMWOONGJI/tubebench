@@ -19,7 +19,7 @@ function res = analyzeFourMic(f, H, geom, env, opts)
 %        Coordinate x increases from the loudspeaker towards the termination.
 %   env  struct for tim.acoustics.airProperties (temperature_C, pressure_Pa,...)
 %   opts struct (all optional):
-%        lossModel        'iso10534' (default) | 'none'
+%        lossModel        'kirchhoff' (default) | 'iso10534' | 'none' (see wavenumber.m)
 %        velocityRef      'mean' (default) | 'upstream' | 'downstream'
 %        condMax          max allowed condition number of decomposition (40)
 %        phaseUncertainty_rad  inter-channel phase uncertainty after
@@ -38,13 +38,17 @@ function res = analyzeFourMic(f, H, geom, env, opts)
 %   OUTPUT res: see docs/theory.md. Main fields
 %     .waves     A1,B1 (upstream), A2,B2 (downstream) referred to x = 0
 %     .boundary  pL,uL,pR,uR at the sample faces (if geometry complete)
-%     .R         pressure reflection coefficient at the front face
+%     .R         pressure reflection coefficient at the front face, as
+%                mounted (specimen + actual downstream termination; equal to
+%                the anechoic-backed R only for Rterm ~ 0 or a non-transmitting
+%                specimen). Computed from the UPSTREAM pair M1/M2 only; its
+%                mask valid.validR depends only on that pair.
 %     .tau       pressure transmission coefficient (rear-face transmitted /
 %                front-face incident), valid only for anechoic termination
 %     .Rterm     reflection coefficient of the downstream termination,
 %                referred to the rear face
-%     .thin      thin-element transfer impedance Zt = (pL - pR)/u and
-%                velocity mismatch
+%     .thin      thin-element transfer impedance Zt = (pL - pR)/u [Pa s/m],
+%                Zt_norm = Zt/(rho c) (real rho c = air.Z0), velocity mismatch
 %     .power     |R|^2, |tau|^2, alpha = 1 - |R|^2 - |tau|^2
 %     .valid     per-frequency logical masks and warnings
 
@@ -135,12 +139,16 @@ if facesKnown
     end
     res.thin.u = ut;
     res.thin.Zt = (pL - pR) ./ ut;
-    res.thin.Zt_norm = res.thin.Zt ./ Zc;
+    % normalised by the real rho*c of the air (the plotted "Zt/rho c"); with
+    % lossModel 'kirchhoff' Zc differs from rho*c by (1-j)*0.356*k''/k0
+    % (|Zc/(rho c) - 1| = 0.5 % at 120 Hz, 0.08 % at 4.5 kHz for D = 29 mm), see wavenumber.m
+    res.thin.Zt_norm = res.thin.Zt ./ air.Z0;
     res.thin.velocityMismatch = abs(uL - uR) ./ max(abs(uL), abs(uR));
     % Transmission loss of the thin element derived from Zt:
-    %   T = [1 Zt; 0 1]  ->  tau = 2 / (2 + Zt/Zc)  ->  TL = 20 log10 |1 + Zt/(2 Zc)|
+    %   T = [1 Zt; 0 1]  ->  tau_a = 2 / (2 + Zt/Zc)  ->  TL = 20 log10 |1 + Zt/(2 Zc)|
     % (equal cross-sections, anechoic termination; independent of the actual
-    % termination because Zt itself is termination independent)
+    % termination because Zt itself is termination independent; Zc of the
+    % tube-loss model, so that TL equals -20 log10|tau_a| of the lossy tube)
     res.thin.TL_dB = 20 * log10(abs(1 + res.thin.Zt ./ (2 * Zc)));
 
     res.power.Rpow = abs(res.R).^2;
@@ -158,7 +166,7 @@ res.valid = tim.acoustics.validityMasks(res, geom, o);
 end
 
 function o = fillDefaults(o)
-d = struct('lossModel', 'iso10534', 'velocityRef', 'mean', 'condMax', 40, ...
+d = struct('lossModel', 'kirchhoff', 'velocityRef', 'mean', 'condMax', 40, ...
     'phaseUncertainty_rad', 0.002, 'maxPhaseSensitivity', 0.05, 'quality', [], ...
     'coherenceMin', 0.98, 'snrMin_dB', 20, 'calValid', [], 'fRange', [], ...
     'validatedBands', zeros(0, 2), 'passivityTol', 0.05, 'velocityMismatchMax', 0.10, ...

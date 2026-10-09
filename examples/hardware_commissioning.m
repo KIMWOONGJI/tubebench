@@ -87,15 +87,35 @@ report.H6.calFile = calFile;
 disp(report.H6)
 
 %% H7 - Test D (rigid plug) and Test E repeated (empty section)  (LOUDSPEAKER ON)
-% Geometry as entered in H5b. Test D: rigid plug with its face L metres
-% downstream of xFront.
-L = 0.0;   % <-- enter the measured value
-input('Insert the rigid plug. ENTER ...', 's');
+% Geometry as entered in H5b. Expectations use the analysis wavenumber
+% (cfg.analysis.lossModel, default 'kirchhoff'); see docs/validation_procedure.md.
+% Test D: rigid plug with its face L metres downstream of xFront.
+%   * R needs only the upstream pair M1/M2. The plug may therefore sit in the
+%     specimen section with its face at xFront (L = 0); M3/M4 are then behind
+%     the plug and record only background noise. Test D selects the frequency
+%     lines with the upstream-only masks (res.analysis.valid.upstream).
+%   * Condition: the reference channel (analysis.refChannel) must be at M1 or
+%     M2, otherwise the upstream coherence is lost (report.H7_D.warning).
+%   * No passivity screen: lines with |R| > 1 + passivityTol count in the
+%     median deficit and are reported as nonPassiveBins.
+%   * Alternative: the plug as the termination downstream of M4, with the
+%     empty specimen section mounted (L = x_plug - xFront).
+refPos = cfg.mics([cfg.mics.channel] == cfg.analysis.refChannel).position;
+if refPos > 2
+    warning('Reference channel ch%d is at M%d: put it at M1 or M2 for Test D with the plug at xFront.', ...
+        cfg.analysis.refChannel, refPos);
+end
+L = 0.0;   % <-- enter the measured distance xFront -> plug face [m]
+input('Insert the rigid plug (face at xFront + L). ENTER to measure ...', 's');
 resD = tim.app.processMeasurement(s.measure('sweep'), cfg, cal);
 report.H7_D = tim.val.testDE_reference(resD, 'rigid', struct('L', L));
 disp(report.H7_D)
-input(['Remove the plug; keep the EMPTY 75 mm section mounted (do not join the tubes ' ...
-    'directly), normal termination. ENTER ...'], 's');
+if ~isempty(report.H7_D.warning), warning('%s', report.H7_D.warning); end
+% Test E: empty specimen section, normal termination. Expected for d = 75 mm,
+% D = 29 mm, 20 degC ('kirchhoff'): |tau| 0.9983 / 0.9952 / 0.9898 and phase
+% -9.53 / -78.93 / -354.52 deg at 120 Hz / 1 kHz / 4.5 kHz, R = Rterm*exp(-2jkd).
+input(['Remove the plug; keep the empty 75 mm specimen section mounted (do not join the tubes ' ...
+    'directly), normal termination. ENTER to measure ...'], 's');
 resE = tim.app.processMeasurement(s.measure('sweep'), cfg, cal);
 report.H7_E = tim.val.testDE_reference(resE, 'empty', struct());
 disp(report.H7_E)
@@ -104,9 +124,9 @@ disp(report.H7_E)
 rs = tim.app.processMeasurement(s.measure('stepped'), cfg, cal);
 rw = tim.app.processMeasurement(s.measure('sweep'), cfg, cal);
 Rw = interp1(rw.analysis.f, rw.analysis.R, rs.analysis.f);
-ok = rs.analysis.valid.valid;
+ok = rs.analysis.valid.validR & isfinite(Rw);    % R: validity of the upstream pair
 report.H8 = struct('f', rs.analysis.f, 'maxAbsDiffR', max(abs(rs.analysis.R(ok) - Rw(ok))), ...
-    'passed', max(abs(rs.analysis.R(ok) - Rw(ok))) < 0.03, 'criteria', 'max |R_stepped - R_sweep| < 0.03 over valid bins');
+    'passed', max(abs(rs.analysis.R(ok) - Rw(ok))) < 0.03, 'criteria', 'max |R_stepped - R_sweep| < 0.03 over the valid frequency lines');
 disp(report.H8)
 
 %% Save the commissioning report and disconnect

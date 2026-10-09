@@ -15,7 +15,7 @@ a = cfg.analysis;
 fs = meas.fs;
 ref = a.refChannel;
 res = struct('kind', meas.kind, 'timestamp', meas.timestamp, 'softwareVersion', tim.app.softwareVersion());
-res.diagnostics = struct();
+res.diagnostics = struct('warnings', {{}});    % 1x0 cell; every warning is appended with {end+1}
 
 switch meas.kind
     case 'sweep'
@@ -23,19 +23,26 @@ switch meas.kind
         sp = tim.dsp.sweepResponse(meas.records, fs, struct('refChannel', ref, ...
             'fRange', [a.fMin a.fMax], 'df', a.df, 'preRoll', s.preRoll, ...
             'excitationBand', [s.fStart s.fStop], 'ringDown', min(s.postRoll, 0.5)));
+        % excitation diagnostics OUTSIDE the try below (that one is only for
+        % estimateSweepLaw): appending to a missing warnings field used to throw
+        % and was stored as a false sweepLawError (formula review dsp-3)
+        res.diagnostics.excitation = sp.excitation;
+        if ~all([sp.excitation.detected])
+            res.diagnostics.warnings{end+1} = 'Excitation not detected in at least one repetition.';
+        end
+        ex = sp.excitation(1);
+        if ex.detected && ex.start_s < 0.5 * s.preRoll
+            res.diagnostics.warnings{end+1} = 'Excitation started early in the pre-roll: noise estimate unreliable.';
+        end
+        if isfield(sp, 'warnings') && ~isempty(sp.warnings)
+            w = sp.warnings; if ischar(w), w = {w}; end
+            res.diagnostics.warnings = [res.diagnostics.warnings, reshape(w, 1, [])];
+        end
         try
-            ex = sp.excitation(1);
             law = tim.dsp.estimateSweepLaw(meas.records{1}(:, ref), fs, s.fStart, s.fStop, s.spacing, s.duration);
             res.diagnostics.sweepLaw = rmfield(law, {'ridgeT', 'ridgeF'});
             res.diagnostics.sweepLaw.nominalDuration_s = s.duration;
             res.diagnostics.sweepLaw.durationError = law.duration_s / s.duration - 1;
-            res.diagnostics.excitation = sp.excitation;
-            if ~all([sp.excitation.detected])
-                res.diagnostics.warnings = {'Excitation not detected in at least one repetition.'};
-            end
-            if ex.detected && ex.start_s < 0.5 * s.preRoll
-                res.diagnostics.warnings{end+1} = 'Excitation started early in the pre-roll: noise estimate unreliable.';
-            end
         catch err
             res.diagnostics.sweepLawError = err.message;
         end
@@ -62,8 +69,7 @@ if ~isempty(cal), res.calibration.version = cal.version; end
 % calibration set-up vs this measurement (empty section, port distances, temperature, mode)
 res.calibration.context = tim.cal.calibrationContext(cal, cfg);
 if ~isempty(res.calibration.context.warnings)
-    if ~isfield(res.diagnostics, 'warnings'), res.diagnostics.warnings = {}; end
-    res.diagnostics.warnings = [res.diagnostics.warnings, res.calibration.context.warnings];
+    res.diagnostics.warnings = [res.diagnostics.warnings, reshape(res.calibration.context.warnings, 1, [])];
 end
 res.Hchannel = Hcal;
 
@@ -76,6 +82,7 @@ for i = 1:4
     snrP(:, pos(i)) = sp.snr_dB(:, ch(i));
 end
 res.Hposition = Hp;
+res.channelOfPosition = zeros(1, 4); res.channelOfPosition(pos) = ch;   % DAQ channel in port M1..M4 (plot colours)
 
 % ---- acoustics
 o = rmfield(a, {'refChannel', 'fMin', 'fMax', 'df'});

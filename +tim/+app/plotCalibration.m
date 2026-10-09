@@ -1,23 +1,47 @@
 function fig = plotCalibration(cal, opts)
-%PLOTCALIBRATION Complex calibration curves C_k = c_k / c_ref.
-if nargin < 2, opts = struct(); end
+%PLOTCALIBRATION Figure of a complex channel calibration C_k = c_k / c_ref.
+%   fig = tim.app.plotCalibration(cal)
+%   fig = tim.app.plotCalibration(cal, struct('Visible', 'off'))
+%   Two stacked axes drawn by the same view as the GUI (tim.plots.calibration):
+%   |C_k| [dB] and the phase of C_k [deg], colour of channel k, grey =
+%   invalid bins. Below the axes a footnote repeats the summary of the
+%   view (valid bins, ranges, re-mount repeatability per channel) and the
+%   empty-tube check (Test E), so that a saved figure is self-contained.
+%   cal = [] gives the empty view. Other opts fields (band, simulation,
+%   emptyText) are passed to the view.
+if nargin < 1, cal = []; end
+if nargin < 2 || isempty(opts), opts = struct(); end
 vis = 'on'; if isfield(opts, 'Visible'), vis = opts.Visible; end
-fig = figure('Visible', vis, 'Name', 'Calibration', 'Color', 'w');
-tl = tiledlayout(fig, 2, 1, 'TileSpacing', 'compact');
-ax1 = nexttile(tl); ax2 = nexttile(tl); hold(ax1, 'on'); hold(ax2, 'on');
-P = tim.gui.palette(); col = P.ch; leg = {};
-for k = 1:4
-    if k == cal.refChannel, continue; end
-    c = cal.C(:, k); ok = cal.valid(:, k);
-    m = 20 * log10(abs(c)); p = rad2deg(unwrap(angle(c)));
-    plot(ax1, cal.f, m, ':', 'Color', col(k, :)); mv = m; mv(~ok) = NaN;
-    plot(ax1, cal.f, mv, '-', 'Color', col(k, :), 'LineWidth', 1.2);
-    plot(ax2, cal.f, p, ':', 'Color', col(k, :)); pv = p; pv(~ok) = NaN;
-    plot(ax2, cal.f, pv, '-', 'Color', col(k, :), 'LineWidth', 1.2);
-    leg = [leg, {'', sprintf('ch%d / ch%d', k, cal.refChannel)}]; %#ok<AGROW>
+if isfield(opts, 'Visible'), opts = rmfield(opts, 'Visible'); end
+W = 960; H = 680;                                  % px; the top edge stays where MATLAB puts figures
+pos = get(groot, 'DefaultFigurePosition');
+fig = figure('Visible', vis, 'Name', 'Calibration', 'Color', 'w', ...
+    'Position', [pos(1), max(40, pos(2) + pos(4) - H), W, H]);
+P = tim.gui.palette();
+tl = tiledlayout(fig, 2, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
+ax = [nexttile(tl), nexttile(tl)];
+info = tim.plots.calibration(ax, cal, opts);
+if isempty(cal), return; end
+
+% footnote: one line per channel + the empty-tube check (Test E)
+deg = char(176); none = char(8211);
+d = info.summary.data;
+lines = cell(size(d, 1), 1);
+for i = 1:size(d, 1)
+    rep = 'not measured';
+    if ~strcmp(d{i, 5}, none), rep = [strrep(d{i, 5}, ' / ', ' dB / ') deg]; end
+    if strcmp(d{i, 3}, none)                       % no valid bin (or not calibrated)
+        lines{i} = sprintf('%s:   valid lines %s %% – no valid calibration,   remounting repeatability %s', ...
+            d{i, 1}, d{i, 2}, rep);
+    else
+        lines{i} = sprintf('%s:   valid lines %s %%,   |C| %s dB,   phase %s%s,   remounting repeatability %s', ...
+            d{i, 1}, d{i, 2}, d{i, 3}, d{i, 4}, deg, rep);
+    end
 end
-set([ax1 ax2], 'XScale', 'log'); grid(ax1, 'on'); grid(ax2, 'on');
-ylabel(ax1, '|C_k| [dB]'); ylabel(ax2, '\angle C_k [deg]'); xlabel(ax2, 'Frequency [Hz]');
-legend(ax1, leg, 'Location', 'best');
-title(tl, sprintf('Complex channel calibration %s (dotted = invalid bins)', cal.version));
+lines = [lines; strtrim(strsplit(info.note, '  |  ')).'];   % Test E, channels without calibration
+h = (numel(lines) * 15 + 18) / H;                  % 9 pt lines, normalized height
+tl.Units = 'normalized'; tl.OuterPosition = [0 h 1 1 - h];
+annotation(fig, 'textbox', [0.012 0.006 0.976 h - 0.006], 'String', lines, 'EdgeColor', 'none', ...
+    'Interpreter', 'none', 'FontSize', 9, 'Color', P.ui.muted, 'VerticalAlignment', 'bottom', ...
+    'HorizontalAlignment', 'left', 'FitBoxToText', 'off', 'Margin', 2, 'Tag', 'calFootnote');
 end

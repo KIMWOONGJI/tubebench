@@ -127,6 +127,25 @@ classdef TestCalibration < matlab.unittest.TestCase
             tc.verifyTrue(all(isnan(Ce(:, 2))) && ~any(ve(:)));
         end
 
+        function interpolationBandEdgeTolerance(tc)
+            % UI audit B-L2: the first logspace step of 120 Hz is 3 ulp below
+            % 120 (119.99999999999996) and used to get C = NaN (step vanished
+            % from every result view); a few ulp outside the grid now takes the
+            % edge value, a real offset is still not extrapolated
+            fc = (120:2:4500).';
+            C = ones(numel(fc), 4); C(:, 2) = 1.05 * exp(-2j * pi * fc * 4e-4);
+            cal = struct('f', fc, 'C', C, 'valid', true(numel(fc), 4), 'refChannel', 1, 'version', 'T');
+            fq = [120 - 3 * eps(120); 1000; 4500 + 2 * eps(4500)];
+            [Ci, v] = tim.cal.interpolateCalibration(cal, fq);
+            tc.verifyTrue(all(v(:)));
+            tc.verifyEqual(Ci([1 3], 2), C([1 end], 2), 'AbsTol', 1e-12);
+            [Co, vo] = tim.cal.interpolateCalibration(cal, [120 * (1 - 1e-6); 4500 * (1 + 1e-6)]);
+            tc.verifyTrue(all(isnan(Co(:, 2))) && ~any(vo(:)));
+            % the same step passes applyCalibration and the analysis band
+            [Hc, cv] = tim.cal.applyCalibration(fq, C(1, :) .* ones(3, 4), cal, 1);
+            tc.verifyTrue(all(isfinite(Hc(:))) && cv(1));
+        end
+
         function applyCalibrationRoundTrip(tc)
             fc = (100:10:5000).';
             C = [ones(numel(fc), 1), 1.02 * exp(1j * 0.05 * ones(numel(fc), 1)), 0.98 * ones(numel(fc), 1), exp(-1j * 0.03 * ones(numel(fc), 1))];

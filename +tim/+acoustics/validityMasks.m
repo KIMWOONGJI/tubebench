@@ -12,47 +12,94 @@ function v = validityMasks(res, geom, o)
 %     v.validated     subset of v.valid inside experimentally validated bands
 %                     (empty bands -> nothing is "validated")
 %   Every reason a bin is rejected is recorded in v.flags (logical columns).
+%   The flags and v.valid use BOTH microphone pairs (all four positions).
+%
+%   Quantity-specific masks:
+%     v.validR        R at the front face is B1 e^{jkxF} / (A1 e^{-jkxF}): it
+%                     needs ONLY the upstream pair M1/M2. validR = v.upstream.valid:
+%                     upstream measured, pair-1 geometry (spacing limits of s1,
+%                     mode limit, near-singularity / condition / phase
+%                     sensitivity of pair 1), coherence and SNR of positions
+%                     1-2, calibration validity, |R| <= 1 + passivityTol, and
+%                     complete geometry. Downstream data (a rigid plug in front
+%                     of M3/M4, high-TL specimens with low downstream SNR) do
+%                     not reject R. (Formula review 2026-10-09, calval-1.)
+%     v.validTau      v.valid & complete geometry & |Rterm| <= anechoicRmax
+%     v.validThinZt   v.valid & complete geometry & velocity mismatch <= max
+%     v.upstream      the upstream-only masks and flags (measured, geometryOK,
+%                     qualityOK, valid, flags); Test D uses geometryOK & qualityOK
+%                     without the passivity screen.
+%
+%   Analysis-band edges are tolerant by 1e-9 relative: a stepped-sine step
+%   at fMin / fMax that was rounded a few ulp outside (logspace) counts as
+%   inside the band.
 
 f = res.f; Nf = numel(f); k = res.k;
 fl = struct();
+sUp = res.geometry.spacingUp; sDn = res.geometry.spacingDown;
 
 % 1) measured / analysis band
-measured = all(isfinite(res.waves.A1), 2) & isfinite(res.waves.A2);
+inBand = true(Nf, 1);
 if ~isempty(o.fRange)
-    measured = measured & f >= o.fRange(1) & f <= o.fRange(2);
+    tol = 1e-9 * max(abs(o.fRange));
+    inBand = f >= o.fRange(1) - tol & f <= o.fRange(2) + tol;
 end
+measuredUp = isfinite(res.waves.A1) & isfinite(res.waves.B1) & inBand;
+measured = measuredUp & isfinite(res.waves.A2) & isfinite(res.waves.B2);
 fl.outsideBand = ~measured;
 
 % 2) geometry
-lim = tim.acoustics.frequencyLimits(geom.diameter, ...
-    [res.geometry.spacingUp, res.geometry.spacingDown], res.air, ...
+lim = tim.acoustics.frequencyLimits(geom.diameter, [sUp, sDn], res.air, ...
     'LowerFraction', o.lowerFraction, 'UpperFraction', o.upperFraction);
 v.limits = lim;
 fl.belowSpacingLimit = f < lim.fLower;
 fl.aboveSpacingLimit = f > min(lim.upperSpacing);
 fl.aboveModeCutOn = f >= min(lim.isoDiameterLimit, lim.cutOn11);
-ks = real(k) * [res.geometry.spacingUp, res.geometry.spacingDown];
-fl.nearSingularity = any(abs(sin(ks)) < sin(0.2 * pi), 2) & f > 0.5 * min(lim.singular);
+ks = real(k) * [sUp, sDn];
+% Proximity to the singularity k*s = n*pi (n >= 1), tested PER PAIR:
+% |sin(ks)| < sin(0.2 pi) on the side ks > pi/2 only. The small-ks side
+% (|sin ks| small because ks is small) is covered by belowSpacingLimit,
+% condMax and phaseSensitive. (A common gate f > c/(4 s_max) used to reject
+% well-conditioned low-ks bins of the shorter pair when s_short/s_long < 0.4;
+% formula review 2026-10-09, acoustics-2 / calval-3.)
+nearSing = abs(sin(ks)) < sin(0.2 * pi) & ks > pi / 2;
+fl.nearSingularity = any(nearSing, 2);
 fl.illConditioned = res.waves.cond1 > o.condMax | res.waves.cond2 > o.condMax;
-geometryOK = ~(fl.belowSpacingLimit | fl.aboveSpacingLimit | fl.aboveModeCutOn | ...
-    fl.nearSingularity | fl.illConditioned);
 
 % Low-frequency phase sensitivity: a phase error dphi between the two mics
 % of a pair produces a relative error of order dphi/(k*s) in the decomposed
 % wave amplitudes (small-ks expansion, see docs/theory.md).
-v.phaseSensitivity = o.phaseUncertainty_rad ./ max(min(ks, [], 2), eps);
+phaseSens = o.phaseUncertainty_rad ./ max(ks, eps);     % per pair
+v.phaseSensitivity = max(phaseSens, [], 2);             % = dphi / (k * min(s))
 fl.phaseSensitive = v.phaseSensitivity > o.maxPhaseSensitivity;
-geometryOK = geometryOK & ~fl.phaseSensitive;
+geometryOK = ~(fl.belowSpacingLimit | fl.aboveSpacingLimit | fl.aboveModeCutOn | ...
+    fl.nearSingularity | fl.illConditioned | fl.phaseSensitive);
 
-% 3) quality
-qualityOK = true(Nf, 1);
+% upstream pair only (R)
+up = struct();
+up.outsideBand = ~measuredUp;
+up.belowSpacingLimit = f < lim.lowerSpacing(1);
+up.aboveSpacingLimit = f > lim.upperSpacing(1);
+up.aboveModeCutOn = fl.aboveModeCutOn;
+up.nearSingularity = nearSing(:, 1);
+up.illConditioned = res.waves.cond1 > o.condMax;
+up.phaseSensitive = phaseSens(:, 1) > o.maxPhaseSensitivity;
+geometryOKup = ~(up.belowSpacingLimit | up.aboveSpacingLimit | up.aboveModeCutOn | ...
+    up.nearSingularity | up.illConditioned | up.phaseSensitive);
+
+% 3) quality (columns of o.quality are tube POSITIONS M1..M4)
 fl.lowCoherence = false(Nf, 1); fl.lowSNR = false(Nf, 1); fl.calInvalid = false(Nf, 1);
+up.lowCoherence = false(Nf, 1); up.lowSNR = false(Nf, 1);
 if ~isempty(o.quality)
     if isfield(o.quality, 'coherence') && ~isempty(o.quality.coherence)
-        fl.lowCoherence = any(o.quality.coherence < o.coherenceMin, 2);
+        low = o.quality.coherence < o.coherenceMin;
+        fl.lowCoherence = any(low, 2);
+        up.lowCoherence = any(low(:, 1:2), 2);
     end
     if isfield(o.quality, 'snr_dB') && ~isempty(o.quality.snr_dB)
-        fl.lowSNR = any(o.quality.snr_dB < o.snrMin_dB, 2);
+        low = o.quality.snr_dB < o.snrMin_dB;
+        fl.lowSNR = any(low, 2);
+        up.lowSNR = any(low(:, 1:2), 2);
     end
 end
 if ~isempty(o.calValid)
@@ -60,13 +107,18 @@ if ~isempty(o.calValid)
 else
     fl.calInvalid = true(Nf, 1);   % no complex calibration -> never "valid"
 end
-qualityOK = qualityOK & ~fl.lowCoherence & ~fl.lowSNR & ~fl.calInvalid;
+up.calInvalid = fl.calInvalid;   % calibration measured separately with sound at every channel
+qualityOK = ~fl.lowCoherence & ~fl.lowSNR & ~fl.calInvalid;
+qualityOKup = ~up.lowCoherence & ~up.lowSNR & ~up.calInvalid;
 
 % 4) physical plausibility (passive sample), only where boundary data exist
 fl.nonPassive = false(Nf, 1); fl.velocityMismatch = false(Nf, 1); fl.terminationNotAnechoic = false(Nf, 1);
-if res.boundary.available
+up.nonPassive = false(Nf, 1);
+hasB = res.boundary.available;
+if hasB
     fl.nonPassive = abs(res.R) > 1 + o.passivityTol | ...
         (abs(res.R).^2 + abs(res.tau).^2 > 1 + o.passivityTol & abs(res.Rterm) <= o.anechoicRmax);
+    up.nonPassive = abs(res.R) > 1 + o.passivityTol;     % one-sided: needs only R
     fl.velocityMismatch = res.thin.velocityMismatch > o.velocityMismatchMax;
     fl.terminationNotAnechoic = abs(res.Rterm) > o.anechoicRmax;
 end
@@ -75,10 +127,13 @@ v.measured = measured;
 v.geometryOK = measured & geometryOK;
 v.qualityOK = qualityOK;
 v.valid = measured & geometryOK & qualityOK & ~fl.nonPassive;
+v.upstream = struct('measured', measuredUp, 'geometryOK', measuredUp & geometryOKup, ...
+    'qualityOK', qualityOKup, 'valid', measuredUp & geometryOKup & qualityOKup & ~up.nonPassive & hasB, ...
+    'flags', up, 'note', ['R needs only the upstream pair M1/M2: masks from pair-1 geometry, ' ...
+    'coherence/SNR of positions 1-2, calibration and |R| <= 1 + passivityTol.']);
 % quantity-specific masks (boundary quantities need the complete geometry;
 % v.valid alone then only qualifies the pair-local decomposition)
-hasB = res.boundary.available;
-v.validR = v.valid & hasB;
+v.validR = v.upstream.valid;
 v.validTau = v.valid & hasB & ~fl.terminationNotAnechoic;
 v.validThinZt = v.valid & hasB & ~fl.velocityMismatch;
 v.validated = false(Nf, 1);
@@ -91,13 +146,35 @@ v.summary = summarize(f, v, fl);
 end
 
 function s = summarize(f, v, fl)
-s = sprintf('%d bins: %d measured, %d geometry-permitted, %d quality-OK, %d valid, %d experimentally validated.', ...
-    numel(f), nnz(v.measured), nnz(v.geometryOK), nnz(v.qualityOK), nnz(v.valid), nnz(v.validated));
+% operator text (messages pane, saved README): glossary terms, no flag identifiers
+s = sprintf(['%d frequency lines: %d in the analysis band, %d meet the geometry criteria, %d the quality ' ...
+    'criteria; %d valid (R: %d, upstream pair), %d validated by experiment.'], numel(f), nnz(v.measured), ...
+    nnz(v.geometryOK), nnz(v.qualityOK), nnz(v.valid), nnz(v.validR), nnz(v.validated));
 names = fieldnames(fl);
 parts = {};
 for i = 1:numel(names)
     n = nnz(fl.(names{i}) & v.measured);
-    if n > 0, parts{end+1} = sprintf('%s=%d', names{i}, n); end %#ok<AGROW>
+    if n > 0, parts{end+1} = sprintf('%s %d', flagText(names{i}), n); end %#ok<AGROW>
 end
-if ~isempty(parts), s = [s ' Rejections in band: ' strjoin(parts, ', ') '.']; end
+if ~isempty(parts), s = [s ' Rejected in the band by: ' strjoin(parts, ', ') '.']; end
+end
+
+function t = flagText(name)
+% readable name of a rejection flag
+switch name
+    case 'outsideBand', t = 'outside the analysis band';
+    case 'belowSpacingLimit', t = 'below the spacing limit';
+    case 'aboveSpacingLimit', t = 'above the spacing limit';
+    case 'aboveModeCutOn', t = 'above the (1,1) cut-on';
+    case 'nearSingularity', t = 'near the spacing singularity';
+    case 'illConditioned', t = 'ill-conditioned decomposition';
+    case 'phaseSensitive', t = 'phase sensitivity';
+    case 'lowCoherence', t = 'low coherence';
+    case 'lowSNR', t = 'low SNR';
+    case 'calInvalid', t = 'no valid calibration';
+    case 'nonPassive', t = 'not passive';
+    case 'terminationNotAnechoic', t = 'termination not anechoic (τ, TL)';
+    case 'velocityMismatch', t = 'velocity mismatch (thin-element Zt)';
+    otherwise, t = lower(regexprep(name, '([a-z])([A-Z])', '$1 $2'));
+end
 end

@@ -68,10 +68,10 @@ classdef MeasurementSession < handle
         %% ---- connection -------------------------------------------------
         function connect(obj)
             c = obj.Cfg;
-            obj.log('Connecting (%s mode)...', c.mode);
+            obj.log('Connecting (%s mode)…', c.mode);
             sim = strcmp(c.mode, 'simulation');
             try
-                obj.progress('gen', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated instrument', ...
+                obj.progress('gen', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated generator', ...
                     sprintf('%s:%d (SCPI over TCP)', c.generator.host, c.generator.port)));
                 switch c.mode
                     case 'simulation'
@@ -86,19 +86,19 @@ classdef MeasurementSession < handle
                         factory = @(h, p) tim.instr.RecordingStream(tim.instr.LanXiTcpStream(h, p));
                 end
                 obj.Gen = tim.instr.Keysight33220A(tr, 'MaxVpp', c.generator.maxVpp, 'Load', c.generator.load);
-                obj.log('Generator: %s (output OFF)', obj.Gen.Identity.raw);
-                obj.progress('gen', 'ok', sprintf('%s - output OFF', obj.Gen.Identity.raw));
-                obj.progress('lanxi', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated module', ...
+                obj.log('Generator: %s (output off)', obj.Gen.Identity.raw);
+                obj.progress('gen', 'ok', sprintf('%s – output off', obj.Gen.Identity.raw));
+                obj.progress('lanxi', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated LAN-XI module', ...
                     sprintf('%s (REST, Open API)', c.lanxi.host)));
                 obj.Daq = tim.instr.LanXi(obj.Http, factory, 'Host', c.lanxi.host);
                 info = obj.Daq.moduleInfo();
-                obj.log('LAN-XI: %s s/n %d firmware %s, state %s', info.model, info.serial, info.firmware, info.moduleState);
+                obj.log('LAN-XI module: %s, s/n %d, firmware %s, state %s', info.model, info.serial, info.firmware, info.moduleState);
                 obj.progress('lanxi', 'ok', sprintf('%s  s/n %d  firmware %s', info.model, info.serial, info.firmware));
                 obj.progress('idle', 'run', sprintf('state %s', info.moduleState));
                 if ~strcmp(info.moduleState, 'Idle')
-                    obj.log('LAN-XI not Idle (%s): returning it to Idle.', info.moduleState);
+                    obj.log('LAN-XI module not in state Idle (%s): returning it to Idle.', info.moduleState);
                     obj.Daq.shutdown();
-                    obj.progress('idle', 'ok', sprintf('was %s - returned to Idle', info.moduleState));
+                    obj.progress('idle', 'ok', sprintf('was %s – returned to Idle', info.moduleState));
                 else
                     obj.progress('idle', 'ok', 'Idle');
                 end
@@ -120,22 +120,24 @@ classdef MeasurementSession < handle
             try
                 obj.Daq.ProgressFcn = @(key, state, detail) obj.progress(key, state, detail);
                 obj.Daq.prepare(dc);
-                obj.progress('sens', 'run', a.sensitivityPolicy);
+                srcName = @tim.app.MeasurementSession.sourceName;
+                obj.progress('sens', 'run', ['order: ' strjoin(cellfun(srcName, strsplit(char(a.sensitivityPolicy), '>'), ...
+                    'UniformOutput', false), ' → ')]);
                 obj.Mics = tim.cal.resolveSensitivities(obj.Cfg.mics, obj.Daq.Teds, a.sensitivityPolicy);
                 parts = cell(1, numel(obj.Mics)); state = 'ok';
                 for i = 1:numel(obj.Mics)
                     m = obj.Mics(i);
-                    obj.log('ch%d (pos M%d): %.4g mV/Pa from %s%s', m.channel, m.position, ...
-                        1e3 * m.sensitivity_VperPa, m.sensitivitySource, ...
-                        tim.app.MeasurementSession.ternary(m.serialMismatch, ' (TEDS serial differs from configuration!)', ''));
-                    parts{i} = sprintf('ch%d %.4g (%s)', m.channel, 1e3 * m.sensitivity_VperPa, m.sensitivitySource);
+                    obj.log('ch%d (port M%d): sensitivity %.4g mV/Pa (%s)%s', m.channel, m.position, ...
+                        1e3 * m.sensitivity_VperPa, srcName(m.sensitivitySource), ...
+                        tim.app.MeasurementSession.ternary(m.serialMismatch, ' – TEDS serial number differs from the configuration', ''));
+                    parts{i} = sprintf('ch%d %.4g (%s)', m.channel, 1e3 * m.sensitivity_VperPa, srcName(m.sensitivitySource));
                     if m.serialMismatch || ~any(strcmp(m.sensitivitySource, {'certificate', 'teds'}))
                         state = 'warn';       % nominal value or wrong microphone
                     end
                 end
                 obj.progress('sens', state, ['mV/Pa: ' strjoin(parts, ',  ')]);
                 if strcmp(obj.Cfg.mode, 'hardware') && a.settleTime > 0
-                    obj.log('Settling %.1f s (CCLD / high-pass)...', a.settleTime);
+                    obj.log('Waiting %.1f s for the CCLD supply and high-pass filter to settle…', a.settleTime);
                     obj.progress('settle', 'run', sprintf('%.1f s (CCLD + %s high-pass)', a.settleTime, a.filter));
                     pause(a.settleTime);
                     obj.progress('settle', 'ok', sprintf('%.1f s', a.settleTime));
@@ -175,11 +177,11 @@ classdef MeasurementSession < handle
                 flags = {};
                 if ~isempty(q)
                     mine = [q.signalId] == ids(c);
-                    if any([q(mine).invalid]), flags{end+1} = 'INVALID (cable / CCLD fault)'; end %#ok<AGROW>
-                    if any([q(mine).clipped]), flags{end+1} = 'CLIPPED'; end %#ok<AGROW>
+                    if any([q(mine).invalid]), flags{end+1} = 'LAN-XI flag INVALID (cable or CCLD fault)'; end %#ok<AGROW>
+                    if any([q(mine).clipped]), flags{end+1} = 'clipped (LAN-XI flag)'; end %#ok<AGROW>
                 end
-                if std(x(:, c)) == 0, flags{end+1} = 'constant (dead)'; end %#ok<AGROW>
-                if ~isempty(rangeV) && pk >= 0.99 * rangeV, flags{end+1} = 'overload'; end %#ok<AGROW>
+                if std(x(:, c)) == 0, flags{end+1} = 'no signal (constant value)'; end %#ok<AGROW>
+                if ~isempty(rangeV) && pk >= 0.99 * rangeV, flags{end+1} = 'overload (≥ 99 % of input range)'; end %#ok<AGROW>
                 if isempty(flags)
                     st = 'ok'; txt = sprintf('%.1f dB SPL', spl);
                 else
@@ -204,7 +206,7 @@ classdef MeasurementSession < handle
                 if ~isempty(obj.ProgressCallback)
                     try, obj.ProgressCallback(key, 'fail', 'stopped by the operator'); catch, end
                 end
-                error('tim:session:stopped', 'Connection stopped by user.');
+                error('tim:session:stopped', 'Connection stopped by the operator.');
             end
             if strcmp(state, 'run')
                 obj.ProgressKey = key;
@@ -223,7 +225,7 @@ classdef MeasurementSession < handle
                 case 'sweep',   meas = obj.measureSweep();
                 case 'stepped', meas = obj.measureStepped();
                 case 'noise',   meas = obj.measureNoise();
-                otherwise, error('tim:session:mode', 'Unknown excitation mode "%s".', mode);
+                otherwise, error('tim:session:mode', 'Unknown excitation signal "%s" (sweep, stepped or noise).', mode);
             end
         end
 
@@ -240,8 +242,9 @@ classdef MeasurementSession < handle
             sw = obj.Cfg.excitation.sweep;
             fs = obj.Cfg.acquisition.sampleRate;
             obj.Gen.configureSweep(sw);
-            obj.log('Sweep %g-%g Hz %s, %.2f s, %.3g Vpk (%.3g Vpp), %d repetition(s).', sw.fStart, sw.fStop, ...
-                sw.spacing, sw.duration, sw.amplitudeVpp / 2, sw.amplitudeVpp, sw.repetitions);
+            obj.log('Swept sine %g–%g Hz (%s), %.2f s, %.3g Vpk (%.3g Vpp), %d repetition(s).', sw.fStart, sw.fStop, ...
+                tim.app.MeasurementSession.ternary(strcmpi(sw.spacing, 'log'), 'logarithmic', 'linear'), ...
+                sw.duration, sw.amplitudeVpp / 2, sw.amplitudeVpp, sw.repetitions);
             nPre = round(sw.preRoll * fs);
             nSweep = round(sw.duration * fs);
             nTotal = nPre + nSweep + round((sw.postRoll + 0.2) * fs);
@@ -262,10 +265,10 @@ classdef MeasurementSession < handle
             for r = 1:sw.repetitions
                 obj.checkStop();
                 ev = struct('triggerSample', NaN, 'offSample', NaN, 'opcOk', false);
-                [data, info] = obj.guardedAcquire(nTotal, @onBlock, sprintf('sweep repetition %d', r), records, infos, sw.amplitudeVpp);
+                [data, info] = obj.guardedAcquire(nTotal, @onBlock, sprintf('swept sine, repetition %d', r), records, infos, sw.amplitudeVpp);
                 if isnan(ev.offSample), obj.Gen.outputOff(); end
                 records{end+1} = data; infos{end+1} = info; events{end+1} = ev; %#ok<AGROW>
-                obj.log('Repetition %d: trigger issued at sample %d, output off at %d; integrity %s', ...
+                obj.log('Repetition %d: sweep triggered at sample %d, output off at sample %d; data integrity %s', ...
                     r, ev.triggerSample, ev.offSample, obj.okText(info.integrity));
             end
             obj.Gen.armOutput(false);
@@ -281,6 +284,9 @@ classdef MeasurementSession < handle
             else
                 freqs = linspace(st.fStart, st.fStop, st.nPoints);
             end
+            % exact end points: logspace(log10(120), ...) gives 119.99999999999997 Hz,
+            % which fell below the analysis band (120 Hz) and was never valid
+            freqs([1 end]) = [st.fStart st.fStop];
             obj.Gen.configureSine(freqs(1), st.amplitudeVpp);
             nSettle = round(st.settleTime * fs); nRec = round(st.recordTime * fs);
             nPre = round(0.5 * fs);
@@ -333,7 +339,7 @@ classdef MeasurementSession < handle
                     obj.Gen.outputOff(); ev.offSample = n;
                 end
             end
-            [data, info] = obj.guardedAcquire(nTotal, @onBlock, 'noise', {}, {}, nz.amplitudeVpp);
+            [data, info] = obj.guardedAcquire(nTotal, @onBlock, 'random noise', {}, {}, nz.amplitudeVpp);
             obj.Gen.outputOff();
             obj.Gen.armOutput(false);
             meas = obj.packMeasurement('noise', {data}, {info}, nz, {ev});
@@ -360,7 +366,7 @@ classdef MeasurementSession < handle
             model = char(model);
             if startsWith(lower(model), 'none'), gainFactor = 1; end   % direct drive
             if ~(isnan(gainFactor) || gainFactor > 0)
-                error('tim:session:gain', 'Amplifier gain factor must be > 0 (or NaN if unknown).');
+                error('tim:session:gain', 'Amplifier gain must be greater than 0.');
             end
             a = obj.Cfg.amplifier;
             a.model = model; a.gainFactor = gainFactor; a.gain_dB = 20 * log10(gainFactor);
@@ -369,9 +375,18 @@ classdef MeasurementSession < handle
             if ~isempty(model) && ~any(strcmp(a.knownModels, model)), a.knownModels{end+1} = model; end
             obj.Cfg.amplifier = a;
             obj.ConfirmedExcitation = '';
-            obj.log('Amplifier recorded: %s, gain x%g (%.1f dB)%s.', ...
-                tim.app.MeasurementSession.ternary(isempty(model), 'model not specified', model), ...
-                gainFactor, a.gain_dB, tim.app.MeasurementSession.ternary(isempty(a.gainSetting), '', [' "' a.gainSetting '"']));
+            if isfinite(gainFactor)
+                gainTxt = sprintf('gain ×%.3g (%.1f dB)', gainFactor, a.gain_dB);
+            else
+                gainTxt = 'gain not entered';
+            end
+            if startsWith(lower(model), 'none')
+                obj.log('Amplifier: none (direct drive from the generator).');
+            else
+                obj.log('Amplifier: %s, %s%s.', ...
+                    tim.app.MeasurementSession.ternary(isempty(model), 'model not specified', model), ...
+                    gainTxt, tim.app.MeasurementSession.ternary(isempty(a.gainSetting), '', [' (setting "' a.gainSetting '")']));
+            end
         end
 
         function d = driveEstimate(obj, amplitudeVpp)
@@ -429,7 +444,7 @@ classdef MeasurementSession < handle
         function loadCalibration(obj, file)
             S = load(file, 'cal');
             if ~isfield(S, 'cal') || ~strcmp(S.cal.type, 'tim.complexChannelCalibration')
-                error('tim:cal:file', '"%s" is not a complex channel calibration file.', file);
+                error('tim:cal:file', '"%s" is not a calibration file of this program (switching calibration).', file);
             end
             obj.Calibration = S.cal;
             obj.log('Loaded calibration %s (%s).', S.cal.version, file);
@@ -443,12 +458,16 @@ classdef MeasurementSession < handle
 
         function prev = setSimulationSample(obj, sample)
             %SETSIMULATIONSAMPLE Simulation only: exchange the specimen of the virtual
-            %   rig, e.g. struct('type','air') = EMPTY specimen section (air column of
+            %   rig, e.g. struct('type','air') = empty specimen section (air column of
             %   length xRear - xFront, tim.sim.tubeModel). Returns the previous sample.
             if isempty(obj.Rig), error('tim:session:sim', 'Only available in simulation mode.'); end
             prev = obj.Rig.Sample;
             obj.Rig.Sample = sample;          % setter marks the FIR for re-design
-            obj.log('Simulation: specimen section -> "%s".', sample.type);
+            if strcmp(sample.type, 'air')
+                obj.log('Simulation: empty specimen section mounted in the virtual tube.');
+            else
+                obj.log('Simulation: virtual specimen "%s" mounted.', sample.type);
+            end
         end
 
         %% ---- shutdown -------------------------------------------------------
@@ -554,7 +573,8 @@ classdef MeasurementSession < handle
                 obj.LastPartial = partial;
                 f = tim.app.saveEmergency(obj, partial);
                 obj.setStatus('error');
-                obj.log('ERROR during %s: %s. Output switched off. Partial data saved to %s', what, err.message, f);
+                obj.log('Error during %s: %s. Generator output switched off. Partial data saved to %s.', ...
+                    what, regexprep(err.message, '\.$', ''), f);
                 rethrow(err);
             end
             obj.setStatus('ready');
@@ -579,7 +599,7 @@ classdef MeasurementSession < handle
             meas.rawStreamLast = raw;
             meas.integrityOk = all(cellfun(@(i) i.integrity.ok, infos));
             if ~meas.integrityOk
-                obj.log('WARNING: data-integrity problems detected - see meas.channelInfo{.}.integrity');
+                obj.log('Warning: data integrity problems detected – see the repetition lines above; the details are saved with the raw data.');
             end
         end
 
@@ -609,18 +629,18 @@ classdef MeasurementSession < handle
             if isempty(fcn), fcn = @(m) tim.app.MeasurementSession.consoleConfirm(m, lang); end
             if ~fcn(msg)
                 obj.Gen.outputOff();
-                error('tim:session:notConfirmed', 'Excitation not confirmed by the operator - nothing was played.');
+                error('tim:session:notConfirmed', 'Excitation cancelled by the operator – the loudspeaker was not driven.');
             end
             obj.ConfirmedExcitation = sig;
-            obj.log('Excitation confirmed: %.3g Vpk (%.3g Vpp); %s', amplitudeVpp / 2, amplitudeVpp, obj.amplifierLine(amplitudeVpp));
+            obj.log('Excitation confirmed: generator %.3g Vpk (%.3g Vpp). %s', amplitudeVpp / 2, amplitudeVpp, obj.amplifierLine(amplitudeVpp));
         end
 
         function requireConnected(obj)
-            if ~obj.Connected, error('tim:session:state', 'Not connected. Call connect() first.'); end
+            if ~obj.Connected, error('tim:session:state', 'Instruments not connected. Connect first.'); end
         end
         function requirePrepared(obj)
             obj.requireConnected();
-            if ~obj.Prepared, error('tim:session:state', 'Acquisition not prepared. Call prepareAcquisition() first.'); end
+            if ~obj.Prepared, error('tim:session:state', 'Acquisition not ready. Connect the instruments first.'); end
             % A stand-alone measurement starts with a cleared stop flag. Inside a
             % multi-measurement operation (e.g. calibration) a STOP pressed
             % between two measurements must NOT be lost (bench finding).
@@ -642,13 +662,18 @@ classdef MeasurementSession < handle
             obj.Status = s;
         end
         function t = okText(~, integ)
-            if integ.ok, t = 'OK'; else, t = ['FAILED: ' strjoin(integ.fatal, '; ')]; end
+            if integ.ok, t = 'OK'; else, t = ['failed: ' strjoin(integ.fatal, '; ')]; end
         end
     end
 
     methods (Static)
         function v = ternary(c, a, b)
             if c, v = a; else, v = b; end
+        end
+        function s = sourceName(key)
+            %SOURCENAME Operator name of a sensitivity source key ('teds' -> 'TEDS').
+            s = char(key);
+            if strcmpi(s, 'teds'), s = 'TEDS'; end
         end
         function ok = consoleConfirm(msg, lang)
             if nargin < 2, lang = 'en'; end
