@@ -104,7 +104,7 @@ SNR. Green ≥ 90 % of the bins, orange 50–90 %, red below 50 % or failed data
 config II measurement of a channel the list adds the number of valid bins of `C_k` and, with the
 repeated config I, the re-mount repeatability. The "return the microphones" row shows the result
 of the **empty-tube check** (Test E, below), and the last row asks to mount the specimen section
-again. The curves `|C_k|` and `∠C_k` are plotted next to the list. The **Equations** tab lists
+again. The curves `|C_k|` and `∠C_k` are plotted next to the list. The **Formula** tab lists
 the calibration equations together with all other equations used.
 
 While the calibration (or any measurement) runs, the GUI is **locked**: every input and button

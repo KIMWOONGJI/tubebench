@@ -359,12 +359,25 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual([s.fStart s.fStop s.nPoints s.repetitions], [200 3000 12 2], 'typed stepped values kept');
         end
 
-        function windowTitleAndRepositoryLink(tc)
+        function windowTitleMenusAndAbout(tc)
+            % user request 2026-10-09: version and repository in Help > About of a
+            % menu bar (as in other programs) instead of a footer; tab "Formula"
             app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
             tc.verifyEqual(app.Fig.Name, 'Transfer impedance tube', 'no hyphen in the window name');
-            tc.verifyClass(app.H.repoLink, 'matlab.ui.control.Hyperlink');
-            tc.verifyEqual(app.H.repoLink.URL, tim.app.repositoryUrl());
-            tc.verifySubstring(app.H.version.Text, 'transfer-impedance-tube-measurement 1.1.0');
+            top = findall(app.Fig, 'Type', 'uimenu', 'Parent', app.Fig);
+            tc.verifyEqual(sort({top.Text}), {'File', 'Help'});
+            tc.verifyEmpty(findall(app.Fig, 'Type', 'uihyperlink'), 'no footer link any more');
+            tc.verifyEqual(app.H.formulaTab.Title, 'Formula');
+            feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
+            fig = app.AboutFig; tc.addTeardown(@() delete(fig));
+            tc.verifyEqual(fig.Name, 'About Transfer impedance tube');
+            txt = strjoin(app.H.aboutText.Value, newline);
+            [~, info] = tim.app.softwareVersion();
+            tc.verifySubstring(txt, info.version);
+            tc.verifySubstring(txt, info.commit);
+            tc.verifyEqual(app.H.aboutLink.URL, tim.app.repositoryUrl());
+            feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
+            tc.verifyNumElements(findall(groot, 'Type', 'figure', 'Name', 'About Transfer impedance tube'), 1, 'one About window');
         end
     end
 end

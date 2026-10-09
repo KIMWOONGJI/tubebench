@@ -35,6 +35,7 @@ classdef TubeApp < handle
         Closing logical = false % closeNow running: further close requests are ignored
         ClosingWin = []         % "Closing ..." progress dialog (steps of the shutdown)
         ClosingLog cell = {}    % texts shown in the closing dialog (also when hidden: tests)
+        AboutFig = []           % Help > About window (one at a time)
     end
 
     methods
@@ -56,6 +57,7 @@ classdef TubeApp < handle
         function delete(app)
             try, app.stopPulse(); catch, end
             try, app.disconnect(); catch, end
+            if ~isempty(app.AboutFig) && isvalid(app.AboutFig), delete(app.AboutFig); end
             if ~isempty(app.Fig) && isvalid(app.Fig), delete(app.Fig); end
         end
 
@@ -194,6 +196,21 @@ classdef TubeApp < handle
             if strcmp(visible, 'on')
                 try, app.Fig.WindowState = 'maximized'; catch, end
             end
+            h = struct();
+            % menu bar as in other desktop programs: File, Help (version + repository: Help > About)
+            m = uimenu(app.Fig, 'Text', 'File');
+            h.mLoadCfg = uimenu(m, 'Text', 'Load configuration...', 'MenuSelectedFcn', @(~, ~) app.onLoadConfig());
+            h.mSaveCfg = uimenu(m, 'Text', 'Save configuration...', 'MenuSelectedFcn', @(~, ~) app.onSaveConfig());
+            uimenu(m, 'Text', 'Exit', 'Separator', 'on', 'MenuSelectedFcn', @(~, ~) tim.gui.closeApp(app.Fig, app));
+            m = uimenu(app.Fig, 'Text', 'Help');
+            docs = {'User guide', 'user_guide.md'; 'Calibration procedure', 'calibration_procedure.md'; ...
+                'Validation procedure', 'validation_procedure.md'; 'Installation (Windows)', 'installation_windows.md'};
+            for i = 1:size(docs, 1)
+                uimenu(m, 'Text', docs{i, 1}, 'MenuSelectedFcn', @(~, ~) app.openDoc(docs{i, 2}));
+            end
+            uimenu(m, 'Text', 'Source code on GitHub', 'Separator', 'on', ...
+                'MenuSelectedFcn', @(~, ~) web(tim.app.repositoryUrl(), '-browser'));
+            h.mAbout = uimenu(m, 'Text', 'About', 'Separator', 'on', 'MenuSelectedFcn', @(~, ~) app.showAbout());
             g = uigridlayout(app.Fig, [1 2], 'ColumnWidth', {430, '1x'});
             % Left panel: ONE column; each row is a label or a small nested grid
             % (rowGrid) so that related fields share a row. Fixed row heights [px]:
@@ -209,7 +226,6 @@ classdef TubeApp < handle
             left = uigridlayout(g, [numel(rowH) 1], 'RowHeight', rowH, 'ColumnWidth', {'1x'}, ...
                 'Scrollable', 'on', 'RowSpacing', 5);
             left.Layout.Row = 1; left.Layout.Column = 1;
-            h = struct();
             h.left = left;
             P = tim.gui.palette();
             ex = {112, '1x', 92, 76};                % excitation rows: label, field, label, field
@@ -333,19 +349,9 @@ classdef TubeApp < handle
             h.reprocess = uibutton(rg, 'Text', 'Re-process (config/cal changed)', 'ButtonPushedFcn', @(~, ~) app.onReprocess());
             assert(r == numel(rowH), 'layout: rowH must list exactly one height per left-panel row');
 
-            % ---------------- tabs (right column) + footer: version and source code link
-            right = uigridlayout(g, [2 1], 'RowHeight', {'1x', 18}, 'RowSpacing', 2, 'Padding', [0 0 0 0]);
-            right.Layout.Row = 1; right.Layout.Column = 2;
-            foot = uigridlayout(right, [1 3], 'ColumnWidth', {'1x', 'fit', 'fit'}, 'Padding', [4 0 4 0], 'ColumnSpacing', 6);
-            foot.Layout.Row = 2; foot.Layout.Column = 1;
-            [swv, swi] = tim.app.softwareVersion();
-            h.version = uilabel(foot, 'Text', swv, 'FontSize', 10, 'FontColor', [0.45 0.45 0.45], ...
-                'Tooltip', 'software version (stored with every measurement and calibration)');
-            uilabel(foot, 'Text', 'Source code:', 'FontSize', 10, 'FontColor', [0.45 0.45 0.45]);
-            h.repoLink = uihyperlink(foot, 'Text', swi.repository, 'URL', swi.repository, 'FontSize', 10, ...
-                'Tooltip', 'opens in the system web browser - private repository: sign in to GitHub with an account that has access');
-            tabs = uitabgroup(right);
-            tabs.Layout.Row = 1; tabs.Layout.Column = 1;
+            % ---------------- tabs (right column)
+            tabs = uitabgroup(g);
+            tabs.Layout.Row = 1; tabs.Layout.Column = 2;
             t = uitab(tabs, 'Title', 'Log');
             tg = uigridlayout(t, [1 1]);
             h.log = uitextarea(tg, 'Editable', 'off', 'FontName', 'Consolas');
@@ -433,7 +439,7 @@ classdef TubeApp < handle
             end
             h.tabs = tabs;
             tabs.SelectionChangedFcn = @(~, ev) app.onTabChanged(ev);
-            t = uitab(tabs, 'Title', 'Equations');
+            t = uitab(tabs, 'Title', 'Formula'); h.formulaTab = t;
             tim.gui.equationsPanel(t);
             h.cal3D = []; h.calPaths = gobjects(0); h.calHi = gobjects(0);
             app.H = h;
@@ -774,7 +780,7 @@ classdef TubeApp < handle
                 app.Busy = false; return            % window closed during the action
             end
             h = app.H;
-            names = {'mode', 'loadCfg', 'saveCfg', 'connect', 'disconnect', 'exMode', 'fRange', 'dur', 'amp', 'reps', ...
+            names = {'mode', 'loadCfg', 'saveCfg', 'mLoadCfg', 'mSaveCfg', 'connect', 'disconnect', 'exMode', 'fRange', 'dur', 'amp', 'reps', ...
                 'ampModel', 'ampGain', 'spkZ', 'spkP', 'start', 'background', 'tubeD', 's1', 'L1', 'dTh', 'L2', 's2', ...
                 'temp', 'pres', 'loadCal', 'runCal', 'save', 'reprocess', 'secChk', 'dimChk'};   % 3D redraw (~1 s) would stall the stream
             if tf
@@ -1592,6 +1598,45 @@ classdef TubeApp < handle
             plot(ax, f, y, '-', 'Color', P.invalid, 'LineWidth', 0.7, mg{:});
             yv = y; yv(~ok) = NaN;
             hv = plot(ax, f, yv, '-', 'Color', c, 'LineWidth', P.lineWidth + 0.3, mc{:});
+        end
+
+        function openDoc(~, name)
+            % Help menu: a document of docs/ in the MATLAB Editor (plain Markdown text)
+            f = fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))), 'docs', name);
+            if isfile(f), edit(f); else, warning('tim:gui:doc', 'Document not found: %s', f); end
+        end
+
+        function fig = showAbout(app)
+            % Help > About: program, version, release date, Git commit, MATLAB
+            % release and the repository link (selectable text: can be copied)
+            if ~isempty(app.AboutFig) && isvalid(app.AboutFig)
+                figure(app.AboutFig); fig = app.AboutFig; return
+            end
+            [~, info] = tim.app.softwareVersion();
+            p = app.Fig.Position; w = 470; hgt = 250;
+            fig = uifigure('Name', 'About Transfer impedance tube', 'Resize', 'off', 'Visible', app.Fig.Visible, ...
+                'Position', [p(1) + (p(3) - w) / 2, p(2) + (p(4) - hgt) / 2, w, hgt]);
+            app.AboutFig = fig;
+            gl = uigridlayout(fig, [5 2], 'RowHeight', {28, 22, '1x', 22, 30}, 'ColumnWidth', {'1x', 90}, ...
+                'Padding', [16 12 16 12], 'RowSpacing', 6);
+            l = uilabel(gl, 'Text', 'Transfer impedance tube', 'FontSize', 17, 'FontWeight', 'bold');
+            l.Layout.Column = [1 2];
+            l = uilabel(gl, 'Text', 'Four-microphone transfer-impedance tube measurement (MATLAB)', 'FontColor', [0.35 0.35 0.35]);
+            l.Layout.Column = [1 2];
+            lines = {sprintf('Program:      %s', info.name), ...
+                sprintf('Version:      %s (released %s)', info.version, info.released), ...
+                sprintf('Git commit:   %s (branch %s)', info.commit, info.branch), ...
+                sprintf('MATLAB:       %s', version()), ...
+                'The version and the commit are stored with every measurement and calibration.'};
+            ta = uitextarea(gl, 'Value', lines, 'Editable', 'off', 'FontName', 'Consolas', 'FontSize', 11);
+            ta.Layout.Column = [1 2];
+            app.H.aboutText = ta;
+            lk = uihyperlink(gl, 'Text', info.repository, 'URL', info.repository, ...
+                'Tooltip', 'opens in the web browser - private repository: sign in with an account that has access');
+            lk.Layout.Column = [1 2];
+            app.H.aboutLink = lk;
+            b = uibutton(gl, 'Text', 'OK', 'ButtonPushedFcn', @(~, ~) delete(fig));
+            b.Layout.Row = 5; b.Layout.Column = 2;
         end
 
         function closingDialog(app, msg)

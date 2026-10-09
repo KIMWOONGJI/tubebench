@@ -169,9 +169,14 @@ OFF, LAN-XI back to Idle with 2 s time-outs, so a switched-off instrument cannot
 measurement or calibration is running, it is stopped first (output OFF at once) and the window
 closes as soon as the action has stopped; a second close request closes immediately.
 
-The window title is "Transfer impedance tube"; the bottom line shows the software version (with
-the Git commit) and a link to the repository
-(<https://github.com/kimwoongji/transfer-impedance-tube-measurement>, private). The version, the
+The window title is "Transfer impedance tube". The **menu bar** has **File** (Load
+configuration…, Save configuration… - the same as the panel buttons - and Exit, which closes like
+the window's X) and **Help** (User guide, Calibration procedure, Validation procedure,
+Installation: the documents of `docs/`, opened in the MATLAB Editor; Source code on GitHub;
+**About**). **Help > About** shows the program, the software version and release date, the Git
+commit and branch, the MATLAB release and a link to the repository
+(<https://github.com/kimwoongji/transfer-impedance-tube-measurement>, private); its text can be
+selected and copied. The **Formula** tab lists all equations used by the software. The version, the
 repository and the commit are also stored with every measurement (`metadata.json`, field
 `softwareInfo`, and `README.txt`) and calibration (`cal.meta.softwareInfo`). The commit is read
 from the `.git` folder; **local changes that are not committed are not detected**, so commit
