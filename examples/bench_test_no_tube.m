@@ -9,7 +9,7 @@
 %   B5 stepped sine vs sweep on the same set-up (Test G, relative responses)
 %   B6 practice of the sensor-switching calibration (ch1 <-> ch2)
 % Results with the tube geometry (R, tau, Zt) are MEANINGLESS here and are
-% not computed: config/user_config.json contains PLACEHOLDER geometry.
+% not computed: the microphones are not in the tube.
 %
 % Physical set-up for B2-B6:
 %   * loudspeaker on the table, amplifier gain at MINIMUM

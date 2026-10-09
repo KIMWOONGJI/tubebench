@@ -6,8 +6,8 @@
 % Nothing here switches the generator output on until a section that
 % explicitly says "MEASURE" is run. Read docs/user_guide.md first.
 %
-% Configuration: copy config/example_config.json to config/user_config.json
-% and edit it (mode, microphone serials/sensitivities, GEOMETRY, limits).
+% Configuration: config/user_config.json (lab settings, tracked in Git: mode,
+% microphone serials/sensitivities, GEOMETRY, limits). Commit it after changes.
 
 %% 0) Paths and configuration
 root = fileparts(mfilename('fullpath'));

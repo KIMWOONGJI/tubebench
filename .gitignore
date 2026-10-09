@@ -6,8 +6,6 @@ examples/output/calibration/
 examples/output/*.mat
 # CAD models of the lab tube (kept out of version control)
 cad/
-# personal configuration
-config/user_config.json
 # MATLAB
 *.asv
 *.autosave

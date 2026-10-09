@@ -3,8 +3,8 @@
 ## 1. First steps
 
 1. Read `installation_windows.md`, then run `run_tests` once. All tests must pass.
-2. Only if `config\user_config.json` does not exist yet (it is local, not in Git):
-   `copy config\example_config.json config\user_config.json`. Then edit:
+2. `config\user_config.json` (tracked in Git, holds the lab settings) - edit it, or create it
+   from `config\example_config.json` only if it does not exist. Commit it after changes. Settings:
    * `"mode"`: `"simulation"` to practise, `"hardware"` for real measurements.
    * `"generator.maxVpp"`: **safety limit** of the generator amplitude (Vpp) for your
      amplifier/loudspeaker. Every excitation amplitude is checked against it, both in software
@@ -130,18 +130,18 @@ without scrolling and scrolls only in a very small window):
 
   The lab tube (CAD assembly `cad/transfer-impedance-tube.step`) gives s1 = 29, L1 = 41,
   d = 75 (the specimen fills the 75 mm middle section), L2 = 41 and s2 = 29 mm; these design
-  values are in `config/user_config.json` and should be checked on the real tube.
-  `user_config.json` is a **local file** (excluded from Git, so a fresh clone does not have
-  it): on another PC copy the file, or create it from `example_config.json` and enter the values
-  in the IMPEDANCE TUBE fields (tube Ø 29 mm, M1..M4 at −70, −41, 116, 145 mm, xFront 0,
-  xRear 75 mm) and save with "Save config…". Never overwrite an existing `user_config.json` with
-  the example. The parts used
+  values are in `config/user_config.json` (tracked in Git: tube Ø 29 mm, M1..M4 at −70, −41,
+  116, 145 mm, xFront 0, xRear 75 mm) and should be checked on the real tube; after "Save
+  config…" commit the file so that the measured values are kept in the history. The parts used
   only for the drawing are in the `tubeDrawing` section of the configuration (CAD values: flanges
   and specimen section Ø65 mm, tube body Ø45 mm, flanges 9 mm with 6 × M4, bore end 95 mm before
   M1, termination 291 mm after M4, loudspeaker housing Ø135 mm at the large end, microphone
-  holders Ø22 mm, B&K 4957 Ø7 × 34.1 mm with the tip 0.25 mm behind the bore wall, absorber at
-  the small end with `absorberLength` = null until it is known). They do not enter any
-  calculation. The loudspeaker inside the housing is schematic. `tim.cad.readStep` reads such a
+  holders Ø22 mm, B&K 4957 Ø7 × 34.1 mm with the tip 0.25 mm behind the bore wall).
+  `tubeDrawing.absorberLength` [m] is the length of the absorbing material in the
+  **termination** (small end, behind M4), drawn from the inside of the end cap towards the
+  specimen; `null` = not known (the Tube setup shows "(absorber side)", the calibration diagram
+  a schematic 60 mm absorber). Enter it in `config/user_config.json` (no GUI field). These
+  drawing values do not enter any calculation. The loudspeaker inside the housing is schematic. `tim.cad.readStep` reads such a
   STEP assembly (part names, cylinders, planes, placements) if the tube is changed.
 * **CALIBRATION**, **RESULTS**.
 

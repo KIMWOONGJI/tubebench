@@ -28,11 +28,11 @@ edit start_here.m           % step-by-step script entry point (no GUI)
 run examples/demo_simulation.m   % full simulated workflow + example plots
 ```
 
-Configuration: `config/example_config.json` → copy to `config/user_config.json` (only if it
-does not exist yet). `user_config.json` holds the settings of this PC, including the lab-tube
-geometry, and is excluded from Git: copy it to a new PC or re-enter the geometry
-(`docs/user_guide.md`). The stored software commit does not see uncommitted local changes -
-commit before measuring with edited code.
+Configuration: `config/user_config.json` holds the lab settings (instrument addresses, limits,
+microphones, lab-tube geometry) and is **tracked in Git**, so a clone has them; commit it when
+you change it ("Save config…"). `config/example_config.json` is a neutral template (simulation
+mode, no geometry) - never copy it over `user_config.json`. The stored software commit does not
+see uncommitted local changes - commit before measuring with edited code or configuration.
 
 ## Status (2026-10-09)
 
@@ -51,7 +51,7 @@ commit before measuring with edited code.
 
 ```
 start_here.m            entry point (sections)        run_tests.m   automated tests
-config/                 example_config.json (user_config.json = your settings)
+config/                 user_config.json (lab settings), example_config.json (template)
 +tim/+instr             Keysight33220A, ScpiTcpTransport, LanXi, LanXiHttp, LanXiTcpStream,
                         LanXiStreamParser, RecordingStream, Mock* (simulation)
 +tim/+acq               checkIntegrity, voltsToPascal

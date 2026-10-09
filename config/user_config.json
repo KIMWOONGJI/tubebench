@@ -1,0 +1,225 @@
+{
+  "formatVersion": 1,
+  "mode": "hardware",
+  "projectName": "transfer-impedance-tube-measurement",
+  "ui": {
+    "language": "en"
+  },
+  "generator": {
+    "host": "169.254.2.20",
+    "port": 5025,
+    "timeout": 5,
+    "maxVpp": 2,
+    "load": "INF"
+  },
+  "amplifier": {
+    "model": "none (direct drive)",
+    "gainFactor": 1,
+    "gainSetting": "",
+    "gain_dB": 0,
+    "knownModels": [
+      "none (direct drive)"
+    ],
+    "confirmBeforeExcitation": true
+  },
+  "lanxi": {
+    "host": "169.254.64.156",
+    "timeout": 10,
+    "connector": "BNC"
+  },
+  "acquisition": {
+    "sampleRate": 16384,
+    "range": "10 Vpeak",
+    "filter": "0.7 Hz",
+    "ccld": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "detectTeds": true,
+    "settleTime": 3,
+    "maxPeakFraction": 0.8,
+    "sensitivityPolicy": "certificate>teds>nominal"
+  },
+  "mics": [
+    {
+      "channel": 1,
+      "position": 1,
+      "model": "B&K 4957",
+      "serial": "",
+      "nominalSensitivity_VperPa": 0.0112,
+      "certificateSensitivity_VperPa": null,
+      "certificateDate": ""
+    },
+    {
+      "channel": 2,
+      "position": 2,
+      "model": "B&K 4957",
+      "serial": "",
+      "nominalSensitivity_VperPa": 0.0112,
+      "certificateSensitivity_VperPa": null,
+      "certificateDate": ""
+    },
+    {
+      "channel": 3,
+      "position": 3,
+      "model": "B&K 4957",
+      "serial": "",
+      "nominalSensitivity_VperPa": 0.0112,
+      "certificateSensitivity_VperPa": null,
+      "certificateDate": ""
+    },
+    {
+      "channel": 4,
+      "position": 4,
+      "model": "B&K 4957",
+      "serial": "",
+      "nominalSensitivity_VperPa": 0.0112,
+      "certificateSensitivity_VperPa": null,
+      "certificateDate": ""
+    }
+  ],
+  "geometry": {
+    "diameter": 0.029,
+    "micPositions": [
+      -0.07,
+      -0.041,
+      0.116,
+      0.145
+    ],
+    "spacingUp": 0.029,
+    "spacingDown": 0.029,
+    "xFront": 0,
+    "xRear": 0.075,
+    "note": "CAD design values (cad/transfer-impedance-tube.step, Assy_SIT, SolidWorks 2024): port centres from holder/mic axes; specimen fills the 75 mm middle section. s1 29, L1 41, d 75, L2 41, s2 29 mm. Calibration with the EMPTY 75 mm section (SIT-PT-003) mounted; M2->M3 = L1 + d + L2 = 157 mm is fixed by the hardware. Verify with calipers on the real tube."
+  },
+  "tubeDrawing": {
+    "outerDiameter": 0.065,
+    "bodyDiameter": 0.045,
+    "flangeThickness": 0.009,
+    "boltCircleDiameter": 0.055,
+    "upstreamLength": 0.095,
+    "downstreamTubeEnd": 0.041,
+    "downstreamLength": 0.291,
+    "endCapThickness": 0.008,
+    "speakerHousingDiameter": 0.135,
+    "speakerHousingLength": 0.08,
+    "speakerCavityDiameter": 0.097,
+    "speakerFlangeDiameter": 0.127,
+    "speakerFlangeThickness": 0.005,
+    "holderDiameter": 0.022,
+    "holderHeight": 0.007,
+    "micDiameter": 0.007,
+    "micLength": 0.0341,
+    "micRecess": 0.00025,
+    "portDiameter": 0.0064,
+    "absorberLength": null,
+    "specimenSectionLength": 0.075,
+    "source": "CAD Assy_SIT (SolidWorks 2024, AP214), read 2026-10-08"
+  },
+  "environment": {
+    "temperature_C": 20,
+    "pressure_Pa": 101325,
+    "relativeHumidity": 50,
+    "c_override": [],
+    "rho_override": []
+  },
+  "excitation": {
+    "mode": "sweep",
+    "sweep": {
+      "fStart": 80,
+      "fStop": 5500,
+      "duration": 5,
+      "spacing": "LOG",
+      "amplitudeVpp": 0.2,
+      "repetitions": 4,
+      "preRoll": 1,
+      "postRoll": 1
+    },
+    "stepped": {
+      "fStart": 120,
+      "fStop": 4500,
+      "nPoints": 40,
+      "spacing": "log",
+      "amplitudeVpp": 0.2,
+      "settleTime": 0.3,
+      "recordTime": 0.5,
+      "nBlocks": 4,
+      "repetitions": 1
+    },
+    "noise": {
+      "amplitudeVpp": 0.2,
+      "duration": 20,
+      "nfft": 8192,
+      "preRoll": 1
+    }
+  },
+  "analysis": {
+    "refChannel": 1,
+    "fMin": 120,
+    "fMax": 4500,
+    "df": 2,
+    "lossModel": "iso10534",
+    "velocityRef": "mean",
+    "condMax": 40,
+    "phaseUncertainty_rad": 0.002,
+    "maxPhaseSensitivity": 0.05,
+    "coherenceMin": 0.98,
+    "snrMin_dB": 20,
+    "validatedBands": [],
+    "lowerFraction": 0.01,
+    "upperFraction": 0.4,
+    "passivityTol": 0.05,
+    "velocityMismatchMax": 0.1,
+    "anechoicRmax": 0.1
+  },
+  "calibration": {
+    "file": "",
+    "positions": [
+      1,
+      2
+    ],
+    "repeatConfigI": true,
+    "verifyEmptySection": true,
+    "coherenceMin": 0.98,
+    "snrMin_dB": 20
+  },
+  "output": {
+    "dataDir": "data",
+    "calibrationDir": "calibration",
+    "saveRawStream": true,
+    "exportCsv": true,
+    "exportFigures": true,
+    "figureFormats": [
+      "png",
+      "pdf"
+    ]
+  },
+  "simulation": {
+    "Geometry": {
+      "diameter": 0.029,
+      "micPositions": [
+        -0.07,
+        -0.041,
+        0.116,
+        0.145
+      ],
+      "spacingUp": 0.029,
+      "spacingDown": 0.029,
+      "xFront": 0,
+      "xRear": 0.075
+    },
+    "Sample": {
+      "type": "porous",
+      "sigma": 10000
+    },
+    "Termination": {
+      "R": 0.05,
+      "x": 0.436
+    },
+    "NoisePa": 0.002,
+    "GenClockPpm": 35,
+    "Seed": 1
+  }
+}

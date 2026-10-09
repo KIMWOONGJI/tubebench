@@ -12,7 +12,7 @@
 | NI-DAQmx | **no** | not used (the DAQ is the HBK LAN-XI) |
 | HBK BK Connect / LAN-XI drivers / SDK | **no** | not needed (Open API = HTTP + TCP) |
 | Python, Java, C++ runtimes | **no** | – |
-| Git | optional (version control) | **not installed** (see section 6) |
+| Git | optional (version control) | **Git for Windows 2.55.0** installed 2026-10-08 (see section 6) |
 
 The software needs **no additional drivers, SDKs, runtimes or add-ons**:
 
@@ -61,12 +61,13 @@ Possible issues and remedies (each requires **your** decision; the software neve
 
 ## 3. Installing this software
 
-1. Copy the folder `transfer-impedance-tube-measurement` to any location, e.g.
-   `C:\Users\<you>\Desktop\wj\transfer-impedance-tube-measurement`. Do not rename the `+tim`
-   folder.
+1. Clone the repository (section 6) or copy the folder `transfer-impedance-tube-measurement` to
+   any location, e.g. `C:\Users\<you>\Desktop\wj\transfer-impedance-tube-measurement`. Do not
+   rename the `+tim` folder.
 2. Start MATLAB R2022b, `cd` into the folder and run `addpath(pwd)` (done automatically by
    `start_here.m` and `run_tests.m`). The `+tim` package needs only the project root on the path.
-3. Copy `config/example_config.json` to `config/user_config.json` and edit it (see the user guide).
+3. Check `config/user_config.json` (lab settings, part of the repository; see the user guide).
+   On a set-up other than the lab tube, create it from `config/example_config.json`.
 
 ## 4. Verification
 
@@ -102,14 +103,31 @@ Invoke-WebRequest -UseBasicParsing http://169.254.64.156/rest/rec/onchange
 
 ## 6. Git (optional, for version control)
 
-Git is **not installed** on this PC (`git` is not on PATH and not present in the default
-locations). It is not needed to run the software. To install it, with your approval:
+Git is not needed to run the software; it keeps the history of the code and of the lab
+configuration, and its commit is stored with every measurement and calibration.
 
-* Purpose: version control of the code and configuration.
-* Official download: https://git-scm.com/download/win (Git for Windows, current 64-bit
-  installer). Alternatively `winget install --id Git.Git -e` (winget v1.29 is present on this PC).
-* Installation: run the installer with the default options ("Git from the command line and also
-  from 3rd-party software").
-* Verification: open a new terminal and run `git --version`.
-* Then, in the project folder: `git init`, `git add .`, `git commit -m "Initial import"`. The
-  provided `.gitignore` excludes measurement data and calibrations.
+* **Lab PC**: Git for Windows **2.55.0** is installed (2026-10-08) in `C:\Program Files\Git`;
+  `C:\Program Files\Git\cmd` is on the system PATH, so `git --version` works in every terminal
+  opened after the installation (a terminal that was already open needs
+  `"C:\Program Files\Git\cmd\git.exe"`).
+* The project folder is a repository on branch `main` (first commit 2026-10-08). Repository:
+  <https://github.com/kimwoongji/transfer-impedance-tube-measurement> (private). No remote is
+  configured on the lab PC yet; adding it (`git remote add origin <url>`) and pushing are left to
+  the owner.
+* Daily use, in the project folder:
+
+  ```
+  git status                        # what changed (code, docs, config/user_config.json)
+  git add -A
+  git commit -m "what and why"      # before measuring with edited code or configuration
+  git log --oneline -10             # history
+  ```
+
+* What is versioned: code, tests, docs, `config/*.json` including `user_config.json` (lab
+  settings and geometry). What is **not** versioned (`.gitignore`): measurement data (`data/`),
+  calibration files (`calibration/**/*.mat`), the CAD models (`cad/`), test reports and MATLAB
+  autosave files. Archive raw data separately.
+* Another PC: install Git for Windows (https://git-scm.com/download/win, default options, or
+  `winget install --id Git.Git -e`), then
+  `git clone https://github.com/kimwoongji/transfer-impedance-tube-measurement.git` (needs access
+  to the private repository).
