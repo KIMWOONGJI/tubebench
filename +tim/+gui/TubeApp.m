@@ -54,9 +54,13 @@ classdef TubeApp < handle
         AboutFig = []           % Help > About window (one at a time)
         OutputUnconfirmed logical = false  % last read-back did not confirm the generator output off
         PendingStop logical = false % Stop / close before the connection has a session (gui-5)
+        BusyWhat char = ''      % the running action ('calibration', 'measurement', ...)
+        PromptAnswer char = ''  % answer of the calibration bar (askBar)
+        LastPrompt struct = struct('text', '', 'options', {{}})   % last question of the bar (tests)
     end
     properties
         ConfirmUnsaved logical = true   % ask before an unsaved measurement is replaced or lost
+        PromptInSimulation logical = false  % practice: the calibration bar asks at every step in simulation too
     end
 
     methods
@@ -192,6 +196,79 @@ classdef TubeApp < handle
             sel = answer;
         end
 
+        function sel = askBar(app, msg, options, defaultIdx, cancelIdx)
+            %ASKBAR Operator question in the bar above the calibration model:
+            %   no modal dialog (the window is not dimmed, nothing covers the
+            %   model), buttons on the right of the bar. msg = '' keeps the step
+            %   text of the bar. Same rules as ask(): Stop or closing the window
+            %   returns the cancel option, a hidden window (scripts, tests) the
+            %   default option.
+            app.LastPrompt = struct('text', msg, 'options', {options});
+            if ~isvalid(app) || ~isvalid(app.Fig) || app.stopPending()
+                sel = options{cancelIdx}; return
+            end
+            if ~strcmp(app.Fig.Visible, 'on'), sel = options{defaultIdx}; return; end
+            h = app.H; old = h.calText.Text;
+            if ~isempty(msg), h.calText.Text = strrep(htmlText(msg), newline, '<br>'); end
+            app.LastPrompt.text = h.calText.Text;
+            app.PromptAnswer = '';
+            % two options: {action, cancel} - green action button, then the cancel button
+            h.calOk.Text = options{1}; h.calCancel.Text = options{2};
+            h.calOk.ButtonPushedFcn = @(~, ~) app.setPromptAnswer(options{1});
+            h.calCancel.ButtonPushedFcn = @(~, ~) app.setPromptAnswer(options{2});
+            app.promptBar(true);
+            done = onCleanup(@() app.endPrompt(old, msg));
+            while isempty(app.PromptAnswer)
+                if ~isvalid(app) || ~isvalid(app.Fig) || app.stopPending()
+                    sel = options{cancelIdx}; return
+                end
+                pause(0.1);
+            end
+            sel = app.PromptAnswer;
+        end
+        function sel = confirmExcitation(app, msg, yes, no, ttl)
+            % confirmation before the loudspeaker is driven: in the calibration bar
+            % during a calibration (no dimmed window), otherwise a dialog. Default = no.
+            if strcmp(app.BusyWhat, 'calibration')
+                sel = app.askBar(msg, {yes, no}, 2, 2);
+            else
+                sel = app.ask(msg, ttl, {yes, no}, 2, 2, 'warning');
+            end
+        end
+        function setPromptAnswer(app, s)
+            app.PromptAnswer = s;
+        end
+        function endPrompt(app, old, msg)
+            if ~isvalid(app) || ~isvalid(app.Fig), return; end
+            if ~isempty(msg), app.H.calText.Text = old; end
+            app.promptBar(false);
+        end
+        function promptBar(app, on)
+            % calibration bar: highlighted with the buttons while it waits for the operator
+            P = tim.gui.palette(); h = app.H;
+            if on
+                h.calBar.ColumnWidth = {'1x', max(170, 8 * max(numel(h.calOk.Text), numel(h.calCancel.Text)) + 30)};
+                h.calBar.BackgroundColor = P.ui.attention;
+                h.calOk.Enable = 'on'; h.calCancel.Enable = 'on';
+            else
+                h.calBar.ColumnWidth = {'1x', 0};
+                h.calBar.BackgroundColor = 'w';
+            end
+            app.fitCalBar();
+            drawnow;
+        end
+        function fitCalBar(app)
+            % the bar keeps its height (116 px: the model does not change size from
+            % step to step); only a text longer than that makes it taller
+            % (about 6.4 px per character at 12 pt, measured; the HTML tags not counted)
+            h = app.H;
+            w = max(300, h.axCalSetup.Position(3) - h.calBar.ColumnWidth{2} - 50);
+            t = regexp(regexprep(char(h.calText.Text), '<br>', newline), newline, 'split');
+            t = regexprep(t, '<[^>]*>|&nbsp;', ' ');
+            n = sum(cellfun(@(s) max(1, ceil(6.4 * numel(s) / w)), t));
+            h.calTg.RowHeight{1} = min(max(116, 16 * n + 18), 170);
+        end
+
         function alert(app, msg, ttl, icon)
             % message dialog; a hidden window (scripts, tests) only logs it
             % (uialert needs a visible figure)
@@ -228,7 +305,7 @@ classdef TubeApp < handle
 
         function showCal(app, cal)
             % calibration curves C_k + summary of the calibration view, label
-            info = tim.plots.calibration(app.H.axCal, cal, app.plotOpts(cal));
+            info = tim.plots.calibration(app.H.axCal, cal, setfield(app.plotOpts(cal), 'sideBySide', true));
             app.Pages.cal.show(info);
             app.refreshCalLabel();
         end
@@ -520,20 +597,38 @@ classdef TubeApp < handle
                 'the empty specimen section (ISO 10534-2): every microphone keeps its cable; only the microphones move.'], ...
                 'SummaryTitle', 'Calibration', 'SummaryWidth', 450);
             app.Pages.cal = pg;
-            tg = uigridlayout(pg.Body, [3 2], 'RowHeight', {50, '1.25x', '1x'}, 'ColumnWidth', {'1.15x', '1x'}, ...
-                'RowSpacing', 6, 'ColumnSpacing', 10, 'Padding', [0 0 0 0], 'BackgroundColor', 'w');
-            h.calText = uilabel(tg, 'Text', '', 'WordWrap', 'on', 'FontSize', 12, 'VerticalAlignment', 'top');
-            h.calText.Layout.Row = 1; h.calText.Layout.Column = [1 2];
-            h.axCalSetup = uiaxes(tg); h.axCalSetup.Layout.Row = 2; h.axCalSetup.Layout.Column = [1 2];
+            % body: operator bar (instruction; during a step also the buttons - no
+            % modal dialog, nothing covers the model), the 3D model as large as
+            % possible, the C_k curves side by side; the step list in the right column
+            % fixed bar height (fits the longest step text): the model keeps its size
+            % from step to step
+            tg = uigridlayout(pg.Body, [3 1], 'RowHeight', {116, '1x', 190}, ...
+                'RowSpacing', 6, 'Padding', [0 0 0 0], 'BackgroundColor', 'w');
+            h.calTg = tg;
+            pb = uigridlayout(tg, [4 2], 'ColumnWidth', {'1x', 0}, 'RowHeight', {'1x', 36, 30, '1x'}, ...
+                'Padding', [12 4 12 4], 'ColumnSpacing', 14, 'RowSpacing', 6, 'BackgroundColor', 'w');
+            pb.Layout.Row = 1;
+            h.calBar = pb;
+            h.calText = uilabel(pb, 'Text', '', 'WordWrap', 'on', 'FontSize', 12, 'VerticalAlignment', 'center', ...
+                'Interpreter', 'html');
+            h.calText.Layout.Row = [1 4]; h.calText.Layout.Column = 1;
+            h.calOk = uibutton(pb, 'Text', 'Continue', 'FontSize', 13, 'FontWeight', 'bold', ...
+                'BackgroundColor', P.ui.start, 'FontColor', 'w');
+            h.calCancel = uibutton(pb, 'Text', 'Abort', 'FontSize', 12);
+            h.calOk.Layout.Row = 2; h.calOk.Layout.Column = 2;           % buttons stacked on the right
+            h.calCancel.Layout.Row = 3; h.calCancel.Layout.Column = 2;
+            h.axCalSetup = uiaxes(tg); h.axCalSetup.Layout.Row = 2;
             axtoolbar(h.axCalSetup, {'rotate', 'zoomin', 'zoomout', 'pan', 'restoreview'});
-            pcal = uipanel(tg, 'Title', 'Operator steps and quality of every measurement', 'FontWeight', 'bold', ...
+            sg = pg.SummaryPanel;                    % right column: C_k table, note, step list
+            sg.RowHeight = {22, 104, 66, '1x'};
+            pcal = uipanel(sg, 'Title', 'Operator steps and quality of every measurement', 'FontWeight', 'bold', ...
                 'BackgroundColor', 'w');
-            pcal.Layout.Row = 3; pcal.Layout.Column = 1;
+            pcal.Layout.Row = 4;
             app.CalList = tim.gui.Checklist(pcal, {}, {}, ...
-                struct('LabelWidth', 250, 'RowHeight', 21, 'FontSize', 11));
+                struct('RowHeight', 20, 'FontSize', 11, 'Stacked', true));
             gk = uipanel(tg, 'BorderType', 'none', 'BackgroundColor', 'w');
-            gk.Layout.Row = 3; gk.Layout.Column = 2;
-            tl = tiledlayout(gk, 2, 1, 'TileSpacing', 'compact', 'Padding', 'compact');   % aligned plot areas
+            gk.Layout.Row = 3;
+            tl = tiledlayout(gk, 1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');   % |C_k| | phase
             for i = 1:2
                 ax = nexttile(tl); tim.plots.style(ax);
                 axtoolbar(ax, {'export', 'zoomin', 'zoomout', 'pan', 'restoreview'});
@@ -1093,7 +1188,7 @@ classdef TubeApp < handle
             ctl = [app.inputControls(), {h.connect, h.disconnect, h.start, h.background, h.loadCal, h.runCal, ...
                 h.save, h.reprocess, h.mOpenMeas, h.mLoadCfg, h.mSaveCfg}, num2cell(h.mHelp)];
             if tf
-                app.Busy = true;
+                app.Busy = true; app.BusyWhat = what;
                 for i = 1:numel(ctl), ctl{i}.Enable = 'off'; end
                 % Stop only for actions it can stop (saving / loading cannot be interrupted)
                 stoppable = any(strcmp(what, {'measurement', 'calibration', 'connection', 'background recording'}));
@@ -1114,7 +1209,7 @@ classdef TubeApp < handle
             else
                 h.stop.Text = 'Stop';
                 h.stop.Tooltip = 'Stop the running action. The generator output is switched off at once.';
-                app.Busy = false;
+                app.Busy = false; app.BusyWhat = '';
                 for i = 1:numel(ctl), ctl{i}.Enable = 'on'; end
                 h.lamp(1).Tooltip = 'Generator (Keysight 33220A) – details in Setup > Connection';
                 if app.OutputUnconfirmed
@@ -1404,8 +1499,8 @@ classdef TubeApp < handle
             s.ProgressCallback = @(key, state, detail) app.onProgress(key, state, detail);
             L = app.Cfg.ui.language; yes = tim.app.msg(L, 'yesPlay');
             if strcmp(app.Cfg.mode, 'hardware')       % no real loudspeaker in simulation
-                s.ExcitationConfirm = @(msg) strcmp(app.ask(msg, tim.app.msg(L, 'confirmTitle'), ...
-                    {yes, tim.app.msg(L, 'cancel')}, 2, 2, 'warning'), yes);
+                s.ExcitationConfirm = @(msg) strcmp(app.confirmExcitation(msg, yes, tim.app.msg(L, 'cancel'), ...
+                    tim.app.msg(L, 'confirmTitle')), yes);
             end
             app.Session = s;
             s.beginOperation();                        % Stop during the connection stays pending
@@ -1783,7 +1878,10 @@ classdef TubeApp < handle
             app.CalList.set(key, 'run', 'operator: place the microphones as shown');
             app.animateCalMics(from, mapping);
             app.CalMap = mapping;
-            if strcmp(app.Session.Cfg.mode, 'hardware')       % the session's mode, never the selector
+            hw = strcmp(app.Session.Cfg.mode, 'hardware');      % the session's mode, never the selector
+            if hw || app.PromptInSimulation
+                % the question is in the bar above the model (no modal dialog: the
+                % window is not dimmed and the model with the moves stays visible)
                 L = app.Cfg.ui.language;
                 if any(strcmp(key, {'prep', 'mount'})) || (strcmp(key, 'done') && ~strcmp(msg, tim.app.msg(L, 'calDone')))
                     done = tim.app.msg(L, 'calContinueButton');   % nothing is measured after this step
@@ -1791,16 +1889,14 @@ classdef TubeApp < handle
                     done = tim.app.msg(L, 'calDoneButton');
                 end
                 app.startPulse();
-                sel = app.ask(sprintf('%s\n\n%s\n%s', stepText, msg, tim.app.msg(L, 'calSeeDiagram')), ...
-                    tim.app.msg(L, 'calStepTitle'), {done, tim.app.msg(L, 'abortButton')}, 1, 2, 'question');
+                sel = app.askBar('', {done, tim.app.msg(L, 'abortButton')}, 1, 2);
                 app.stopPulse();
                 if ~strcmp(sel, done)
                     app.CalList.set(key, 'fail', 'cancelled by the operator');
                     error('tim:gui:abort', 'Calibration cancelled by the operator.');
                 end
-            else
-                app.Session.setMicPositionsForSimulation(mapping);
             end
+            if ~hw, app.Session.setMicPositionsForSimulation(mapping); end
             if any(strcmp(key, {'prep', 'mount'}))
                 app.CalList.set(key, 'ok', 'confirmed');
             elseif strcmp(key, 'done')
@@ -1863,15 +1959,19 @@ classdef TubeApp < handle
 
         function setCalText(app, mapping, msg, stepText)
             ab = app.Cfg.calibration.positions;
+            % (HTML label: step in bold, the explanation of the drawing small and grey)
+            note = @(s) ['<br><span style="color:#5f6368;font-size:11px">' htmlText(s) '</span>'];
             if isempty(mapping)
-                app.H.calText.Text = {sprintf(['Press "Run switching calibration…": every step shows here which microphone goes ' ...
-                    'into which port. Calibration ports M%d (a) and M%d (b) glow yellow.'], ab(1), ab(2)), ...
-                    ['The empty specimen section (no specimen) is mounted and the tube ends in the absorbing termination. ' ...
-                    'Each microphone stays on its own cable and LAN-XI input; only the microphone bodies are moved.']};
+                app.H.calText.Text = [htmlText(sprintf(['Press "Run switching calibration…": every step shows here which ' ...
+                    'microphone goes into which port. Calibration ports M%d (a) and M%d (b) glow yellow.'], ab(1), ab(2))), ...
+                    note(['The empty specimen section (no specimen) is mounted and the tube ends in the absorbing termination. ' ...
+                    'Each microphone stays on its own cable and LAN-XI input; only the microphone bodies are moved.'])];
             else
-                app.H.calText.Text = {sprintf('%s:  %s', stepText, msg), ['Yellow glow = calibration ports a, b;  ' ...
-                    'colour and label = channel of the microphone (it keeps its cable);  dashed = last moves.']};
+                app.H.calText.Text = ['<b>' htmlText(stepText) ':</b>&nbsp; ' htmlText(msg), ...
+                    note(['Yellow: calibration ports a, b  ' char(183) '  colour / label: channel of the microphone ' ...
+                    '(keeps its cable)  ' char(183) '  dashed: last moves'])];
             end
+            app.fitCalBar();
         end
 
         function L = calMicLabels(app)
@@ -1934,7 +2034,7 @@ classdef TubeApp < handle
 
         function animateCalMics(app, from, to)
             % lift each moving microphone out of its holder above all others,
-            % across, down. Every mover has its own height (+22 mm) and depth
+            % across, down. Every mover has its own height (+10 mm) and depth
             % (towards the viewer). Only the hgtransforms change - no redraw.
             delete(app.H.calPaths(isgraphics(app.H.calPaths))); app.H.calPaths = gobjects(0);
             M = app.H.cal3D;
@@ -2148,7 +2248,7 @@ classdef TubeApp < handle
                 cal = app.Session.Calibration;
             end
             try
-                info = tim.plots.calibration(app.H.axCal, cal, app.plotOpts(cal));
+                info = tim.plots.calibration(app.H.axCal, cal, setfield(app.plotOpts(cal), 'sideBySide', true));
                 app.Pages.cal.show(info);
             catch err
                 app.log('Display of the calibration failed: %s', err.message);
@@ -2370,6 +2470,11 @@ try
 catch
 end
 op(3) = max(op(3), 1200); op(4) = max(op(4), 760);        % smallest usable window
+end
+
+function s = htmlText(s)
+% plain text for an HTML uilabel (& < > escaped)
+s = strrep(strrep(strrep(char(s), '&', '&amp;'), '<', '&lt;'), '>', '&gt;');
 end
 
 function tf = sameTube(g1, e1, g2, e2)

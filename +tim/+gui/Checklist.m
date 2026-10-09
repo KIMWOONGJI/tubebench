@@ -24,6 +24,7 @@ classdef Checklist < handle
         RowHeight double = 24
         LabelWidth = 300
         FontSize double = 12
+        Stacked logical = false  % true: detail on a second line under the label (narrow panels)
     end
 
     methods
@@ -40,7 +41,14 @@ classdef Checklist < handle
             delete(obj.Grid.Children);
             n = numel(keys);
             obj.Keys = keys(:).'; obj.States = repmat({'pending'}, 1, n); obj.Started = cell(1, n);
-            obj.Grid.RowHeight = repmat({obj.RowHeight}, 1, max(n, 1));
+            if obj.Stacked
+                % icon | label | time, and the detail on its own line below the label
+                obj.Grid.ColumnWidth = {18, '1x', 48};
+                obj.Grid.RowHeight = repmat({obj.RowHeight, obj.RowHeight - 4}, 1, max(n, 1));
+                obj.Grid.RowSpacing = 0;
+            else
+                obj.Grid.RowHeight = repmat({obj.RowHeight}, 1, max(n, 1));
+            end
             obj.Icons = gobjects(1, n); obj.Labels = gobjects(1, n);
             obj.Details = gobjects(1, n); obj.Times = gobjects(1, n);
             for i = 1:n
@@ -50,9 +58,17 @@ classdef Checklist < handle
                     'FontColor', [0.35 0.35 0.35]);
                 obj.Times(i) = uilabel(obj.Grid, 'Text', '', 'FontSize', obj.FontSize - 1, ...
                     'HorizontalAlignment', 'right', 'FontColor', [0.45 0.45 0.45]);
-                row = {obj.Icons(i), obj.Labels(i), obj.Details(i), obj.Times(i)};
-                for k = 1:4
-                    row{k}.Layout.Row = i; row{k}.Layout.Column = k;
+                if obj.Stacked
+                    r = 2 * i - 1;
+                    obj.Icons(i).Layout.Row = r; obj.Icons(i).Layout.Column = 1;
+                    obj.Labels(i).Layout.Row = r; obj.Labels(i).Layout.Column = 2;
+                    obj.Times(i).Layout.Row = r; obj.Times(i).Layout.Column = 3;
+                    obj.Details(i).Layout.Row = r + 1; obj.Details(i).Layout.Column = [2 3];
+                else
+                    row = {obj.Icons(i), obj.Labels(i), obj.Details(i), obj.Times(i)};
+                    for k = 1:4
+                        row{k}.Layout.Row = i; row{k}.Layout.Column = k;
+                    end
                 end
             end
         end

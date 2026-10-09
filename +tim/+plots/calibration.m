@@ -21,6 +21,8 @@ function info = calibration(ax2, cal, opts)
 %     emptyText   message of the empty state
 %     stepped     markers instead of lines (default false: a calibration
 %                 is always a swept-sine measurement)
+%     sideBySide  the two axes are side by side (GUI): frequency label
+%                 under both (default false: stacked, label under the phase)
 %
 %   info.summary     table: Channel | Valid [%] | Magnitude [dB] |
 %                    Phase [°] | Remounting [dB / °]: min ... max of
@@ -60,6 +62,7 @@ end
 ylabel(axM, '|C_k| [dB]');
 ylabel(axP, '\angleC_k [\circ]');
 xlabel(axM, ''); xlabel(axP, 'Frequency [Hz]');
+if isfield(opts, 'sideBySide') && ~isempty(opts.sideBySide) && opts.sideBySide, xlabel(axM, 'Frequency [Hz]'); end
 title(axP, '');
 % y steps: dB in 1-2-5 steps; degrees in "round" steps (the mismatch of
 % matched chains is a few degrees, so 45 / 90 deg steps would be too coarse)
@@ -79,6 +82,9 @@ if isempty(cal)
     if sim, t = [t sep 'SIMULATION']; end
     title(axM, t);
     msg = ['No calibration loaded ' none ' use Load calibration' ell ' or Run switching calibration' ell];
+    if isfield(opts, 'sideBySide') && ~isempty(opts.sideBySide) && opts.sideBySide
+        msg = {'No calibration loaded', ['use Load calibration' ell ' or Run switching calibration' ell]};   % narrower axes
+    end
     if isfield(opts, 'emptyText') && ~isempty(opts.emptyText), msg = opts.emptyText; end
     finish(axM, axP, band, [-1 1], [-10 10], magFit, phFit);
     tim.plots.emptyState(axM, msg);

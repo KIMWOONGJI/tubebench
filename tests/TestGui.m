@@ -387,6 +387,38 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual([s.fStart s.fStop s.nPoints s.repetitions], [200 3000 12 2], 'typed stepped values kept');
         end
 
+        function calibrationPromptBar(tc)
+            % user request 2026-10-09: no modal dialog (dimmed window) at the
+            % calibration steps - the question is in the bar above the 3D model,
+            % which nothing covers; the model is larger (step list in the right
+            % column, C_k curves side by side, less room for lifted microphones)
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            c.calibration.repeatConfigI = false;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app.PromptInSimulation = true;                      % ask at every step, as with hardware
+            h = app.H;
+            tc.verifyEqual(h.calText.Interpreter, 'html');
+            tc.verifyGreaterThanOrEqual(h.calTg.RowHeight{1}, 116, 'bar height at least 116 px (fixed unless a text needs more)');
+            tc.verifyLessThanOrEqual(h.calTg.RowHeight{1}, 170);
+            tc.verifyEqual(h.calBar.ColumnWidth{2}, 0, 'no buttons outside a question');
+            tc.verifyTrue(app.CalList.Grid.Parent.Parent == app.Pages.cal.SummaryPanel, 'step list in the right column');
+            tc.verifyTrue(app.CalList.Stacked);
+            tc.verifyLessThan(h.axCal(1).Position(1), h.axCal(2).Position(1), 'C_k curves side by side');
+            tc.verifyEqual(h.axCal(1).XLabel.String, 'Frequency [Hz]');
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            feval(h.runCal.ButtonPushedFcn, h.runCal, []);
+            tc.verifyTrue(all(strcmp(app.CalList.States, 'ok')), strjoin(app.CalList.States, ' '));
+            tc.verifyEqual(app.LastPrompt.options, {tim.app.msg('en', 'calContinueButton'), ...
+                tim.app.msg('en', 'abortButton')}, 'the last step (mount the specimen) was asked in the bar');
+            tc.verifyEqual(h.calBar.ColumnWidth{2}, 0, 'buttons hidden again');
+            M = app.H.cal3D;
+            tc.verifyLessThanOrEqual(max(diff(M.lift)), 10, 'lifted microphones: +10 mm per mover');
+            tc.verifySubstring(char(h.calText.Text), '<b>');
+        end
+
         function openSavedMeasurement(tc)
             % user request 2026-10-09: File > Open measurement… shows a saved
             % measurement again (views, RESULTS line), offers the tube set-up of the

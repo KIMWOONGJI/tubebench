@@ -96,6 +96,31 @@ The same model must be used for the analysis, the reference expectations of Test
 (`testDE_reference` takes `res.analysis.k`) and the virtual tube (`tim.sim.tubeModel`,
 `SimulatedRig`); all of them take it from `cfg.analysis.lossModel`.
 
+**Decision (2026-10-09): `'kirchhoff'` stays the default; `'iso10534'` stays selectable.**
+Reasons: (1) it is the physically complete wide-tube model (attenuation, the equal phase-velocity
+reduction and `Z_c`; it matches the exact tube solution to 1·10⁻⁴), whereas the ISO formula is an
+empirical attenuation-only approximation; (2) the attenuation of both is the same within 5 %, so
+`|R|`, `|τ|` and TL hardly differ; (3) the omitted dispersion biases a thin-element `Z_t` by up to
+about 47 % at `|Z_t|/(ρc) = 0.05` - the quantity this tube is built for. `'iso10534'` is kept for
+comparisons and ISO-conformant absorption reports.
+
+*First lab data (empty 75 mm section, 20261009_192503_sweep, CAL-20261009-191631, T entered
+20 °C, CAD geometry; termination-independent one-load transfer matrix):*
+
+| Model | `|τ/τ_exp| − 1` | phase error rms | median | > 2.5 kHz |
+|---|---|---|---|---|
+| `kirchhoff` | −0.18 % | 1.28° | +0.89° | +1.30° |
+| `iso10534` | −0.26 % | 0.91° | −0.15° | +0.05° |
+| `none` | −1.99 % | 0.91° | −0.15° | +0.05° |
+
+The attenuation is clearly needed (`'none'`: −2 % in `|τ|`). The phase difference of the two models
+over 75 mm is only 0.28° at 1 kHz and 0.55° at 4 kHz - the same as 1 K of temperature or 0.1-0.2 mm
+of `d`. The temperature was not measured (20 °C entered) and the geometry is the CAD design (not yet
+checked with calipers), so this measurement cannot decide between the models: the Kirchhoff
+residual corresponds to the room being about 2-3 K warmer than 20 °C, or to `d` 0.3 mm shorter.
+To test it: enter the measured air temperature, check s1, L1, d, L2, s2 with calipers and repeat
+the empty-tube check; or measure a thin reference element with a known `Z_t`.
+
 ## 2. Two-microphone plane-wave decomposition
 
 On each side of the specimen the field between the microphones and the specimen is

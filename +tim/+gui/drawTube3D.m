@@ -207,7 +207,7 @@ for p = hiP
 end
 out.portX = x; out.mapping = mapping;
 out.zHandle = zTip + lM + 18;                        % plug top
-out.lift = (zTop - zTip + 4) + 22 * (0:3);           % the first lift clears every microphone and cable
+out.lift = (zTop - zTip + 4) + 10 * (0:3);           % the first lift clears every microphone and cable; +10 mm per further mover (they also move apart in depth)
 % hatch and outline of the cut faces (one line object each)
 if S.section && ~isempty(S.hatch)
     plot3(ax, S.hatch(:, 1), S.hatch(:, 2), S.hatch(:, 3), '-', 'Color', [0.45 0.47 0.52], 'LineWidth', 0.5);

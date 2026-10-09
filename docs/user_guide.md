@@ -383,14 +383,19 @@ planes, placements) if the tube is changed.
 
 ### Calibration
 
-The view of the switching calibration (details in `calibration_procedure.md`): an instruction
-line ("Calibration step 4 of 12: …"), the 3D model in its calibration state (empty specimen
-section, absorbing termination, calibration ports M1 (a) and M2 (b) glowing yellow, microphones
-labelled with their channel and serial number), the **operator steps and the quality of every
-measurement**, and the calibration factors |C_k| [dB] and ∠C_k [°] of ch2, ch3, ch4 relative to
-ch1 (grey = not valid). The header note gives the result of the empty-tube check (Test E). The
-summary table "Calibration factors Ck = gk/gref" gives per channel the share of valid frequency
-lines, the range of magnitude and phase over the valid lines and the remounting repeatability.
+The view of the switching calibration (details in `calibration_procedure.md`): the **operator
+bar** at the top ("**Calibration step 4 of 12:** …"; while the program waits for you it turns
+yellow and shows the buttons on its right, e.g. **Measure** and **Cancel calibration** - there is
+no separate dialog, the window is not dimmed and nothing covers the model), the 3D model in its
+calibration state below it (empty specimen section, absorbing termination, calibration ports
+M1 (a) and M2 (b) glowing yellow, microphones labelled with their channel and serial number), and
+the calibration factors |C_k| [dB] and ∠C_k [°] of ch2, ch3, ch4 relative to ch1 side by side at
+the bottom (grey = not valid). The right column holds the summary table "Calibration factors
+Ck = gk/gref" (per channel the share of valid frequency lines, the range of magnitude and phase over
+the valid lines and the remounting repeatability) and the **operator steps and the quality of
+every measurement** (detail under each step). The header note gives the result of the empty-tube
+check (Test E). The confirmation before the loudspeaker is first driven also appears in the bar
+during a calibration.
 Before any calibration the view says "No calibration loaded – use Load calibration… or Run
 switching calibration…".
 

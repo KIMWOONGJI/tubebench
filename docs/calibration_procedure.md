@@ -98,7 +98,7 @@ range: there the transfer functions are undefined.
 
 With the defaults (reference ch1, ports M1 (a) and M2 (b), `calibration.repeatConfigI = true`,
 `calibration.verifyEmptySection = true`) there are **12 operator steps**. Each step is shown as
-"Calibration step n of 12" above the 3D model and in a dialog (in the language of `ui.language`);
+"Calibration step n of 12" in the operator bar above the 3D model (in the language of `ui.language`);
 the step list of the Calibration view has one row per step.
 
 | Step | What the operator does | Microphones (channel → port) | Button |
@@ -121,7 +121,7 @@ the step list of the Calibration view has one row per step.
   remounting repeatability is then not measured.
 * Without the empty-tube check (`verifyEmptySection = false`), or when it cannot run (L1, d or L2
   not entered, or a channel without any valid frequency line), step 11 only returns the
-  microphones. Its dialog says "The empty-tube check (Test E) is skipped: …" with the reason; the
+  microphones. Its bar says "The empty-tube check (Test E) is skipped: …" with the reason; the
   button reads Continue and nothing is measured.
 * Another reference channel or other calibration ports change the table accordingly: the
   reference microphone always starts in port a, and the two microphones that are not calibrated go
@@ -140,13 +140,16 @@ the step list of the Calibration view has one row per step.
      and M2 (b) with a **yellow glow**, every microphone in the colour of its LAN-XI channel and
      labelled with the channel (with "(ref)") and its serial number. The microphones that change
      port are **lifted out of their holders, moved and lowered** into the new ports; dashed arrows
-     keep the moves visible. While the dialog waits, the calibration ports **pulse**. The model can
+     keep the moves visible. While the bar waits, the calibration ports **pulse**. The model can
      be rotated and zoomed with its toolbar;
-   * a dialog "Calibration step" with the same instruction and the buttons **Measure** (a sweep
-     follows) or **Continue** (steps 1 and 12, and step 11 without the empty-tube check), and
-     **Cancel calibration**. The dialog never blocks MATLAB: Stop and closing the window still
-     work.
-4. The **step list** ("Operator steps and quality of every measurement") shows every step with its
+   * the **operator bar** above the model with the instruction: while the program waits it turns
+     yellow and shows the buttons **Measure** (a sweep follows) or **Continue** (steps 1 and 12,
+     and step 11 without the empty-tube check) and **Cancel calibration** on its right. There is no
+     separate dialog: the window is not dimmed and nothing covers the model. Stop and closing the
+     window still work while it waits. The confirmation before the loudspeaker is first driven
+     also appears in the bar.
+4. The **step list** ("Operator steps and quality of every measurement", right column, the detail
+   under each step) shows every step with its
    state (turning icon = running) and, after each measurement, its quality, e.g.
    "97 % OK · γ² 0.9995 · 52 dB": the share of the frequency lines with coherence ≥
    `calibration.coherenceMin` and SNR ≥ `calibration.snrMin_dB` (the lower SNR of the reference
@@ -156,7 +159,7 @@ the step list of the Calibration view has one row per step.
    the remounting repeatability ("· C2 2191/2191 valid · remount 0.02 dB / 0.1°"); it turns orange
    when fewer than 90 % of the lines are valid. Row 11 shows the result of the empty-tube check;
    row 12 asks to mount the specimen section again.
-5. Next to the list: |C_k| [dB] and the phase of `C_k` [°] for ch2, ch3 and ch4 relative to ch1
+5. Below the model, side by side: |C_k| [dB] and the phase of `C_k` [°] for ch2, ch3 and ch4 relative to ch1
    (grey = not valid). The summary table "Calibration factors Ck = gk/gref" gives per channel the
    share of valid frequency lines, the range of magnitude and phase over the valid lines, and the
    remounting repeatability. The header note gives the result of Test E (green = passed, red =
@@ -165,7 +168,8 @@ the step list of the Calibration view has one row per step.
    ("✗ Test E failed" in orange after a failed check), and the file becomes the configured
    calibration file: it is loaded at the next Connect and stored by File > Save configuration….
 
-In **simulation** mode there is no dialog: the program moves the virtual microphones, and the
+In **simulation** mode the bar does not wait (to practise the steps with the bar:
+`app.PromptInSimulation = true`): the program moves the virtual microphones, and the
 virtual tube holds the empty specimen section during the calibration and gets its specimen back
 afterwards (also after an error or Stop).
 
@@ -196,25 +200,25 @@ phase error of τ is below 2° rms and `|R − R_term·e^(−2jkd)|` is below 0.
 
 While the calibration runs, the window is locked: every field, button and menu is disabled
 except the red **Stop** button, which switches the generator output off at once and ends the
-calibration. In each dialog **Cancel calibration** ends it as well. Closing the window stops the
+calibration. At each step **Cancel calibration** in the bar ends it as well. Closing the window stops the
 calibration first and then closes. The calibration file is written as soon as the switching
-measurements are complete, **before** the dialog of step 11, and becomes the active calibration
+measurements are complete, **before** the question of step 11, and becomes the active calibration
 at once. What is kept depends on when the calibration ends:
 
 * **Steps 1–10** (preparation and switching measurements): nothing is saved; the calibration that
   was active before stays active. The running step is marked red.
-* **Step 11, at its dialog**: the calibration file was already written before this dialog and is
+* **Step 11, at its question**: the calibration file was already written before this question and is
   the active calibration. Cancel calibration (or Stop) keeps it and records
   `cal.meta.emptyCheck.text = 'not performed: cancelled by the operator – calibration saved without the empty-tube check'`
   (any other error at this step: "not performed: error – calibration saved without the
   empty-tube check: …"). Row 11 shows this text, the log says "Calibration … was saved before the
   stop and is active.", and the file becomes the configured calibration file (used at the next
-  Connect, stored by File > Save configuration…). The dialog of step 12 is not shown: mount the
+  Connect, stored by File > Save configuration…). The question of step 12 is not shown: mount the
   specimen section yourself.
 * **Step 11, during the check sweep**: the calibration stays active and records
   `cal.meta.emptyCheck.text = 'stopped by the operator – calibration saved without the empty-tube check'`
   (an instrument error during the check is recorded the same way, with the error message). After
-  a Stop the dialog of step 12 is skipped and a warning reminds you to mount the specimen section.
+  a Stop the question of step 12 is skipped and a warning reminds you to mount the specimen section.
 * **Step 12**: the calibration and its check are saved and active. Cancel calibration only logs
   "Warning: last calibration step not confirmed … – mount the specimen section before measuring."
 
