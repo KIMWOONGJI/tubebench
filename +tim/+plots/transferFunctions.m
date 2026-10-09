@@ -134,11 +134,21 @@ if isfield(res, 'calibration') && isfield(res.calibration, 'version') && strcmp(
 end
 info.note = sprintf('H_m = p_m / p_ref (%s), reference %s. Phase %s.', calTxt, refTxt, ...
     ternary(o.stepped, 'wrapped to ±180° (stepped sine)', 'unwrapped'));
-nMiss = nnz(any(~isfinite(H), 2));
-if nMiss > 0                                        % no calibration there (no extrapolation) or no data
-    why = 'no data';
-    if strcmp(calTxt, 'calibrated'), why = 'outside the calibrated frequency range'; end
-    info.note = sprintf('%s H undefined at %d of %d frequencies (%s).', info.note, nMiss, numel(f), why);
+miss = any(~isfinite(H), 2);
+if any(miss)                                        % no data, or no calibration there (no extrapolation)
+    noData = miss;                                  % H of the raw spectra undefined too: no data (e.g. a
+    if isfield(res.spectra, 'H') && size(res.spectra.H, 1) == numel(f)   % stepped-sine step without a value)
+        noData = miss & any(~isfinite(res.spectra.H), 2);
+    end
+    noCal = miss & ~noData & strcmp(calTxt, 'calibrated');
+    noData = miss & ~noCal;
+    why = {};
+    if any(noData), why{end + 1} = 'no data'; end
+    if any(noCal), why{end + 1} = 'outside the calibrated frequency range'; end
+    if numel(why) == 2
+        why = {sprintf('%d no data, %d outside the calibrated frequency range', nnz(noData), nnz(noCal))};
+    end
+    info.note = sprintf('%s H undefined at %d of %d frequencies (%s).', info.note, nnz(miss), numel(f), why{1});
 end
 info.lines = hMag;
 info.summary = summaryTable(f, coh, snr, chP, isRef, o);

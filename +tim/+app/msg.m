@@ -2,21 +2,40 @@ function s = msg(lang, key, varargin)
 %MSG Operator-facing prompt texts in English ('en', default) or Korean ('ko').
 %
 %   s = tim.app.msg(cfg.ui.language, 'calConfigI', k, ref, a, k, b)
-%   Only texts shown to the operator (prompts, confirmations) are
-%   localised; log lines, errors and documentation stay in English.
+%   cfg.ui.language selects the language of the operator texts of this
+%   function: the calibration step prompts (dialog and command window; the
+%   prompts are also written to the log in that language by
+%   tim.app.runCalibration), the dialog buttons and titles, the excitation
+%   confirmation with its drive line (also in the 'Excitation confirmed'
+%   log line), the loudspeaker power and amplifier gain errors
+%   (tim:session:speakerPower, tim:session:gainRequired), the channel
+%   identification and the command-window prompts (Enter / y). All other
+%   log lines, errors, window labels and the documentation stay in English.
 %   Both languages take the same format arguments in the same order.
 
 if isempty(lang), lang = 'en'; end
 switch key
-    case 'confirmExcitation'   % what, Vpp(open circuit), maxVpp, amplifier line
-        % Amplitudes are shown in Vpk (generator open-circuit value,
-        % OUTP:LOAD INF); Vpp in brackets.
+    case 'confirmExcitation'   % what, Vpp (programmed), maxVpp, amplifier line[, generator.load]
+        % Amplitudes in Vpk, Vpp in brackets. generator.load 'INF' (default):
+        % the programmed value is the open-circuit voltage. '50': it is the
+        % voltage across 50 Ω, the open-circuit voltage is twice as high
+        % (Vpk(open circuit) = programmed Vpp; tim.app.driveEstimate).
         a = varargin;
-        varargin = {a{1}, a{2} / 2, a{2}, a{3} / 2, a{4}};
-        t.ko = ['스피커를 구동합니다 (%s).\n  발생기: %.3g Vpk (%.3g Vpp, 개방전압); 진폭 상한 %.3g Vpk\n  %s\n' ...
-            '앰프 게인을 포함한 모든 설정이 위와 같고, 가진을 시작해도 안전합니까?'];
-        t.en = ['The loudspeaker will be driven (%s).\n  Generator: %.3g Vpk (%.3g Vpp, open circuit); amplitude limit %.3g Vpk\n  %s\n' ...
-            'Is everything set as shown, including the amplifier gain, and is it safe to start the excitation?'];
+        ld = 'INF'; if numel(a) >= 5 && ~isempty(a{5}), ld = char(a{5}); end
+        if strcmp(ld, '50')
+            varargin = {a{1}, a{2} / 2, a{2}, a{2}, a{3} / 2, a{4}};
+            t.ko = ['스피커를 구동합니다 (%s).\n  발생기: %.3g Vpk (%.3g Vpp, 50 Ω 부하 기준 설정값; 개방전압 %.3g Vpk); ' ...
+                '진폭 상한 %.3g Vpk\n  %s\n앰프 게인을 포함한 모든 설정이 위와 같고, 가진을 시작해도 안전합니까?'];
+            t.en = ['The loudspeaker will be driven (%s).\n  Generator: %.3g Vpk (%.3g Vpp, programmed into 50 Ω; ' ...
+                'open circuit %.3g Vpk); amplitude limit %.3g Vpk\n  %s\n' ...
+                'Is everything set as shown, including the amplifier gain, and is it safe to start the excitation?'];
+        else
+            varargin = {a{1}, a{2} / 2, a{2}, a{3} / 2, a{4}};
+            t.ko = ['스피커를 구동합니다 (%s).\n  발생기: %.3g Vpk (%.3g Vpp, 개방전압); 진폭 상한 %.3g Vpk\n  %s\n' ...
+                '앰프 게인을 포함한 모든 설정이 위와 같고, 가진을 시작해도 안전합니까?'];
+            t.en = ['The loudspeaker will be driven (%s).\n  Generator: %.3g Vpk (%.3g Vpp, open circuit); amplitude limit %.3g Vpk\n  %s\n' ...
+                'Is everything set as shown, including the amplifier gain, and is it safe to start the excitation?'];
+        end
     case 'ampDirect'           % Z, Vpk at loudspeaker, mA peak, mW, limit mW
         t.ko = '직결 (앰프 없음), 발생기 50 Ω 출력 경유: 스피커 %g Ω, 약 %.3g Vpk, %.3g mA peak, %.3g mW (스피커 전력 상한 %.4g mW)';
         t.en = 'Direct drive (no amplifier) via the 50 Ω generator output: loudspeaker %g Ω, approx. %.3g Vpk, %.3g mA peak, %.3g mW (loudspeaker power limit %.4g mW)';
@@ -85,6 +104,10 @@ switch key
         t.ko = '교정 취소'; t.en = 'Cancel calibration';
     case 'calStepTitle'
         t.ko = '교정 단계'; t.en = 'Calibration step';
+    case 'calStepHeader'       % step n, number of steps N (first line of the calibration dialog)
+        t.ko = '교정 단계 %d / %d'; t.en = 'Calibration step %d of %d';
+    case 'calSeeDiagram'       % last line of the calibration dialog ("Calibration" = view name in the GUI)
+        t.ko = '(Calibration 화면의 그림을 참고하세요)'; t.en = '(see the diagram in the Calibration view)';
     case 'confirmTitle'
         t.ko = '가진 확인'; t.en = 'Confirm excitation';
     case 'yesPlay'
@@ -104,7 +127,7 @@ switch key
         t.en = ['Channel identification: follow the figure window and blow gently onto the indicated ' ...
             'microphone only, ch1 → ch4 (do not tap the table). Press Enter to start… '];
     case 'interchange12'
-        t.ko = 'ch1과 ch2 마이크를 서로 맞바꾼 뒤 Enter를 누르세요… ';
+        t.ko = '묶음 안에서 ch1과 ch2 마이크를 서로 맞바꾼 뒤 Enter를 누르세요… ';
         t.en = 'Interchange the ch1 and ch2 microphones in the bundle, then press Enter… ';
     otherwise
         error('tim:msg:key', 'Unknown message key "%s".', key);

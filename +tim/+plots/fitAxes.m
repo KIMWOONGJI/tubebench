@@ -12,7 +12,10 @@ function fitAxes(ax, opts)
 %   Linear steps are "nice": {1, 2, 2.5, 5} x 10^n, or opts.YSteps / XSteps
 %   (e.g. [1 2 5] for dB, [15 30 45 90 180] for degrees with 'Mantissa',
 %   false). A zoom / pan by the user switches to automatic ticks; "restore
-%   view" brings the fitted limits and ticks back.
+%   view" brings the fitted limits and ticks back. Every fit forgets the
+%   view MATLAB stored at an earlier zoom (the axes are reused for every
+%   measurement): "restore view" goes back to the CURRENT data, not to the
+%   limits of the data shown at the first zoom.
 %
 %   Data range: all line / scatter / patch / area / stair / errorbar objects
 %   with XLimInclude / YLimInclude 'on' (log axes: positive values only),
@@ -54,10 +57,17 @@ if ~isempty(old) && ~any(opts.Axis == 'y') && isequal(ax.YLim, old.yl)
 end
 setappdata(ax, 'timFitAxes', S);
 apply(ax, S);
-if isempty(getappdata(ax, 'timFitAxesListener'))
-    l = addlistener(ax, {'XLim', 'YLim'}, 'PostSet', @(~, ~) onLimits(ax));
-    setappdata(ax, 'timFitAxesListener', l);
-end
+% the view stored by the first zoom / pan (resetplotview) belongs to the data
+% shown then: without it, "restore view" keeps the fitted limits and the next
+% zoom stores the new ones
+if isappdata(ax, 'matlab_graphics_resetplotview'), rmappdata(ax, 'matlab_graphics_resetplotview'); end
+% limits changed by zoom / pan / restore view: the RULER callback (the toolbar
+% "restore view" sets the ruler limits, which fires no XLim / YLim PostSet).
+% It runs at the next drawnow, after the caller may have changed the ticks
+% (e.g. hidden labels of stacked axes): onLimits touches fitted ticks only
+% when they were switched to automatic.
+set(ax.XAxis, 'LimitsChangedFcn', @(~, ~) onLimits(ax));
+set(ax.YAxis, 'LimitsChangedFcn', @(~, ~) onLimits(ax));
 end
 
 % ---------------------------------------------------------------------------
@@ -73,25 +83,27 @@ end
 end
 
 function onLimits(ax)
-% user zoom / pan -> automatic ticks; back at the fitted limits -> fitted ticks
+% user zoom / pan -> automatic ticks; back at the fitted limits (restore
+% view, zoom out) -> fitted ticks again. Ticks that are still the fitted
+% (manual) ones are left alone.
 if ~isvalid(ax), return; end
 S = getappdata(ax, 'timFitAxes');
 if isempty(S), return; end
 tol = @(a, b) ~isempty(b) && all(abs(a - b) <= 1e-9 * max(1, max(abs(b))));
 if ~isempty(S.xl)
-    if tol(ax.XLim, S.xl)
+    if ~tol(ax.XLim, S.xl)
+        ax.XTickMode = 'auto'; ax.XTickLabelMode = 'auto';
+    elseif strcmp(ax.XTickMode, 'auto')
         ax.XTick = S.xt;
         if ~isempty(S.xtl), ax.XTickLabel = S.xtl; end
-    else
-        ax.XTickMode = 'auto'; ax.XTickLabelMode = 'auto';
     end
 end
 if ~isempty(S.yl)
-    if tol(ax.YLim, S.yl)
+    if ~tol(ax.YLim, S.yl)
+        ax.YTickMode = 'auto'; ax.YTickLabelMode = 'auto';
+    elseif strcmp(ax.YTickMode, 'auto')
         ax.YTick = S.yt;
         if ~isempty(S.ytl), ax.YTickLabel = S.ytl; end
-    else
-        ax.YTickMode = 'auto'; ax.YTickLabelMode = 'auto';
     end
 end
 end
@@ -169,12 +181,16 @@ function [lim, t, labels] = fitLog(r)
 % octave ticks for frequency-like data (>= 10), otherwise decades
 lo = r(1); hi = r(2);
 if lo >= 10 && hi <= 64000
-    oct = [16 31.5 63 125 250 500 1000 2000 4000 8000 16000 31500 63000];
+    oct = [8 16 31.5 63 125 250 500 1000 2000 4000 8000 16000 31500 63000];   % 8: data from 10 ... 11.3 Hz
     q = sqrt(2);
-    i1 = find(oct / q <= lo * (1 + 1e-9), 1, 'last'); if isempty(i1), i1 = 1; end
-    i2 = find(oct * q >= hi * (1 - 1e-9), 1, 'first'); if isempty(i2), i2 = numel(oct); end
+    i1 = find(oct / q <= lo * (1 + 1e-9), 1, 'last');
+    i2 = find(oct * q >= hi * (1 - 1e-9), 1, 'first');
     t = oct(i1:i2);
-    if numel(t) > 11, t = t(1:2:end); q = 2; end          % very wide range: every second octave
+    if numel(t) > 11                                  % very wide range: every second octave,
+        k = i2:-2:i1;                                 % counted from the top (the highest tick stays)
+        if oct(k(end)) / 2 > lo * (1 + 1e-9), k(end + 1) = k(end) - 2; end   % and the lowest still covers lo
+        t = oct(fliplr(k)); q = 2;
+    end
     lim = [t(1) / q, t(end) * q];
     labels = arrayfun(@freqLabel, t, 'UniformOutput', false);
 else

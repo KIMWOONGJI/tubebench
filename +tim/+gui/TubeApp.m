@@ -49,6 +49,8 @@ classdef TubeApp < handle
         ClosingWin = []         % "Closing ..." progress dialog (steps of the shutdown)
         ClosingLog cell = {}    % texts shown in the closing dialog (also when hidden: tests)
         AboutFig = []           % Help > About window (one at a time)
+        OutputUnconfirmed logical = false  % last read-back did not confirm the generator output off
+        PendingStop logical = false % Stop / close before the connection has a session (gui-5)
     end
     properties
         ConfirmUnsaved logical = true   % ask before an unsaved measurement is replaced or lost
@@ -86,6 +88,7 @@ classdef TubeApp < handle
             if ~isempty(app.Session)
                 try, app.Session.close(); catch, end
                 app.Session = [];
+                app.OutputUnconfirmed = false;
                 if ~quiet, app.log('Disconnected.'); end
                 if isfield(app.H, 'connHead') && isvalid(app.H.connHead)
                     app.H.connHead.Text = 'Disconnected. The list shows the last connection.';
@@ -123,6 +126,8 @@ classdef TubeApp < handle
                     app.Session.log('Closing: window close requested while busy - STOP requested first.');
                     app.Session.requestStop();
                     try, app.Session.Gen.outputOff(); catch, end
+                else
+                    app.PendingStop = true;            % connection without a session yet
                 end
                 app.closingDialog({'Stopping the running action ...', ...
                     [app.outputOffText() ' The window closes as soon as the action has stopped.']});
@@ -150,7 +155,9 @@ classdef TubeApp < handle
             if nargin < 7, icon = 'question'; end
             % STOP already pending (e.g. pressed during the microphone animation)
             % or window gone: do not open a dialog that nobody would close
-            if ~isvalid(app) || ~isvalid(app.Fig) || (~isempty(app.Session) && app.Session.StopRequested)
+            % (only INSIDE a running action: a flag left over from an earlier Stop must not
+            % answer a later question - e.g. the unsaved-measurement question - unseen)
+            if ~isvalid(app) || ~isvalid(app.Fig) || app.stopPending()
                 sel = options{cancelIdx}; return
             end
             if ~strcmp(app.Fig.Visible, 'on'), sel = options{defaultIdx}; return; end
@@ -161,13 +168,30 @@ classdef TubeApp < handle
             uiconfirm(app.Fig, msg, title, 'Options', options, 'DefaultOption', defaultIdx, ...
                 'CancelOption', cancelIdx, 'Icon', icon, 'CloseFcn', @(~, ev) setAnswer(ev.SelectedOption));
             while isempty(answer)
-                if ~isvalid(app) || ~isvalid(app.Fig) || (~isempty(app.Session) && app.Session.StopRequested)
+                if ~isvalid(app) || ~isvalid(app.Fig) || app.stopPending()
                     answer = options{cancelIdx};
                     break
                 end
                 pause(0.1);
             end
             sel = answer;
+        end
+
+        function alert(app, msg, ttl, icon)
+            % message dialog; a hidden window (scripts, tests) only logs it
+            % (uialert needs a visible figure)
+            if nargin < 4, icon = 'info'; end
+            if ~isempty(app.Fig) && isvalid(app.Fig) && strcmp(app.Fig.Visible, 'on')
+                uialert(app.Fig, msg, ttl, 'Icon', icon);
+            else
+                app.log('%s: %s', ttl, msg);
+            end
+        end
+        function tf = stopPending(app)
+            % Stop pressed during the running action (the session keeps the flag
+            % until the next action starts; outside an action it means nothing)
+            s = app.Session;
+            tf = ~isempty(s) && isvalid(s) && s.InOperation && s.StopRequested;
         end
 
         function drawCalSetup(app, mapping, msg, stepText, fromMapping)
@@ -333,7 +357,7 @@ classdef TubeApp < handle
             h.reps = uieditfield(rg, 'numeric', 'Limits', [1 100], 'RoundFractionalValues', 'on', ...
                 'ValueChangedFcn', @(~, ~) app.updateDrive());
             r = r + 1; rg = app.rowGrid(left, r, ex);
-            app.label(rg, 'Amplitude [Vpk]', 'Generator amplitude: open-circuit peak voltage.');
+            app.label(rg, 'Amplitude [Vpk]', 'Generator amplitude in Vpk (details: tooltip of the field).');
             h.amp = uieditfield(rg, 'numeric', 'Limits', [0.005 10], 'ValueChangedFcn', @(~, ~) app.updateDrive());
             app.label(rg, 'Duration', 'Expected duration of one measurement.');
             h.durEst = uilabel(rg, 'Text', '', 'FontColor', P.ui.muted);
@@ -499,46 +523,42 @@ classdef TubeApp < handle
             end
 
             % Measurement > Time signals | Spectrum | Transfer functions
+            % (titles and descriptions: tim.plots.viewText, shared with the saved figures)
             t = uitab(tabs, 'Title', 'Measurement'); h.measTab = t;
             h.measTabs = app.subTabs(t);
-            h.waveTab = uitab(h.measTabs, 'Title', 'Time signals');
-            app.Pages.wave = tim.gui.ViewPage(h.waveTab, 'Time signals', ['Sound pressure of the four channels ' ...
-                '(voltage / sensitivity), live during an acquisition. Display high-pass 20 Hz; the raw data are stored in volts.'], ...
-                'Axes', 4);
+            [vt, vd] = tim.plots.viewText('waveforms');
+            h.waveTab = uitab(h.measTabs, 'Title', vt);
+            app.Pages.wave = tim.gui.ViewPage(h.waveTab, vt, vd, 'Axes', 4);
             h.axW = app.Pages.wave.Axes;
-            h.specTab = uitab(h.measTabs, 'Title', 'Spectrum');
-            app.Pages.spec = tim.gui.ViewPage(h.specTab, 'Spectrum', ['Power spectral density of the sound pressure ' ...
-                '(swept sine, noise, background noise) or the level of every step (stepped sine). Dashed: analysis band.'], ...
-                'Axes', 1);
+            [vt, vd] = tim.plots.viewText('spectrum');
+            h.specTab = uitab(h.measTabs, 'Title', vt);
+            app.Pages.spec = tim.gui.ViewPage(h.specTab, vt, vd, 'Axes', 1);
             h.axSpec = app.Pages.spec.Axes;
-            h.tfTab = uitab(h.measTabs, 'Title', 'Transfer functions');
-            app.Pages.tf = tim.gui.ViewPage(h.tfTab, 'Transfer functions', ['Calibrated transfer functions ' ...
-                'H = p(port) / p(reference) of the four ports, their phase and the coherence of every channel.'], ...
-                'Axes', 3);
+            [vt, vd] = tim.plots.viewText('transfer');
+            h.tfTab = uitab(h.measTabs, 'Title', vt);
+            app.Pages.tf = tim.gui.ViewPage(h.tfTab, vt, vd, 'Axes', 3);
             h.axH = app.Pages.tf.Axes;
 
             % Results > Reflection and transmission | Transmission loss | Transfer impedance | Validity
             t = uitab(tabs, 'Title', 'Results'); h.resTab = t;
             h.resTabs = app.subTabs(t);
-            h.reflTab = uitab(h.resTabs, 'Title', 'Reflection and transmission');
-            app.Pages.refl = tim.gui.ViewPage(h.reflTab, 'Reflection and transmission', ['Reflection coefficient R ' ...
-                'at the specimen front face, transmission coefficient τ to the rear face and dissipation coefficient α_d = 1 − |R|² − |τ|². ' ...
-                'Grey: outside the valid range.'], 'Axes', 2, 'AxesHeights', {'2x', '1x'}, 'SummaryTitle', 'Octave bands');
-            h.axR = app.Pages.refl.Axes;
-            h.tlTab = uitab(h.resTabs, 'Title', 'Transmission loss');
-            app.Pages.tl = tim.gui.ViewPage(h.tlTab, 'Transmission loss', ['Normal-incidence transmission loss ' ...
-                'TL from τ = −20 log10 |τ| (anechoic termination); thin specimens also TL from Z_t. Grey: outside the valid range.'], 'Axes', 1, ...
+            [vt, vd] = tim.plots.viewText('reflection');
+            h.reflTab = uitab(h.resTabs, 'Title', vt);
+            app.Pages.refl = tim.gui.ViewPage(h.reflTab, vt, vd, 'Axes', 2, 'AxesHeights', {'2x', '1x'}, ...
                 'SummaryTitle', 'Octave bands');
+            h.axR = app.Pages.refl.Axes;
+            [vt, vd] = tim.plots.viewText('transmissionLoss');
+            h.tlTab = uitab(h.resTabs, 'Title', vt);
+            app.Pages.tl = tim.gui.ViewPage(h.tlTab, vt, vd, 'Axes', 1, 'SummaryTitle', 'Octave bands');
             h.axTL = app.Pages.tl.Axes;
-            h.ztTab = uitab(h.resTabs, 'Title', 'Transfer impedance');
-            app.Pages.zt = tim.gui.ViewPage(h.ztTab, 'Transfer impedance', ['Thin-element transfer impedance ' ...
-                'Z_t = (p_front − p_rear) / u, normalised by ρc (thin specimens only: k·d ≪ 1). Grey: outside the valid range.'], ...
-                'Axes', 2, 'SummaryTitle', 'Octave bands');
+            [vt, vd] = tim.plots.viewText('impedance');
+            h.ztTab = uitab(h.resTabs, 'Title', vt);
+            app.Pages.zt = tim.gui.ViewPage(h.ztTab, vt, vd, 'Axes', 2, 'SummaryTitle', 'Octave bands');
             h.axZ = app.Pages.zt.Axes;
-            h.validTab = uitab(h.resTabs, 'Title', 'Validity');
-            app.Pages.valid = tim.gui.ViewPage(h.validTab, 'Validity', ['Which frequency lines meet each criterion ' ...
-                '(geometry, coherence and SNR, passivity, anechoic termination, thin-element velocity match).'], ...
-                'Axes', 1, 'SummaryTitle', 'Criteria', 'SummaryWidth', 430);
+            [vt, vd] = tim.plots.viewText('validity');
+            h.validTab = uitab(h.resTabs, 'Title', vt);
+            app.Pages.valid = tim.gui.ViewPage(h.validTab, vt, vd, 'Axes', 1, 'SummaryTitle', 'Criteria', ...
+                'SummaryWidth', 470);
             h.axV = app.Pages.valid.Axes;
 
             % Formula: every equation used by the software
@@ -669,7 +689,7 @@ classdef TubeApp < handle
             h = app.H;
             fr = [h.fStart.Value h.fStop.Value];
             if fr(2) <= fr(1)
-                error('tim:gui:input', 'EXCITATION: "f stop" (%g Hz) must be higher than "f start" (%g Hz).', fr(2), fr(1));
+                error('tim:gui:input', 'EXCITATION: the stop frequency (%g Hz) must be higher than the start frequency (%g Hz).', fr(2), fr(1));
             end
             if strcmp(mode, 'stepped')
                 s = app.Cfg.excitation.stepped;
@@ -879,7 +899,18 @@ classdef TubeApp < handle
         end
 
         function readCfgFromUi(app)
-            % control-panel fields -> app.Cfg (validated); warnings are logged once
+            % control-panel fields -> app.Cfg (validated); warnings are logged once.
+            % app.Cfg changes only when the whole set of fields is valid.
+            old = app.Cfg;
+            try
+                app.readFields();
+            catch err
+                app.Cfg = old;
+                rethrow(err);
+            end
+        end
+
+        function readFields(app)
             h = app.H;
             if isempty(app.Session), app.Cfg.mode = h.mode.Value; end   % fixed while connected
             app.Cfg.excitation.mode = h.exMode.Value;
@@ -944,6 +975,7 @@ classdef TubeApp < handle
             if app.Busy || app.Closing
                 return      % an action is already running / the window closes (no re-entrance)
             end
+            app.PendingStop = false;
             if ~isempty(busyWhat)
                 % the stop flag is cleared ONCE here, before the first drawnow: a
                 % STOP / window close arriving between this click and the first
@@ -963,7 +995,11 @@ classdef TubeApp < handle
                     try, app.Session.Gen.outputOff(); catch, end
                 end
                 what = busyWhat; if isempty(what), what = 'action'; end
-                if any(strcmp(err.identifier, {'tim:session:stopped', 'tim:gui:abort'}))
+                if strcmp(err.identifier, 'tim:session:notConfirmed')
+                    app.log('%s cancelled by the operator: %s', app.capital(what), err.message);
+                    msg = sprintf('%s cancelled: the loudspeaker was not driven. %s', app.capital(what), app.outputOffText());
+                    icon = 'info'; ttl = sprintf('%s cancelled', app.capital(what));
+                elseif any(strcmp(err.identifier, {'tim:session:stopped', 'tim:gui:abort'}))
                     app.log('%s stopped by the operator: %s', app.capital(what), err.message);
                     msg = sprintf('%s stopped by the operator. %s', app.capital(what), app.outputOffText());
                     icon = 'info'; ttl = sprintf('%s stopped', app.capital(what));
@@ -979,7 +1015,11 @@ classdef TubeApp < handle
                     end
                 end
                 if isvalid(app.Fig) && ~app.CloseAfterBusy     % window may be closing
-                    uialert(app.Fig, msg, ttl, 'Icon', icon);
+                    app.alert(msg, ttl, icon);
+                end
+                % a stopped / failed acquisition left partial live data: show the last result again
+                if any(strcmp(busyWhat, {'measurement', 'background recording', 'calibration'}))
+                    try, app.refreshViews(); catch, end
                 end
             end
             if isvalid(app) && app.CloseAfterBusy          % close requested while busy
@@ -1006,7 +1046,9 @@ classdef TubeApp < handle
             % read back OUTP? (1 s time-out): never claim "OFF" without confirmation
             txt = 'Generator output off (confirmed).';
             s = app.Session;
-            if isempty(s) || isempty(s.Gen), txt = 'Generator not connected.'; return; end
+            if isempty(s) || isempty(s.Gen)
+                txt = 'Generator not connected.'; app.OutputUnconfirmed = false; return
+            end
             try
                 if str2double(s.Gen.Transport.query('OUTP?', 1)) ~= 0
                     txt = 'The generator output could not be switched off. Switch it off at the generator.';
@@ -1014,6 +1056,7 @@ classdef TubeApp < handle
             catch
                 txt = 'The generator output could not be confirmed off. Check the output at the generator.';
             end
+            app.OutputUnconfirmed = ~startsWith(txt, 'Generator output off');
         end
 
         function setBusy(app, tf, what)
@@ -1027,39 +1070,61 @@ classdef TubeApp < handle
             if tf
                 app.Busy = true;
                 for i = 1:numel(ctl), ctl{i}.Enable = 'off'; end
-                if any(strcmp(what, {'measurement', 'calibration', 'connection'}))
-                    h.stop.Text = ['Stop ' what];
-                else
-                    h.stop.Text = 'Stop';
+                % Stop only for actions it can stop (saving / loading cannot be interrupted)
+                stoppable = any(strcmp(what, {'measurement', 'calibration', 'connection', 'background recording'}));
+                h.stop.Text = 'Stop';
+                h.stop.Enable = matlab.lang.OnOffSwitchState(stoppable);
+                if stoppable
+                    h.stop.Tooltip = sprintf('Stop the %s. The generator output is switched off at once.', what);
                 end
-                h.stop.Enable = 'on';
-                h.stop.Tooltip = sprintf('Stop the %s; the generator output is switched off at once.', what);
                 driven = any(strcmp(what, {'measurement', 'calibration'}));
                 if driven && ~isempty(app.Session) && strcmp(app.Session.Cfg.mode, 'hardware')
                     h.lamp(1).Color = P.warn; h.lamp(1).Tooltip = 'Generator output enabled: the loudspeaker can be driven.';
-                    app.setStatus(sprintf('%s – loudspeaker driven, Stop switches it off', app.capital(what)), 'busy');
+                    app.setStatus(sprintf('%s – loudspeaker driven', app.capital(what)), 'busy');
+                    h.status.Tooltip = 'Stop switches the generator output off at once.';
                 else
-                    app.setStatus(sprintf('Busy: %s – only Stop is available', what), 'busy');
+                    app.setStatus(sprintf('Busy: %s', what), 'busy');
+                    h.status.Tooltip = '';
                 end
             else
                 h.stop.Text = 'Stop';
-                h.stop.Tooltip = 'Stop the running action; the generator output is switched off at once.';
+                h.stop.Tooltip = 'Stop the running action. The generator output is switched off at once.';
                 app.Busy = false;
                 for i = 1:numel(ctl), ctl{i}.Enable = 'on'; end
-                if ~isempty(app.Session) && ~isempty(app.Session.Gen) && isequal(h.lamp(1).Color, P.warn)
+                h.lamp(1).Tooltip = 'Generator (Keysight 33220A) – details in Setup > Connection';
+                if app.OutputUnconfirmed
+                    % the read-back after an error did not confirm the output off
+                    h.lamp(1).Color = P.fail; h.lamp(1).Tooltip = 'Generator output NOT confirmed off – check the generator.';
+                elseif ~isempty(app.Session) && ~isempty(app.Session.Gen) && isequal(h.lamp(1).Color, P.warn)
                     h.lamp(1).Color = P.ok;
                 end
-                h.lamp(1).Tooltip = 'Generator (Keysight 33220A) – details in Setup > Connection';
                 app.updateEnable();
-                if ~isempty(app.Session) && app.Session.Prepared
-                    app.setStatus(sprintf('Ready (%s)', app.Session.Cfg.mode), 'ok');
-                elseif ~isempty(app.Session)
-                    app.setStatus('Not ready – connection incomplete', 'warn');
-                else
-                    app.setStatus('Not connected', 'idle');
-                end
+                app.readyStatus();
             end
             drawnow;
+        end
+
+        function readyStatus(app)
+            % status line when no action runs: keeps the verdict of the connection
+            % checks (failed / warnings) and an unconfirmed generator output
+            s = app.Session; app.H.status.Tooltip = '';
+            if app.OutputUnconfirmed
+                app.setStatus('Generator output not confirmed off', 'warn');
+                app.H.status.Tooltip = 'Check the output of the generator at the instrument.';
+            elseif ~isempty(s) && s.Prepared
+                st = app.ConnList.States;
+                if any(strcmp(st, 'fail'))
+                    app.setStatus(sprintf('Connected (%s) – a check failed', s.Cfg.mode), 'warn');
+                elseif any(strcmp(st, 'warn'))
+                    app.setStatus(sprintf('Ready (%s) – with warnings', s.Cfg.mode), 'warn');
+                else
+                    app.setStatus(sprintf('Ready (%s)', s.Cfg.mode), 'ok');
+                end
+            elseif ~isempty(s)
+                app.setStatus('Not ready – connection incomplete', 'warn');
+            else
+                app.setStatus('Not connected', 'idle');
+            end
         end
 
         function c = inputControls(app)
@@ -1217,13 +1282,9 @@ classdef TubeApp < handle
         end
         function doConnect(app)
             app.Cfg.mode = app.H.mode.Value;
-            try
-                app.readCfgFromUi();
-            catch err
-                % a field error must not prevent the connection: the last valid settings are used
-                app.log('CHECK: %s - the connection uses the last valid settings.', err.message);
-            end
+            app.readCfgFromUi();                       % invalid fields: 'Check the settings', no connection
             app.disconnect(true);
+            app.setStatus(sprintf('Connecting (%s)…', app.Cfg.mode), 'busy');
             % connection checklist: every step is shown while it runs (the
             % animated icon keeps turning during the slow LAN-XI setup)
             app.ConnList.reset();
@@ -1241,11 +1302,19 @@ classdef TubeApp < handle
                     {yes, tim.app.msg(L, 'cancel')}, 2, 2, 'warning'), yes);
             end
             app.Session = s;
-            s.beginOperation();                        % ABORT during the connection stays pending
+            s.beginOperation();                        % Stop during the connection stays pending
             opEnd = onCleanup(@() endOp(s));
-            s.connect();
-            s.prepareAcquisition();
-            chk = s.signalCheck(1);                    % 1 s without excitation: level / fault flags per channel
+            if app.PendingStop, s.requestStop(); end    % Stop pressed before the session existed
+            try
+                s.connect();
+                s.prepareAcquisition();
+                chk = s.signalCheck(1);                % 1 s without excitation: level / fault flags per channel
+            catch err
+                % failed or stopped: no half-open session (Connect and the mode selector stay usable)
+                try, s.close(true); catch, end
+                app.Session = [];
+                rethrow(err);
+            end
             clear opEnd
             m = s.Mics;
             rows = cell(numel(m), 8);
@@ -1373,7 +1442,7 @@ classdef TubeApp < handle
 
         function onStart(app)
             if isempty(app.Session) || ~app.Session.Prepared
-                uialert(app.Fig, 'The instruments are not connected. Press Connect first.', 'Not connected'); return
+                app.alert('The instruments are not connected. Press Connect first.', 'Not connected', 'info'); return
             end
             if ~app.confirmDiscard('Measure'), return; end
             app.run(@() app.doStart(), 'measurement');
@@ -1392,7 +1461,7 @@ classdef TubeApp < handle
             app.process();
             app.setResultStatus();
             if ~m.integrityOk
-                uialert(app.Fig, 'Data-integrity problems were detected - see the messages.', 'Data integrity', 'Icon', 'warning');
+                app.alert('Data-integrity problems were detected – see the messages.', 'Data integrity', 'warning');
             end
         end
 
@@ -1410,6 +1479,11 @@ classdef TubeApp < handle
         end
 
         function onStop(app)
+            if isempty(app.Session) && app.Busy
+                app.PendingStop = true;                % the connection has no session yet
+                app.log('Stop requested by the operator.');
+                return
+            end
             if ~isempty(app.Session)
                 app.Session.requestStop();
                 try, app.Session.Gen.outputOff(); catch, end
@@ -1419,7 +1493,7 @@ classdef TubeApp < handle
 
         function onBackground(app)
             if isempty(app.Session) || ~app.Session.Prepared
-                uialert(app.Fig, 'The instruments are not connected. Press Connect first.', 'Not connected'); return
+                app.alert('The instruments are not connected. Press Connect first.', 'Not connected', 'info'); return
             end
             if ~app.confirmDiscard('Record background noise'), return; end
             app.run(@() app.doBackground(), 'background recording');
@@ -1461,7 +1535,7 @@ classdef TubeApp < handle
 
         function onRunCal(app)
             if isempty(app.Session) || ~app.Session.Prepared
-                uialert(app.Fig, 'The instruments are not connected. Press Connect first.', 'Not connected'); return
+                app.alert('The instruments are not connected. Press Connect first.', 'Not connected', 'info'); return
             end
             app.run(@() app.doRunCal(), 'calibration');
         end
@@ -1578,6 +1652,7 @@ classdef TubeApp < handle
                 % step on) is active: show it
                 c1 = app.Session.Calibration;
                 if ~isempty(c1) && (isempty(calBefore) || ~strcmp(c1.version, calBefore.version))
+                    if ~isempty(app.Session.CalibrationFile), app.Cfg.calibration.file = app.Session.CalibrationFile; end
                     app.showCal(c1);
                     app.log('Calibration %s was saved before the stop and is active.', c1.version);
                 end
@@ -1585,6 +1660,7 @@ classdef TubeApp < handle
             end
             app.Cfg.calibration.file = file;
             app.showCal(cal);
+            app.refreshViews();                  % the live view showed the calibration sweeps
         end
 
         function calStep(app, msg, mapping)
@@ -1594,7 +1670,7 @@ classdef TubeApp < handle
             % virtual microphones are moved.
             app.CalStep = app.CalStep + 1;
             key = app.CalKeys{min(app.CalStep, end)};
-            stepText = sprintf('Calibration step %d of %d', app.CalStep, app.CalSteps);
+            stepText = tim.app.msg(app.Cfg.ui.language, 'calStepHeader', app.CalStep, app.CalSteps);
             from = app.CalMap;
             app.drawCalSetup(mapping, msg, stepText, from);
             app.showTab(app.H.calTab);
@@ -1609,7 +1685,7 @@ classdef TubeApp < handle
                     done = tim.app.msg(L, 'calDoneButton');
                 end
                 app.startPulse();
-                sel = app.ask(sprintf('%s\n\n%s\n(see the diagram in the Calibration view)', stepText, msg), ...
+                sel = app.ask(sprintf('%s\n\n%s\n%s', stepText, msg, tim.app.msg(L, 'calSeeDiagram')), ...
                     tim.app.msg(L, 'calStepTitle'), {done, tim.app.msg(L, 'abortButton')}, 1, 2, 'question');
                 app.stopPulse();
                 if ~strcmp(sel, done)
@@ -1819,14 +1895,12 @@ classdef TubeApp < handle
         end
 
         function onSave(app)
-            if isempty(app.LastMeas), uialert(app.Fig, 'Nothing measured yet.', 'Save measurement'); return; end
+            if isempty(app.LastMeas), app.alert('Nothing measured yet.', 'Save measurement', 'info'); return; end
             app.run(@() app.doSave(), 'saving the measurement');
         end
         function doSave(app)
-            figs = struct();
-            if ~isempty(app.LastRes)
-                figs = tim.app.plotResults(app.LastRes, app.LastMeas, struct('Visible', 'off'));
-            end
+            % saved figures = the views (background / unprocessed: time signals and spectrum)
+            figs = tim.app.plotResults(app.LastRes, app.LastMeas, struct('Visible', 'off'));
             name = app.LastMeas.kind;
             sp = '';                     % the name entered at Start (metadata.specimen)
             if isfield(app.LastMeas.metadata, 'specimen') && ~strcmp(app.LastMeas.metadata.specimen, 'unnamed specimen')
@@ -1862,7 +1936,10 @@ classdef TubeApp < handle
                 app.LastRes = []; app.refreshViews(); return
             end
             [cal, src] = app.currentCalibration();
-            app.LastRes = tim.app.processMeasurement(app.LastMeas, app.Cfg, cal);
+            c = app.Cfg;                 % the mode of the DATA (not the selector) for the calibration context
+            md = app.LastMeas.metadata;
+            if isfield(md, 'mode'), c.mode = md.mode; elseif isfield(md, 'WARNING'), c.mode = 'simulation'; end
+            app.LastRes = tim.app.processMeasurement(app.LastMeas, c, cal);
             app.log('%s', app.LastRes.summary);
             app.log('Processed with calibration %s%s; L1/d/L2 = %s/%s/%s mm, T = %g °C.', ...
                 app.LastRes.calibration.version, src, app.H.L1.Value, app.H.dTh.Value, app.H.L2.Value, app.H.temp.Value);
@@ -1877,7 +1954,14 @@ classdef TubeApp < handle
             elseif isfield(app.Cfg.calibration, 'file') && ~isempty(app.Cfg.calibration.file)
                 f = tim.app.resolvePath(app.Cfg.calibration.file);
                 if isfile(f)
-                    S = load(f, 'cal'); cal = S.cal; src = ' (from file, not connected)';
+                    ws = warning('off', 'MATLAB:load:variableNotFound'); wsCleanup = onCleanup(@() warning(ws));
+                    try
+                        S = load(f, 'cal');
+                        if isfield(S, 'cal') && isfield(S.cal, 'type') && strcmp(S.cal.type, 'tim.complexChannelCalibration')
+                            cal = S.cal; src = ' (from file, not connected)';
+                        end
+                    catch
+                    end
                 end
             end
         end
@@ -1983,9 +2067,9 @@ classdef TubeApp < handle
             if ~isempty(cal)
                 if isfield(cal, 'meta') && isfield(cal.meta, 'emptyCheck') && cal.meta.emptyCheck.performed
                     if cal.meta.emptyCheck.passed
-                        txt = [txt '  ✓ empty-tube check'];
+                        txt = [txt '  ✓ Test E'];
                     else
-                        txt = [txt '  ✗ empty-tube check failed']; col = 0.8 * P.warn;
+                        txt = [txt '  ✗ Test E failed']; col = 0.8 * P.warn;
                     end
                     tip{end + 1} = cal.meta.emptyCheck.text;
                 end
@@ -2021,7 +2105,7 @@ classdef TubeApp < handle
             if isfile(f)
                 edit(f);
             else
-                uialert(app.Fig, sprintf('Document not found:\n%s', f), 'Help');
+                app.alert(sprintf('Document not found:\n%s', f), 'Help', 'warning');
             end
         end
 

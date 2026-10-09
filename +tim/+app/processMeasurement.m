@@ -63,7 +63,7 @@ res.spectra = sp;
 f = sp.f(:);
 
 % ---- calibration
-[Hcal, calValid, calInfo] = tim.cal.applyCalibration(f, sp.H, cal, ref);
+[Hcal, calValid, calInfo, calValidCh] = tim.cal.applyCalibration(f, sp.H, cal, ref);
 res.calibration = struct('applied', ~isempty(cal), 'info', calInfo, 'version', 'none');
 if ~isempty(cal), res.calibration.version = cal.version; end
 % calibration set-up vs this measurement (empty section, port distances, temperature, mode)
@@ -75,11 +75,12 @@ res.Hchannel = Hcal;
 
 % ---- channel -> position
 pos = [cfg.mics.position]; ch = [cfg.mics.channel];
-Hp = zeros(numel(f), 4); cohP = ones(numel(f), 4); snrP = inf(numel(f), 4);
+Hp = zeros(numel(f), 4); cohP = ones(numel(f), 4); snrP = inf(numel(f), 4); calP = false(numel(f), 4);
 for i = 1:4
     Hp(:, pos(i)) = Hcal(:, ch(i));
     cohP(:, pos(i)) = sp.coherence(:, ch(i));
     snrP(:, pos(i)) = sp.snr_dB(:, ch(i));
+    calP(:, pos(i)) = calValidCh(:, ch(i));
 end
 res.Hposition = Hp;
 res.channelOfPosition = zeros(1, 4); res.channelOfPosition(pos) = ch;   % DAQ channel in port M1..M4 (plot colours)
@@ -88,16 +89,22 @@ res.channelOfPosition = zeros(1, 4); res.channelOfPosition(pos) = ch;   % DAQ ch
 o = rmfield(a, {'refChannel', 'fMin', 'fMax', 'df'});
 o.quality = struct('coherence', cohP, 'snr_dB', snrP);
 o.calValid = calValid;
+o.calValidPos = calP;          % per position: R needs only the calibration of M1/M2 (review analysis-3)
 o.fRange = [a.fMin a.fMax];
 res.analysis = tim.acoustics.analyzeFourMic(f, Hp, cfg.geometry, cfg.environment, o);
 
-% ---- absolute pressure spectra (display / SPL only)
+% ---- absolute pressure spectra (display / SPL only). Record column c is DAQ
+% channel c: the sensitivities are taken by mics.channel, not by the order of
+% the list (a configuration may list ch2 before ch1; review plots-11)
+mics = struct([]);
+if isfield(meas, 'mics'), mics = tim.app.MeasurementSession.micsByChannel(meas.mics); end
+chCol = 1:4; if isfield(mics, 'channel'), chCol = [mics.channel]; end
 try
     x = meas.records{1};
-    p = tim.acq.voltsToPascal(x - mean(x, 1), meas.mics, 'V');
+    p = tim.acq.voltsToPascal(x - mean(x, 1), mics, 'V');
     nfft = min(8192, 2^nextpow2(size(p, 1)));
     [P, fp] = pwelch(p, hann(nfft, 'periodic'), nfft / 2, nfft, fs);
-    res.pressureSpectrum = struct('f', fp, 'PSD_Pa2perHz', P, 'channelOrder', ch, ...
+    res.pressureSpectrum = struct('f', fp, 'PSD_Pa2perHz', P, 'channelOrder', chCol, ...
         'note', 'Uses the sensitivity layer (TEDS/certificate/nominal) only.');
 catch err
     res.pressureSpectrum = struct('error', err.message);
@@ -106,7 +113,7 @@ end
 % stepped record is a LINE spectrum (one narrow line per step, each holding
 % 1/nSteps of the record energy) - not a useful level display.
 if strcmp(meas.kind, 'stepped')
-    res.toneLevels = steppedLevels(sp, meas.mics, ch);
+    res.toneLevels = steppedLevels(sp, mics, chCol);
 end
 res.summary = res.analysis.valid.summary;
 end
@@ -144,8 +151,10 @@ end
 
 function tl = steppedLevels(sp, mics, ch)
 % Tone level of every step and DAQ channel from the sine fits of the settled
-% part of each step (columns in channel order, like pressureSpectrum).
-sens = [mics.sensitivity_VperPa];
+% part of each step (columns in channel order, like pressureSpectrum; mics
+% sorted by channel).
+sens = [];
+if isfield(mics, 'sensitivity_VperPa'), sens = [mics.sensitivity_VperPa]; end
 if numel(sens) ~= size(sp.amplitude_V, 2) || ~all(isfinite(sens) & sens > 0)
     sens = nan(1, size(sp.amplitude_V, 2));
 end

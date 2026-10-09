@@ -38,6 +38,9 @@ classdef MeasurementSession < handle
     end
     properties
         Calibration = []
+        CalibrationFile char = ''  % file of Calibration: set by loadCalibration and by
+                                   % tim.app.runCalibration right after its first save
+                                   % (also when the operator then cancels or stops)
         StatusCallback = []      % @(msg) for GUI
         BlockCallback = []       % @() called for every received block (GUI: drawnow limitrate)
         ExcitationConfirm = []   % @(msg) -> logical; operator confirmation of amplitude + amplifier gain
@@ -59,7 +62,7 @@ classdef MeasurementSession < handle
             if nargin < 1, cfg = tim.app.defaultConfig(); end
             tim.app.validateConfig(cfg);
             obj.Cfg = cfg;
-            obj.Mics = cfg.mics;
+            obj.Mics = tim.app.MeasurementSession.micsByChannel(cfg.mics);
             if ~isempty(cfg.calibration.file)
                 obj.loadCalibration(cfg.calibration.file);
             end
@@ -113,17 +116,18 @@ classdef MeasurementSession < handle
         function prepareAcquisition(obj)
             obj.requireConnected();
             a = obj.Cfg.acquisition;
+            micsCh = tim.app.MeasurementSession.micsByChannel(obj.Cfg.mics);   % element c = channel c
             dc = struct('sampleRate', a.sampleRate, 'range', a.range, 'filter', a.filter, ...
                 'ccld', a.ccld, 'channels', 1:4, 'detectTeds', a.detectTeds, ...
                 'connector', obj.Cfg.lanxi.connector, ...
-                'names', {arrayfun(@(m) sprintf('M%d', m.position), obj.Cfg.mics, 'UniformOutput', false)});
+                'names', {arrayfun(@(m) sprintf('M%d', m.position), micsCh, 'UniformOutput', false)});
             try
                 obj.Daq.ProgressFcn = @(key, state, detail) obj.progress(key, state, detail);
                 obj.Daq.prepare(dc);
                 srcName = @tim.app.MeasurementSession.sourceName;
                 obj.progress('sens', 'run', ['order: ' strjoin(cellfun(srcName, strsplit(char(a.sensitivityPolicy), '>'), ...
                     'UniformOutput', false), ' → ')]);
-                obj.Mics = tim.cal.resolveSensitivities(obj.Cfg.mics, obj.Daq.Teds, a.sensitivityPolicy);
+                obj.Mics = tim.cal.resolveSensitivities(micsCh, obj.Daq.Teds, a.sensitivityPolicy);
                 parts = cell(1, numel(obj.Mics)); state = 'ok';
                 for i = 1:numel(obj.Mics)
                     m = obj.Mics(i);
@@ -171,7 +175,7 @@ classdef MeasurementSession < handle
             chk = struct('channel', {}, 'spl_dB', {}, 'peak_V', {}, 'state', {}, 'text', {});
             for c = 1:size(x, 2)
                 v = x(:, c) - mean(x(:, c));
-                s = obj.Mics(c).sensitivity_VperPa;
+                s = obj.Mics([obj.Mics.channel] == c).sensitivity_VperPa;   % record column c = channel c
                 spl = 20 * log10(sqrt(mean(v.^2)) / s / 2e-5);
                 pk = max(abs(x(:, c)));
                 flags = {};
@@ -373,7 +377,12 @@ classdef MeasurementSession < handle
             a.gainSetting = char(note);
             if ~isfield(a, 'knownModels') || isempty(a.knownModels), a.knownModels = {'none (direct drive)'}; end
             if ~isempty(model) && ~any(strcmp(a.knownModels, model)), a.knownModels{end+1} = model; end
-            obj.Cfg.amplifier = a;
+            % validated like every other setter: e.g. direct drive with generator
+            % load '50' is refused here, not only at the next setExcitation
+            % (review analysis-5)
+            c = obj.Cfg; c.amplifier = a;
+            tim.app.validateConfig(c);
+            obj.Cfg = c;
             obj.ConfirmedExcitation = '';
             if isfinite(gainFactor)
                 gainTxt = sprintf('gain ×%.3g (%.1f dB)', gainFactor, a.gain_dB);
@@ -447,6 +456,7 @@ classdef MeasurementSession < handle
                 error('tim:cal:file', '"%s" is not a calibration file of this program (switching calibration).', file);
             end
             obj.Calibration = S.cal;
+            obj.CalibrationFile = char(file);
             obj.log('Loaded calibration %s (%s).', S.cal.version, file);
         end
 
@@ -624,7 +634,7 @@ classdef MeasurementSession < handle
             if strcmp(sig, obj.ConfirmedExcitation), return; end
             lang = obj.lang();
             msg = tim.app.msg(lang, 'confirmExcitation', what, amplitudeVpp, obj.Cfg.generator.maxVpp, ...
-                obj.amplifierLine(amplitudeVpp));
+                obj.amplifierLine(amplitudeVpp), obj.Cfg.generator.load);
             fcn = obj.ExcitationConfirm;
             if isempty(fcn), fcn = @(m) tim.app.MeasurementSession.consoleConfirm(m, lang); end
             if ~fcn(msg)
@@ -669,6 +679,16 @@ classdef MeasurementSession < handle
     methods (Static)
         function v = ternary(c, a, b)
             if c, v = a; else, v = b; end
+        end
+        function m = micsByChannel(m)
+            %MICSBYCHANNEL Microphone list sorted by DAQ channel (element c =
+            %   channel c = record column c). validateConfig accepts cfg.mics in
+            %   any order; consumers that index by column (sensitivities, LAN-XI
+            %   channel names, GUI live display) need channel order (review plots-11).
+            if ~isempty(m) && isfield(m, 'channel')
+                [~, i] = sort([m.channel]);
+                m = m(i);
+            end
         end
         function s = sourceName(key)
             %SOURCENAME Operator name of a sensitivity source key ('teds' -> 'TEDS').

@@ -6,9 +6,10 @@ function info = reflection(ax, res, opts)
 %
 %   Top axes (about 2/3 of the height): |R| at the front face, |tau|
 %   (transmitted wave at the rear face / incident wave at the front face)
-%   and the dissipated fraction alpha = 1 - |R|^2 - |tau|^2, each masked
-%   with its validity mask (|R|: validR; |tau| and alpha: validTau, they
-%   need an anechoic termination), plus |R_term| of the termination
+%   and the dissipation coefficient alpha_d = 1 - |R|^2 - |tau|^2 (not the
+%   ISO absorption coefficient 1 - |R|^2), each masked with its validity
+%   mask (|R|: validR; |tau| and alpha_d: validTau, they need an anechoic
+%   termination), plus |R_term| of the termination
 %   (dotted; grey where the downstream pair is not trustworthy: outside
 %   the band, geometry or quality incl. calibration not OK) and the limit
 %   up to which tau counts as anechoic (dashed).
@@ -22,10 +23,12 @@ function info = reflection(ax, res, opts)
 %   anechoicRmax (only used when the result does not carry the value of its
 %   own validity masks, res.analysis.options.anechoicRmax).
 %
-%   info.summary  octave bands: Band [Hz] | |R| | |τ| | α  (mean over the
-%                 VALID bins of each band, '–' when there is none)
+%   info.summary  octave bands: Band [Hz] | |R| | |τ| | α_d  (mean over the
+%                 VALID frequency lines of each band, '–' when there is
+%                 none); bands of tim.plots.octaveBands ('*' = only partly
+%                 inside the analysis band)
 %   info.note     one-line explanation for the view header ('' when none)
-%   info.lines    coloured curves [|R| |tau| alpha |R_term| limit] (legend order)
+%   info.lines    coloured curves [|R| |tau| alpha_d |R_term| limit] (legend order)
 if nargin < 3, opts = struct(); end
 P = tim.gui.palette();
 o = viewOptions(res, opts);
@@ -36,7 +39,7 @@ end
 mn = char(8722);                                      % minus sign
 ylabel(ax1, 'Magnitude, energy fraction [–]');
 if isempty(ax2), xlabel(ax1, 'Frequency [Hz]'); else, ylabel(ax2, '\angle R [\circ]'); xlabel(ax2, 'Frequency [Hz]'); end
-centres = octaveCentres(o.band);
+B = tim.plots.octaveBands(o.band); centres = B.centres;
 info = struct('summary', [], 'note', '', 'lines', gobjects(0));
 
 if isempty(o.a)                                       % ---- empty state
@@ -44,7 +47,7 @@ if isempty(o.a)                                       % ---- empty state
     tim.plots.fitAxes(ax1, 'XRange', o.band, 'YRange', [0 1], 'YStep', 0.2);
     if ~isempty(ax2), tim.plots.fitAxes(ax2, 'XRange', o.band, 'YRange', [-180 180], 'YStep', 90); end
     tim.plots.emptyState(ax1, o.emptyText);
-    info.summary = bandSummary(centres, repmat({char(8211)}, numel(centres), 3));
+    info.summary = bandSummary(B, repmat({char(8211)}, numel(centres), 3));
     return
 end
 
@@ -62,7 +65,7 @@ hLim = yline(ax1, o.anechoicRmax, '--', 'Color', P.q.ref, 'LineWidth', 1);
 uistack([gRt; gA; gT; gR], 'bottom');                 % all grey curves under all coloured ones
 title(ax1, tim.plots.dataTitle(res, struct('simulation', o.simulation)), 'Interpreter', 'none');
 info.lines = [hR hT hA hRt hLim];
-tim.plots.legend(ax1, info.lines, {'|R|', '|\tau|', ['\alpha = 1 ' mn ' |R|^2 ' mn ' |\tau|^2'], ...
+tim.plots.legend(ax1, info.lines, {'|R|', '|\tau|', ['\alpha_d = 1 ' mn ' |R|^2 ' mn ' |\tau|^2'], ...
     '|R_{term}|', sprintf('|R_{term}| limit (%g)', o.anechoicRmax)});
 xr = o.band;                                         % analysis band; stepped: every step stays visible
 if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
@@ -79,17 +82,17 @@ markMissing(ax1, f(miss)); if ~isempty(ax2), markMissing(ax2, f(miss)); end
 [~, ~, tR] = tim.plots.bandValues(f, abs(a.R), v.validR, centres, '%.2f');
 [~, ~, tT] = tim.plots.bandValues(f, abs(a.tau), v.validTau, centres, '%.2f');
 [~, ~, tA] = tim.plots.bandValues(f, a.power.alpha, v.validTau, centres, '%.2f');
-info.summary = bandSummary(centres, [tR tT tA]);
+info.summary = bandSummary(B, [tR tT tA]);
 info.note = resultNote(res, a, f(miss));
 end
 
 % ---------------------------------------------------------------------------
-function s = bandSummary(centres, cells)
-s = struct('title', 'Octave bands', ...
-    'columns', {{'Band [Hz]', '|R|', '|τ|', 'α'}}, ...
-    'data', {[arrayfun(@(c) sprintf('%g', c), centres(:), 'UniformOutput', false), cells]}, ...
-    'note', ['Mean over the valid frequency lines of each octave band (centre/√2 … centre·√2); ' char(8211) ...
-             ' = no valid frequency line. |τ| and α need an anechoic termination (|R_term| below the limit).']);
+function s = bandSummary(B, cells)
+note = ['Mean over the valid frequency lines of each octave band (centre/√2 … centre·√2); ' char(8211) ...
+        ' = no valid frequency line. |τ| and α_d need an anechoic termination (|R_term| below the limit).'];
+if ~isempty(B.note), note = [note ' ' B.note]; end
+s = struct('title', 'Octave bands', 'columns', {{'Band [Hz]', '|R|', '|τ|', 'α_d'}}, ...
+    'data', {[B.labels, cells]}, 'note', note);
 end
 
 function o = viewOptions(res, opts)
@@ -111,12 +114,6 @@ if isfield(opts, 'anechoicRmax') && ~isempty(opts.anechoicRmax), o.anechoicRmax 
 if ~isempty(o.a) && isfield(o.a, 'options') && isfield(o.a.options, 'anechoicRmax')
     o.anechoicRmax = o.a.options.anechoicRmax;      % the limit the masks of this result used
 end
-end
-
-function c = octaveCentres(band)
-% octave bands 125 ... 4000 Hz that overlap the analysis band
-c = [125 250 500 1000 2000 4000];
-c = c(c * sqrt(2) > band(1) & c / sqrt(2) < band(2));
 end
 
 function [f2, y2, ok2] = breakWraps(f, y, ok)
@@ -152,7 +149,7 @@ elseif ~a.boundary.available
 elseif ~any(a.valid.validR)
     parts{end + 1} = 'No valid frequency line (grey curves). See Validity for the reasons.';
 elseif ~any(a.valid.validTau)
-    parts{end + 1} = 'τ and α not valid in any bin (termination not anechoic or quality) - see Validity';
+    parts{end + 1} = 'τ and α_d not valid on any frequency line (termination not anechoic or quality) - see Validity';
 end
 if ~isempty(fMissing)
     parts{end + 1} = sprintf('No value at %s Hz (see Validity)', strjoin(arrayfun(@(x) sprintf('%.0f', x), ...

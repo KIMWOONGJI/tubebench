@@ -17,8 +17,10 @@ function info = transferImpedance(ax, res, opts)
 %   else [120 4500]), simulation, emptyText, stepped (default from res.kind).
 %
 %   info.summary  octave bands: Band [Hz] | Re{Z_t}/ρc | Im{Z_t}/ρc (mean over
-%                 the VALID bins of each band, '–' when there is none); for a
-%                 thick specimen '–' everywhere and the reason in the note
+%                 the VALID frequency lines of each band, '–' when there is
+%                 none; bands of tim.plots.octaveBands, '*' = only partly
+%                 inside the analysis band); for a thick specimen '–'
+%                 everywhere and the reason in the note
 %   info.note     one-line explanation for the view header ('' when none)
 %   info.lines    coloured curves [Re Im] (empty when not drawn)
 if nargin < 3, opts = struct(); end
@@ -34,9 +36,9 @@ if isempty(ax2)
 else
     ylabel(ax2, 'Im\{Z_t\} / (\rho{}c) [–]'); xlabel(ax2, 'Frequency [Hz]');
 end
-centres = octaveCentres(o.band);
+B = tim.plots.octaveBands(o.band); centres = B.centres;
 dash = repmat({char(8211)}, numel(centres), 2);
-info = struct('summary', bandSummary(centres, dash, ''), 'note', '', 'lines', gobjects(0));
+info = struct('summary', bandSummary(B, dash, ''), 'note', '', 'lines', gobjects(0));
 
 % ---- nothing to draw: empty state with the default limits
 msg = '';
@@ -97,7 +99,7 @@ switch a.thin.velocityRef
     case 'downstream', uTxt = 'u = rear-face velocity';
     otherwise, uTxt = 'u = mean of the front- and rear-face velocities';
 end
-info.summary = bandSummary(centres, [tRe tIm], sprintf(['Mean over the valid frequency lines of each octave band; ' ...
+info.summary = bandSummary(B, [tRe tIm], sprintf(['Mean over the valid frequency lines of each octave band; ' ...
     '%s = no valid frequency line. ρc = %.1f Pa·s/m; %s.'], char(8211), a.air.Z0, uTxt));
 parts = {noCalNote(res)};                           % in order of importance
 if isempty(parts{1}) && ~any(ok)
@@ -128,12 +130,13 @@ for i = 1:numel(parts)
 end
 end
 
-function s = bandSummary(centres, cells, note)
+function s = bandSummary(B, cells, note)
 if isempty(note)
     note = ['Mean over the valid frequency lines of each octave band; ' char(8211) ' = no valid frequency line.'];
 end
+if ~isempty(B.note), note = [note ' ' B.note]; end
 s = struct('title', 'Octave bands', 'columns', {{'Band [Hz]', 'Re{Z_t}/ρc', 'Im{Z_t}/ρc'}}, ...
-    'data', {[arrayfun(@(c) sprintf('%g', c), centres(:), 'UniformOutput', false), cells]}, 'note', note);
+    'data', {[B.labels, cells]}, 'note', note);
 end
 
 function o = viewOptions(res, opts)
@@ -150,12 +153,6 @@ o.emptyText = 'No measurement yet';
 if isfield(opts, 'emptyText') && ~isempty(opts.emptyText), o.emptyText = opts.emptyText; end
 o.stepped = isstruct(res) && isfield(res, 'kind') && strcmp(res.kind, 'stepped');
 if isfield(opts, 'stepped') && ~isempty(opts.stepped), o.stepped = logical(opts.stepped); end
-end
-
-function c = octaveCentres(band)
-% octave bands 125 ... 4000 Hz that overlap the analysis band
-c = [125 250 500 1000 2000 4000];
-c = c(c * sqrt(2) > band(1) & c / sqrt(2) < band(2));
 end
 
 function markMissing(ax, fm)

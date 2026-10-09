@@ -80,10 +80,17 @@ lab geometry is recovered within 0.1 % (0.06 % found).
 attenuation. It keeps `Re k = ω/c`, i.e. it omits the phase-velocity reduction of equal magnitude.
 That is harmless for `|R|` (error < 0.008) and is the ISO-conformant choice for absorption work. It
 biases the thin-element `Z_t`, which is a small difference of two pressures extrapolated over
-`x3 − x2`: the absolute error is about `k″·(x3 − x2)·ρc`, i.e. 3–17 % for `|Z_t|/(ρc) ≈ 0.05` and
-1–2 % for `|Z_t|/(ρc) ≈ 1` in the lab tube (120 Hz–4 kHz, formula review acoustics-1).
+`x3 − x2`: the absolute error is about `k″·(x3 − x2)·ρc`, i.e. about `0.02ρc` at 4.5 kHz for
+`x3 − x2 = 157 mm`. Against the exact tube field (lab tube, 120 Hz–4.5 kHz, frequency-independent
+`Z_t`) the relative error reaches about 47 % at `|Z_t|/(ρc) = 0.05`, 12 % at 0.2 and 2 % at 1
+(review analysis-1; the earlier figure of 3–17 % was for a `Z_t` rising from 0.05ρc to 0.21ρc).
 
-**`'none'`.** Lossless: `k = ω/c`, `Z_c = ρc`.
+**`'none'`.** Lossless: `k = ω/c`, `Z_c = ρc`. The thin-element `Z_t` error is about `0.03ρc` at
+4.5 kHz in the lab tube, i.e. up to about two thirds of `Z_t` at `|Z_t|/(ρc) = 0.05`.
+
+`tim.app.validateConfig` reports a "CHECK:" warning for `'iso10534'` and `'none'`. A configuration
+saved before `'kirchhoff'` became the default (2026-10-09), and the `config.json` of an older
+measurement folder, still name `'iso10534'`; `tim.app.loadConfig` keeps the saved value.
 
 The same model must be used for the analysis, the reference expectations of Tests D/E
 (`testDE_reference` takes `res.analysis.k`) and the virtual tube (`tim.sim.tubeModel`,
@@ -438,9 +445,10 @@ Quantity-specific masks:
   `valid.upstream` (fields `measured`, `geometryOK`, `qualityOK`, `valid`, `flags`, `note`)
   requires the upstream wave amplitudes in the band; the spacing limits, mode limit,
   near-singularity, condition number and phase sensitivity of pair 1; coherence and SNR at M1 and
-  M2; a valid calibration; `|R| ≤ 1 + passivityTol`; and complete geometry. Data of M3/M4 (a rigid
-  plug in front of them, or a high-TL specimen with low downstream SNR) do not reject `R`. `R` is
-  the as-mounted reflection coefficient (section 3); `validR` has no termination condition.
+  M2; a valid calibration of the channels in M1 and M2; `|R| ≤ 1 + passivityTol`; and complete
+  geometry. Data of M3/M4 (a rigid plug in front of them, a high-TL specimen with low downstream
+  SNR, or a failed calibration of the M3/M4 channels) do not reject `R`. `R` is the as-mounted
+  reflection coefficient (section 3); `validR` has no termination condition.
 * `validTau = valid & complete geometry & |R_term| ≤ anechoicRmax` (also for `α_d` and `TL_τ`).
 * `validThinZt = valid & complete geometry & δ_u ≤ velocityMismatchMax` (also for the TL from
   `Z_t`).
@@ -448,9 +456,11 @@ Quantity-specific masks:
   (`cfg.analysis.validatedBands`), which are empty until the hardware validation (Tests D/E) has
   been carried out and the user enters the bands.
 
-The summary line (`valid.summary`, also the title of the Validity view) gives the number of
-frequency lines at each level, then "R valid (upstream pair) in N.", then the number of lines per
-flag inside the band.
+The summary line (`valid.summary`: the note under the "Validity criteria" table of the Validity
+view and a line in the message pane) gives the number of frequency lines at each level, then
+"N valid (R: M, upstream pair)", then the number of lines rejected by each flag inside the band
+("Rejected in the band by: …"). In that table the criteria of both pairs are marked "(R: M1/M2)":
+they reject `R` only through their upstream part (`valid.upstream`).
 
 ## 9. Units and level references
 
@@ -463,7 +473,7 @@ flag inside the band.
 | Without sensitivities | dB re 1 V and dB re 1 V²/Hz |
 | `\|H_k\|`, `\|C_k\|` | `20·log10\|·\|` dB; phases in degrees |
 | TL, TL_τ | dB (`20·log10` of amplitude ratios) |
-| Octave-band summaries | mean over the valid frequency lines in `[f_c/√2, f_c·√2)`; TL as the energy mean `−10·log10(mean \|τ\|²)` |
+| Octave-band summaries | every octave band (`f_c = 1000·2^n` Hz) that overlaps the analysis band; mean over the valid frequency lines in `[f_c/√2, f_c·√2)`; TL as the energy mean `−10·log10(mean \|τ\|²)`; "*" marks a band only partly inside the analysis band (mean over that part only) |
 
 ## References
 

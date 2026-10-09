@@ -64,6 +64,18 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             % without calibration nothing is valid
             res0 = tim.app.processMeasurement(meas, tc.cfg, []);
             tc.verifyFalse(any(res0.analysis.valid.valid));
+            % review analysis-3: R needs only the calibration of the channels in
+            % M1/M2. ch4 (port M4) not calibrated in 1-2 kHz: the four-microphone
+            % masks reject the band, validR does not change; ch2 (M2) rejects R.
+            band = cal.f >= 1000 & cal.f <= 2000; b = a.f > 1050 & a.f < 1950;
+            cal4 = cal; cal4.valid(band, 4) = false;
+            res4 = tim.app.processMeasurement(meas, tc.cfg, cal4);
+            tc.verifyFalse(any(res4.analysis.valid.valid(b)));
+            tc.verifyGreaterThan(nnz(a.valid.validR(b)), 0.5 * nnz(b));
+            tc.verifyEqual(res4.analysis.valid.validR, a.valid.validR);
+            cal2 = cal; cal2.valid(band, 2) = false;
+            res2 = tim.app.processMeasurement(meas, tc.cfg, cal2);
+            tc.verifyFalse(any(res2.analysis.valid.validR(b)));
 
             % storage: two saves -> two folders, nothing overwritten
             figs = tim.app.plotResults(res, meas, struct('Visible', 'off'));
@@ -169,6 +181,12 @@ classdef TestEndToEnd < matlab.unittest.TestCase
                 tc.verifyEqual(tl.spl_dB(k, :), lvl, 'AbsTol', 0.2);
             end
             tc.verifyTrue(all(tl.spl_dB - tl.noise_dB > 20, 'all'));
+            % review plots-11: the levels follow mics.channel, not the list order
+            m2 = m; m2.mics = m.mics([3 1 4 2]);
+            m2.mics(1).sensitivity_VperPa = 2 * m2.mics(1).sensitivity_VperPa;       % ch3
+            r2 = tim.app.processMeasurement(m2, c, []);
+            tc.verifyEqual(r2.toneLevels.spl_dB(:, [1 2 4]), tl.spl_dB(:, [1 2 4]), 'AbsTol', 1e-9);
+            tc.verifyEqual(r2.toneLevels.spl_dB(:, 3), tl.spl_dB(:, 3) - 20 * log10(2), 'AbsTol', 1e-9);
             tim.app.exportCsv(r, tc.tmp);
             S = readtable(fullfile(tc.tmp, 'spectra.csv'));
             tc.verifyEqual(S.level1_dB_SPL, tl.spl_dB(:, 1), 'AbsTol', 1e-6);
@@ -294,6 +312,49 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load');
             c.generator.load = '75';
             tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load');
+            % review analysis-6: exact values only (the 33220A driver and the GUI
+            % compare the raw text)
+            c.amplifier.model = 'power amplifier';
+            for ld = {'inf', ' 50', 'INF '}
+                c.generator.load = ld{1};
+                tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load', ld{1});
+            end
+            % review analysis-5: the session setter is validated as well
+            c.generator.load = '50'; c.amplifier.inputImpedance_ohm = 50;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            tc.verifyError(@() s.setAmplifierGain('none (direct drive)', 1), 'tim:config:load');
+            tc.verifyEqual(s.Cfg.amplifier.model, 'power amplifier', 'configuration unchanged');
+            s.setAmplifierGain('power amplifier', 5);
+            tc.verifyEqual(s.Cfg.amplifier.gainFactor, 5);
+            clear cleanup
+        end
+
+        function operatorMessages(tc)
+            % review docs-6: with generator.load '50' the programmed amplitude is
+            % the voltage across 50 ohm; the open-circuit voltage is twice as high
+            e = tim.app.msg('en', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE');
+            tc.verifySubstring(e, '0.1 Vpk (0.2 Vpp, open circuit); amplitude limit 1 Vpk');
+            tc.verifyEqual(tim.app.msg('en', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE', 'INF'), e);
+            e50 = tim.app.msg('en', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE', '50');
+            tc.verifySubstring(e50, ['0.1 Vpk (0.2 Vpp, programmed into 50 ' char(937) '; open circuit 0.2 Vpk); ' ...
+                'amplitude limit 1 Vpk']);
+            k50 = tim.app.msg('ko', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE', '50');
+            tc.verifySubstring(k50, ' 0.2 Vpk); ');
+            % same arguments in both languages: each one printed exactly once
+            % (sprintf repeats the template for surplus arguments)
+            for t = {e, e50, k50, tim.app.msg('ko', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE')}
+                tc.verifyEqual(count(t{1}, 'LINE'), 1);
+                tc.verifyEqual(count(t{1}, 'swept sine'), 1);
+            end
+            % review docs-13: header and diagram hint of the calibration dialog
+            tc.verifyEqual(tim.app.msg('en', 'calStepHeader', 3, 12), 'Calibration step 3 of 12');
+            tc.verifySubstring(tim.app.msg('ko', 'calStepHeader', 3, 12), '3 / 12');
+            tc.verifyEqual(tim.app.msg('en', 'calSeeDiagram'), '(see the diagram in the Calibration view)');
+            for ko = {tim.app.msg('ko', 'calStepHeader', 3, 12), tim.app.msg('ko', 'calSeeDiagram'), ...
+                    tim.app.msg('ko', 'interchange12')}
+                tc.verifyEmpty(regexp(ko{1}, '\<(step|see|the|in|Interchange|bundle)\>', 'once'), ko{1});
+            end
         end
 
         function validateConfigMessages(tc)
@@ -310,6 +371,21 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifySubstring(errText(b), ['7500 Hz is above 0.45 ' char(215) ' sample rate = 7373 Hz']);
             b = c; b.analysis.lossModel = 'kirchoff';
             tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:lossModel');
+            % review analysis-1: old configurations with 'iso10534' (or 'none')
+            % get a warning that names the thin-element Zt bias
+            tc.verifyFalse(any(contains(tim.app.validateConfig(c), 'Tube loss model')));
+            b = c; b.analysis.lossModel = 'iso10534';
+            rep = tim.app.validateConfig(b);
+            tc.verifyTrue(any(contains(rep, 'Tube loss model ''iso10534''') & contains(rep, '45 %')));
+            b.analysis.lossModel = 'none';
+            tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'Tube loss model ''none''')));
+            % review analysis-2: load '50' with an amplifier of unknown input impedance
+            b = c; b.generator.load = '50'; b.amplifier.model = 'power amplifier';
+            tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'unknown input impedance')));
+            b.amplifier.inputImpedance_ohm = 50;
+            tc.verifyFalse(any(contains(tim.app.validateConfig(b), 'unknown input impedance')));
+            b.generator.load = 'INF'; b.amplifier.inputImpedance_ohm = NaN;
+            tc.verifyFalse(any(contains(tim.app.validateConfig(b), 'unknown input impedance')));
             function t = errText(cfg)
                 t = '';
                 try
@@ -567,9 +643,71 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             S = load(fullfile(f.folder, f.name), 'cal');
             tc.verifyEqual(S.cal.C, cal.C);
             tc.verifySubstring(S.cal.meta.emptyCheck.text, 'cancelled by the operator');
+            % review gui-3: the session names the saved file (the GUI keeps it in
+            % cfg.calibration.file although runCalibration did not return)
+            [~, nm, ex] = fileparts(s.CalibrationFile);
+            tc.verifyEqual([nm ex], f.name);
+            tc.verifyTrue(isfile(s.CalibrationFile));
             kinds = cellfun(@(q) q.kind, reports, 'UniformOutput', false);
             tc.verifyTrue(any(strcmp(kinds, 'verification')), 'the step list gets the reason');
             tc.verifyFalse(s.Gen.isOutputOn());
+            clear cleanup
+        end
+
+        function errorAtReturnStepKeepsCalibration(tc)
+            % review analysis-7: any other error of the prompt at the "return the
+            % microphones" step also gives the saved file its final reason (not
+            % 'not performed yet') and a 'verification' report
+            s = tim.app.MeasurementSession(tc.cfg);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            done = tim.app.msg('en', 'calDone');
+            reports = {};
+            function prompt(msg, mapping)
+                s.setMicPositionsForSimulation(mapping);
+                if strcmp(msg, done), error('test:prompt', 'Prompt window lost.'); end
+            end
+            function report(q), reports{end + 1} = q; end
+            tc.verifyError(@() tim.app.runCalibration(s, struct('prompt', @prompt, 'report', @report)), 'test:prompt');
+            tc.assertTrue(isfile(s.CalibrationFile), 'calibration file saved and named on the session');
+            S = load(s.CalibrationFile, 'cal');
+            tc.verifyEqual(S.cal.version, s.Calibration.version);
+            tc.verifySubstring(S.cal.meta.emptyCheck.text, 'not performed: error');
+            tc.verifySubstring(S.cal.meta.emptyCheck.text, 'Prompt window lost');
+            tc.verifyFalse(contains(S.cal.meta.emptyCheck.text, 'not performed yet'));
+            q = reports(cellfun(@(r) strcmp(r.kind, 'verification'), reports));
+            tc.assertNumElements(q, 1);
+            tc.verifyEqual(q{1}.check.text, S.cal.meta.emptyCheck.text);
+            tc.verifyFalse(s.Gen.isOutputOn());
+            clear cleanup
+        end
+
+        function micsListedOutOfChannelOrder(tc)
+            % review plots-11: validateConfig accepts cfg.mics in any order (e.g. ch2
+            % listed before ch1). Sensitivities follow mics.channel: the session
+            % keeps its microphones in channel order and the processed spectra map
+            % record column c to channel c.
+            c = tc.cfg;
+            c.mics(1).certificateSensitivity_VperPa = 11.2e-3;          % ch1
+            c.mics(2).certificateSensitivity_VperPa = 22.4e-3;          % ch2
+            c.mics = c.mics([2 1 3 4]);
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            tc.verifyEqual([s.Mics.channel], 1:4);
+            tc.verifyEqual(s.Mics(2).sensitivity_VperPa, 2 * s.Mics(1).sensitivity_VperPa, 'RelTol', 1e-12);
+            m = s.measure('sweep');
+            r = tim.app.processMeasurement(m, c, []);
+            P = r.pressureSpectrum.PSD_Pa2perHz;
+            tc.verifyEqual(r.pressureSpectrum.channelOrder, 1:4);
+            x = m.records{1}; x = x - mean(x, 1);
+            nfft = min(8192, 2^nextpow2(size(x, 1)));
+            Pv = pwelch(x, hann(nfft, 'periodic'), nfft / 2, nfft, m.fs);
+            sens = [s.Mics.sensitivity_VperPa];
+            tc.verifyEqual(P, Pv ./ sens.^2, 'RelTol', 1e-9);
+            m2 = m; m2.mics = m.mics([4 2 1 3]);                   % list order must not matter
+            r2 = tim.app.processMeasurement(m2, c, []);
+            tc.verifyEqual(r2.pressureSpectrum.PSD_Pa2perHz, P);
             clear cleanup
         end
 

@@ -11,7 +11,7 @@ function r = channelIdentification(session, opts)
 %   cannot separate them - observed on the bench 2026-10-08).
 %   For every segment the channel with the largest > 200 Hz energy
 %   (in Pa, sensitivity layer) must be the instructed one, by > 6 dB.
-%   Prompts follow cfg.ui.language ('ko' default).
+%   Prompts follow cfg.ui.language ('en' default, 'ko').
 
 if nargin < 2, opts = struct(); end
 o = struct('waitForEnter', true, 'tReady', 2, 'tSeg', 6, 'hpFreq', 200, 'showFigure', true);
@@ -45,7 +45,8 @@ end
     end
 [x, info] = daq.acquire(nTot, @update);
 [b, a] = butter(4, o.hpFreq / (fs / 2), 'high');
-y = filtfilt(b, a, x - mean(x, 1)) ./ [session.Mics.sensitivity_VperPa];
+mc = tim.app.MeasurementSession.micsByChannel(session.Mics);   % column c = channel c
+y = filtfilt(b, a, x - mean(x, 1)) ./ [mc.sensitivity_VperPa];
 lev = zeros(nCh, nCh);
 for k = 1:nCh
     i1 = round((o.tReady + (k - 1) * o.tSeg + 0.5) * fs) + 1;

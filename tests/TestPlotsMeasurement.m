@@ -328,6 +328,74 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             tc.verifyEmpty(info.lines);
         end
 
+        function transferFunctionsNoteNamesTheCause(tc)
+            % H undefined: no data (raw spectra undefined too, e.g. a stepped-sine
+            % step without a value) vs outside the calibrated frequency range
+            r = tc.rSweep;
+            r.calibration.version = 'CAL-20261009-120000';                   % "calibrated"
+            r.spectra.H(5, :) = NaN; r.Hposition(5, :) = NaN;                 % no data
+            ax = tc.axesFor(3);
+            info = tim.plots.transferFunctions(ax, r);
+            tc.verifySubstring(info.note, 'H undefined at 1 of');
+            tc.verifySubstring(info.note, '(no data)');
+            tc.verifyFalse(contains(info.note, 'calibrated frequency range'), info.note);
+            r.Hposition(9, :) = NaN;                                         % spectra fine, no calibration there
+            info = tim.plots.transferFunctions(ax, r);
+            tc.verifySubstring(info.note, 'H undefined at 2 of');
+            tc.verifySubstring(info.note, '(1 no data, 1 outside the calibrated frequency range)');
+            r.spectra.H(5, :) = 1; r.Hposition(5, :) = 1;
+            info = tim.plots.transferFunctions(ax, r);
+            tc.verifySubstring(info.note, '(outside the calibrated frequency range)');
+        end
+
+        % ---------------------------------------------------------- fitAxes
+        function fitAxesRestoreViewAfterRedraw(tc)
+            % the axes are reused for every measurement: "restore view" (zoom out)
+            % goes back to the limits of the CURRENT data, not to those of the
+            % data shown at the first zoom (uiaxes as in the GUI)
+            uf = uifigure('Visible', 'off');
+            tc.addTeardown(@() delete(uf));
+            ax = uiaxes(uf);
+            plot(ax, 1:10, linspace(3, 27, 10)); tim.plots.fitAxes(ax);
+            zoom(ax, 2);                                  % MATLAB stores the view at the first zoom
+            cla(ax); plot(ax, 1:10, linspace(10, 60, 10)); tim.plots.fitAxes(ax);
+            yl = ax.YLim;
+            tc.verifyGreaterThanOrEqual(yl(2), 60);
+            zoom(ax, 2); zoom(ax, 'out'); drawnow;
+            tc.verifyEqual(ax.YLim, yl, 'AbsTol', 1e-9, 'restore view: limits of the new data');
+        end
+
+        function fitAxesTicksBackAfterRestore(tc)
+            % zoom -> automatic ticks; restore view -> the fitted octave ticks again
+            uf = uifigure('Visible', 'off');
+            tc.addTeardown(@() delete(uf));
+            ax = uiaxes(uf); ax.XScale = 'log'; hold(ax, 'on');
+            plot(ax, 120:10:4500, sin(120:10:4500));
+            tim.plots.fitAxes(ax, 'XRange', [120 4500]); drawnow;
+            tc.verifyEqual(ax.XTick, [125 250 500 1000 2000 4000]);
+            xl = ax.XLim;
+            zoom(ax, 4); drawnow;
+            tc.verifyEqual(ax.XTickMode, 'auto', 'zoomed: automatic ticks');
+            zoom(ax, 'out'); drawnow;
+            tc.verifyEqual(ax.XLim, xl, 'RelTol', 1e-9);
+            tc.verifyEqual(ax.XTick, [125 250 500 1000 2000 4000], 'fitted ticks after restore view');
+            tc.verifyEqual(cellstr(ax.XTickLabel).', {'125', '250', '500', '1k', '2k', '4k'});
+        end
+
+        function fitAxesWideOctaveRangeCoversData(tc)
+            % every second octave (wide range): the ticks still cover the data at both ends
+            ax = tc.axesFor(1); ax.XScale = 'log';
+            for r = {[20 32768], [20 16384], [12 40000], [10.5 4500], [20 64000]}
+                tim.plots.fitAxes(ax, 'Axis', 'x', 'XRange', r{1});
+                tc.verifyLessThanOrEqual(ax.XLim(1), r{1}(1), mat2str(r{1}));
+                tc.verifyGreaterThanOrEqual(ax.XLim(2), r{1}(2), mat2str(r{1}));
+                q = ax.XTick(2) / ax.XTick(1); q = 2^round(log2(q));
+                tc.verifyEqual(ax.XLim, [ax.XTick(1) / sqrt(q), ax.XTick(end) * sqrt(q)], 'RelTol', 1e-9, mat2str(r{1}));
+            end
+            tim.plots.fitAxes(ax, 'Axis', 'x', 'XRange', [20 32768]);      % Spectrum view at fs = 65536 Hz
+            tc.verifyEqual(ax.XTick, [31.5 125 500 2000 8000 31500]);
+        end
+
         % --------------------------------------------------------------- GUI axes
         function viewsWorkInUiaxes(tc)
             fig = uifigure('Visible', 'off', 'Position', [50 50 1180 640]);

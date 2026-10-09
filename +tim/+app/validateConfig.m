@@ -18,21 +18,37 @@ for i = 1:size(exName, 1)
             'of %.3g Vpk (%.3g Vpp, generator.maxVpp).'], exName{i, 2}, v / 2, v, lim / 2, lim);
     end
 end
-% generator output load setting (33220A OUTP:LOAD; source impedance always 50 ohm)
-ld = upper(strtrim(char(cfg.generator.load)));
-if ~any(strcmp(ld, {'INF', '50'}))
-    error('tim:config:load', 'Generator output load (generator.load) must be ''INF'' or ''50'' (got ''%s'').', ld);
+% generator output load setting (33220A OUTP:LOAD; source impedance always 50 ohm).
+% EXACT values: Keysight33220A (mustBeMember) and the GUI compare the raw text,
+% so 'inf' or ' 50' must not pass here and fail only at Connect (review analysis-6)
+ld = cfg.generator.load;
+if isstring(ld) && isscalar(ld), ld = char(ld); end
+if ~ischar(ld) || ~any(strcmp(ld, {'INF', '50'}))
+    got = ld; if ~ischar(got), got = mat2str(got); end
+    error('tim:config:load', 'Generator output load (generator.load) must be ''INF'' or ''50'' (got ''%s'').', got);
 end
-if strcmp(ld, '50') && isfield(cfg, 'amplifier') && startsWith(lower(cfg.amplifier.model), 'none')
+hasAmp = isfield(cfg, 'amplifier');
+direct = hasAmp && startsWith(lower(cfg.amplifier.model), 'none');
+if strcmp(ld, '50') && direct
     error('tim:config:load', ['Generator output load ''50'' (generator.load) with direct drive: the generator would set ' ...
         'the voltage across 50 Ω, which is half the open-circuit voltage that drives the loudspeaker. Use ''INF'' for ' ...
         'direct drive; ''50'' is only for an amplifier with a 50 Ω input.']);
 end
-if isfield(cfg, 'amplifier') && isfield(cfg.amplifier, 'inputImpedance_ohm') && ...
-        ~isempty(cfg.amplifier.inputImpedance_ohm) && ~isnan(cfg.amplifier.inputImpedance_ohm) && ...
-        ~(cfg.amplifier.inputImpedance_ohm > 0)
+zin = NaN;
+if hasAmp && isfield(cfg.amplifier, 'inputImpedance_ohm') && ~isempty(cfg.amplifier.inputImpedance_ohm)
+    zin = cfg.amplifier.inputImpedance_ohm;
+end
+if ~isnan(zin) && ~(zin > 0)
     error('tim:config:amplifier', ['Amplifier input impedance (amplifier.inputImpedance_ohm) must be greater than 0, ' ...
         'or empty to derive it from the generator output load.']);
+end
+if strcmp(ld, '50') && hasAmp && ~direct && isnan(zin)
+    % driveEstimate then assumes a 50-ohm amplifier input (Vin = programmed
+    % voltage); a high-Z input gets the open-circuit voltage 2x -> power 4x
+    % (review analysis-2)
+    report{end+1} = ['Generator output load ''50'' (generator.load) with an amplifier of unknown input impedance: ' ...
+        'the loudspeaker power check assumes a 50 Ω amplifier input. With a high-impedance input the loudspeaker ' ...
+        'gets up to 4 × the estimated power – enter the amplifier input impedance (amplifier.inputImpedance_ohm).'];
 end
 if isfield(cfg, 'loudspeaker')
     ls = cfg.loudspeaker;
@@ -64,6 +80,19 @@ end
 lm = cfg.analysis.lossModel;
 if ~(ischar(lm) || isstring(lm)) || ~any(strcmp(lm, {'kirchhoff', 'iso10534', 'none'}))
     error('tim:config:lossModel', 'Tube loss model (analysis.lossModel) must be ''kirchhoff'', ''iso10534'' or ''none''.');
+end
+% Configurations saved before 'kirchhoff' became the default (and config.json
+% of older measurement folders) still name 'iso10534'; loadConfig keeps the
+% saved value. Bias of the thin-element Zt in the lab tube, 120 Hz - 4.5 kHz,
+% against the exact tube field (review analysis-1, see wavenumber.m):
+% 'iso10534' up to ~47 % at |Zt|/rho c = 0.05, 'none' up to ~66 %.
+if strcmp(lm, 'iso10534')
+    report{end+1} = ['Tube loss model ''iso10534'' (analysis.lossModel) omits the phase-velocity reduction of the ' ...
+        'tube losses: the thin-element Zt is biased by about k''''(x3 - x2)·ρc (up to ~0.02 ρc at 4.5 kHz in the lab ' ...
+        'tube, i.e. ~45 % at |Zt|/ρc = 0.05). Use ''kirchhoff'' for Zt.'];
+elseif strcmp(lm, 'none')
+    report{end+1} = ['Tube loss model ''none'' (analysis.lossModel) ignores the tube losses: the thin-element Zt is ' ...
+        'biased by up to ~0.03 ρc at 4.5 kHz in the lab tube (~65 % at |Zt|/ρc = 0.05). Use ''kirchhoff''.'];
 end
 sw = cfg.excitation.sweep;
 if sw.fStart > cfg.analysis.fMin || sw.fStop < cfg.analysis.fMax

@@ -317,6 +317,9 @@ if ischar(v) || isstring(v)
     end
 end
 view(ax, v);
+% "Restore view" of the toolbar must return to THIS drawing, not to the view
+% stored at the first zoom of an earlier drawing
+if isappdata(ax, 'matlab_graphics_resetplotview'), rmappdata(ax, 'matlab_graphics_resetplotview'); end
 end
 
 function S = shell(S, x0, x1, rIn, rOut, col, gaps, tag)

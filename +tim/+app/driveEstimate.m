@@ -16,7 +16,10 @@ function d = driveEstimate(cfg, amplitudeVpp)
 %                  (~0 amplifier output impedance assumed). Zin =
 %                  cfg.amplifier.inputImpedance_ohm; when not given (NaN) it
 %                  follows generator.load: 'INF' -> high-Z input (Vin = Voc),
-%                  '50' -> 50-ohm input (Vin = Voc/2 = Vprog).
+%                  '50' -> 50-ohm input (Vin = Voc/2 = Vprog). With '50' and
+%                  a high-Z amplifier that assumption gives 2x too low a
+%                  voltage (4x power): validateConfig warns when Zin is not
+%                  given with load '50' (review analysis-2).
 %   P = Vspk_pk^2 / (2 Z)  - mean power of a sine / sweep (nominal impedance;
 %   the real loudspeaker impedance varies with frequency).
 %   NaN when an amplifier is used without a recorded gain.

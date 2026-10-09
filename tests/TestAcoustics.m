@@ -270,19 +270,27 @@ classdef TestAcoustics < matlab.unittest.TestCase
             tc.verifyEqual(-imag(kK) * air.c * D ./ sqrt(fq), 2.03e-2 * ones(size(fq)), 'RelTol', 5e-3);
             % thin element of low impedance at x = 0 in the exact tube, lab mics,
             % anechoic end: Zt within 0.1 % with 'kirchhoff'; the ISO model
-            % (Re k = w/c) is off by 3-17 % (the reason for the default)
+            % (Re k = w/c) is off by 3-17 % for this Zt (|Zt|/rho c rising from
+            % 0.05 to 0.21) - the reason for the default
             g = struct('diameter', D, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
                 'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0);
             Zt = air.Z0 * (0.05 + 0.05j * fq / 1000);
-            z = Zt ./ ZcT; tau = 2 ./ (2 + z); R = z ./ (2 + z);
-            x = g.micPositions; p = zeros(numel(fq), 4);
-            for m = 1:2, p(:, m) = exp(-1j * kT * x(m)) + R .* exp(1j * kT * x(m)); end
-            for m = 3:4, p(:, m) = tau .* exp(-1j * kT * x(m)); end
+            [p, R] = TestAcoustics.thinField(fq, kT, ZcT, Zt, g.micPositions);
             rK = tim.acoustics.analyzeFourMic(fq, p, g, tc.env, struct());
             rI = tim.acoustics.analyzeFourMic(fq, p, g, tc.env, struct('lossModel', 'iso10534'));
             tc.verifyLessThan(max(abs(rK.thin.Zt ./ Zt - 1)), 1e-3);
             tc.verifyGreaterThan(max(abs(rI.thin.Zt ./ Zt - 1)), 0.1);
             tc.verifyLessThan(max(abs(rK.R - R)), 1e-4);
+            % review analysis-1: the documented bias (wavenumber.m, validateConfig)
+            % for a frequency-independent |Zt|/rho c = 0.05: ~45 % with 'iso10534'
+            % (absolute ~ k''(x3 - x2) rho c), still < 0.1 % with 'kirchhoff'
+            Zt = air.Z0 * 0.05 * ones(size(fq));
+            p = TestAcoustics.thinField(fq, kT, ZcT, Zt, g.micPositions);
+            rK = tim.acoustics.analyzeFourMic(fq, p, g, tc.env, struct());
+            rI = tim.acoustics.analyzeFourMic(fq, p, g, tc.env, struct('lossModel', 'iso10534'));
+            eI = max(abs(rI.thin.Zt ./ Zt - 1));
+            tc.verifyLessThan(max(abs(rK.thin.Zt ./ Zt - 1)), 1e-3);
+            tc.verifyGreaterThan(eI, 0.35); tc.verifyLessThan(eI, 0.55);
         end
 
         function nearSingularityPerPair(tc)
@@ -353,6 +361,19 @@ classdef TestAcoustics < matlab.unittest.TestCase
             tc.verifyEqual(r.validBins, nnz(v.upstream.geometryOK & v.upstream.qualityOK));
             tc.verifyEqual(r.magDeficit_median, 0, 'AbsTol', 1e-9);
             tc.verifyEqual(r.nonPassiveBins, 0);
+            % review analysis-4: the reference-channel warning only when the
+            % reference microphone sits behind the plug face xFront + L
+            rr = struct('analysis', a, 'channelOfPosition', 1:4, 'spectra', struct('refChannel', 3));
+            tc.verifyNotEmpty(tim.val.testDE_reference(rr, 'rigid', struct('L', 0)).warning);
+            rr.spectra.refChannel = 1;
+            tc.verifyEmpty(tim.val.testDE_reference(rr, 'rigid', struct('L', 0)).warning);
+            mP = tim.sim.tubeModel(fq, g, tc.env, struct('type', 'air'), struct('R', 1, 'x', 0.30));   % plug beyond M4
+            tc.verifyEqual(mP.behindTermination, false(1, 4));
+            aP = tim.acoustics.analyzeFourMic(fq, mP.p, g, tc.env, struct('calValid', true(size(fq)), 'fRange', [120 4500]));
+            rP = tim.val.testDE_reference(struct('analysis', aP, 'channelOfPosition', 1:4, ...
+                'spectra', struct('refChannel', 3)), 'rigid', struct('L', 0.30));
+            tc.verifyTrue(rP.passed);
+            tc.verifyEmpty(rP.warning, 'reference at M3 upstream of the plug');
             % low coherence at M1 rejects R (and Test D bins) where it occurs
             coh2 = coh; bad = fq > 1000 & fq < 1500; coh2(bad, 1) = 0.5;
             o.quality.coherence = coh2;
@@ -392,6 +413,14 @@ classdef TestAcoustics < matlab.unittest.TestCase
             Ce = (1 + (air.gamma - 1) * F(xt)) / (air.rho * air.c^2);
             k = w .* sqrt(rhoE .* Ce); k = real(k) - 1j * abs(imag(k));
             Zc = sqrt(rhoE ./ Ce);
+        end
+
+        function [p, R] = thinField(fq, k, Zc, Zt, x)
+            % pressures at x (1x4) for a thin element Zt at x = 0, anechoic end
+            z = Zt ./ Zc; tau = 2 ./ (2 + z); R = z ./ (2 + z);
+            p = zeros(numel(fq), 4);
+            for m = 1:2, p(:, m) = exp(-1j * k * x(m)) + R .* exp(1j * k * x(m)); end
+            for m = 3:4, p(:, m) = tau .* exp(-1j * k * x(m)); end
         end
     end
 end

@@ -21,7 +21,8 @@ function r = testDE_reference(res, kind, opts)
 %       passivity screen is NOT applied (an over-unity |R| must count, not
 %       be dropped); such lines are reported as nonPassiveBins. The
 %       reference channel must be at M1 or M2 when M3/M4 are behind the plug
-%       (r.warning otherwise).
+%       (r.warning when the reference microphone lies downstream of the plug
+%       face xFront + L; no warning with the plug downstream of M4).
 %       (Results computed before the upstream masks existed fall back to
 %       res.analysis.valid.valid.)
 %   'empty' (Test E, empty-tube check): the empty specimen section is
@@ -75,8 +76,11 @@ switch kind
             'phaseError_deg_rms', rms(rad2deg(angle(dR(v)))), ...
             'magDeficit_median', median(1 - abs(dR(v))), ...
             'nonPassiveBins', nnz(nonPassive & v), 'warning', '');
+        % warn only when the reference microphone really sits behind the plug
+        % face (xFront + L): with the plug as the termination downstream of M4
+        % a reference at M3/M4 is fine (review analysis-4)
         refPos = referencePosition(res);
-        if ~isempty(refPos) && refPos > 2
+        if ~isempty(refPos) && refPos > 2 && behindPlug(a, refPos, L)
             r.warning = sprintf(['Reference channel at M%d: with M3/M4 behind the plug the upstream ' ...
                 'coherence is lost – use a reference channel at M1 or M2 for Test D.'], refPos);
         end
@@ -101,10 +105,20 @@ switch kind
             'nonPassiveBins', nnz(a.valid.flags.nonPassive & v));
         r.passed = nnz(v) > 0 && r.tauMagError_median < 0.02 && r.tauPhaseError_deg_rms < 2 && ...
             r.RconsistencyError_median < 0.02;
-        r.criteria = ['||τ| - 1| < 0.02, τ phase error < 2° rms, |R - Rterm e^(-2jkd)| < 0.02 ' ...
+        r.criteria = ['||τ/τ_exp| - 1| < 0.02, τ phase error < 2° rms, |R - Rterm e^(-2jkd)| < 0.02 ' ...
             '(medians over the frequency lines that meet the geometry and quality criteria, no passivity screen)'];
     otherwise
         error('tim:val:kind', 'kind must be rigid or empty.');
+end
+end
+
+function b = behindPlug(a, pos, L)
+% microphone at tube position pos downstream of the plug face xFront + L;
+% true (warn) when the coordinates are unknown
+b = true;
+if isfield(a, 'geometry') && isfield(a.geometry, 'positionsKnown') && a.geometry.positionsKnown && ...
+        isfield(a.boundary, 'xFront') && isfinite(a.boundary.xFront)
+    b = a.geometry.x(pos) > a.boundary.xFront + L;
 end
 end
 

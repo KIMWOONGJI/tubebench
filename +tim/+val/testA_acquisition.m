@@ -12,7 +12,7 @@ if nargin < 2, duration = 2; end
 m = session.measureBackground(duration);
 info = m.channelInfo{1};
 x = m.records{1};
-p = tim.acq.voltsToPascal(x - mean(x, 1), m.mics, 'V');
+p = tim.acq.voltsToPascal(x - mean(x, 1), tim.app.MeasurementSession.micsByChannel(m.mics), 'V');   % column c = channel c
 [P, f] = pwelch(p, hann(4096, 'periodic'), 2048, 4096, m.fs);
 band = f >= 100 & f <= 5000;
 lvl = 10 * log10(sum(P(band, :), 1) * (f(2) - f(1)) / (2e-5)^2);

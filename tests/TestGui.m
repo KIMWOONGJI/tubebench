@@ -204,6 +204,31 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyFalse(any(contains(s.LogLines, 'Repetition 4:')), strjoin(s.LogLines, newline));
         end
 
+        function staleStopDoesNotAnswerLaterQuestions(tc)
+            % final review 2026-10-09 (gui-1): the session keeps the Stop flag after a
+            % stopped measurement; ask() must honour it only DURING an action, else
+            % the unsaved-measurement question (Start, Close ...) is answered 'Cancel'
+            % without a dialog and the button silently does nothing
+            c = tim.app.defaultConfig(); c.mode = 'simulation';
+            c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 3; c.excitation.sweep.repetitions = 4;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            stopper = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) feval(h.stop.ButtonPushedFcn, h.stop, []));
+            tc.addTeardown(@() delete(stopper));
+            start(stopper);
+            feval(h.start.ButtonPushedFcn, h.start, []);            % stopped after about 1 s
+            tc.assertTrue(app.Session.StopRequested, 'the flag stays set after the action');
+            tc.verifyFalse(app.Busy);
+            tc.verifyEqual(app.ask('Measure anyway?', 'Unsaved measurement', {'Measure', 'Cancel'}, 1, 2), 'Measure', ...
+                'a stale Stop flag must not answer a later question');
+            tc.verifySubstring(h.status.Text, 'Ready', 'status restored after the stop');
+            tc.verifyEqual(h.stop.Enable, matlab.lang.OnOffSwitchState.off, 'Stop only during an action');
+        end
+
         function appSimulationWorkflow(tc)
             % hidden app window: connect (checklist + cards), switching
             % calibration (step list), measurement (waveforms in Pa)

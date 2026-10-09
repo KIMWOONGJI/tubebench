@@ -10,7 +10,7 @@ cfg = struct();
 cfg.formatVersion = 1;
 cfg.mode = 'simulation';                % 'simulation' | 'hardware'
 cfg.projectName = 'transfer-impedance-tube-measurement';
-cfg.ui = struct('language', 'en');      % operator prompts in MATLAB: 'en' (default) | 'ko'
+cfg.ui = struct('language', 'en');      % operator prompts and confirmations (tim.app.msg): 'en' (default) | 'ko'
 
 % ---------------- instruments ----------------
 % The 33220A source impedance is always 50 ohm. OUTP:LOAD only rescales the

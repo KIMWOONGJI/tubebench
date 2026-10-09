@@ -159,7 +159,11 @@ classdef ViewPage < handle
             end
             px = 7 * len + 14;
             avail = p.SummaryPanel.Parent.ColumnWidth{2} - 4;
-            if sum(px) > avail, px = max(30, floor(px * avail / sum(px))); end
+            if sum(px) > avail
+                px = max(30, floor(px * avail / sum(px)));
+                ex = sum(px) - avail;                 % the 30 px floor can exceed the panel:
+                if ex > 0, [~, i] = max(px); px(i) = max(30, px(i) - ex); end   % take it from the widest column
+            end
             w = num2cell(px);
         end
 

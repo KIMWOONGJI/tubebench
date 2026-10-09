@@ -5,7 +5,9 @@ function info = calibration(ax2, cal, opts)
 %   g_k is the complex gain of measurement chain k (microphone, cable, CCLD
 %   supply, LAN-XI input). Two stacked axes (created by the caller: uiaxes
 %   in the GUI, axes in a figure): top |C_k| [dB], bottom phase of C_k [°]
-%   (unwrapped), one curve per channel k ~= ref in the colour of channel k,
+%   (unwrapped over the valid frequency lines only, valid part near its
+%   wrapped value - noisy invalid lines cannot offset it by 360° * n), one
+%   curve per channel k ~= ref in the colour of channel k,
 %   masked by cal.valid(:,k) (grey = not valid), legend 'ch2 / ch1'. Title
 %   (top axes only): tim.plots.dataTitle(cal). Calibrated transfer functions
 %   are H_k = (Y_k / Y_ref) / C_k (tim.cal.applyCalibration).
@@ -106,7 +108,7 @@ for k = 1:size(cal.C, 2)
     ok = V(:, k) & fin;
     if ~any(ok), noValid(end + 1) = k; end %#ok<AGROW>
     mag = 20 * log10(abs(c));
-    ph = nan(Nf, 1); ph(fin) = rad2deg(unwrap(angle(c(fin))));   % continuous; C_k is near 0 deg at low f
+    ph = phaseDeg(c, ok);                          % unwrapped over the valid lines, near 0 deg
     col = P.ch(1 + mod(k - 1, size(P.ch, 1)), :);
     hM = tim.plots.masked(axM, f, mag, ok, col, mopts);
     hP = tim.plots.masked(axP, f, ph, ok, col, mopts);
@@ -168,6 +170,27 @@ function finish(axM, axP, xr, yM, yP, magFit, phFit)
 tim.plots.fitAxes(axM, 'XRange', xr, 'YRange', yM, 'YInclude', 0, magFit{:});
 tim.plots.fitAxes(axP, 'XRange', xr, 'YRange', yP, 'YInclude', 0, phFit{:});
 linkaxes([axM axP], 'x');
+end
+
+function ph = phaseDeg(c, ok)
+% phase of C_k in degrees for the curve and the summary. Unwrapped over the
+% VALID lines only: the random phase of noisy (invalid) lines would add 2*pi
+% jumps that offset every later valid line by 360 deg * n. The valid part is
+% then shifted by the multiple of 360 deg that puts its median nearest to
+% 0 deg (its wrapped value: matched chains are a few degrees apart); an
+% invalid line keeps its wrapped angle, shifted by the multiple of 360 deg
+% nearest to the closest valid line. Without any valid line: unwrapped over
+% the finite lines and shifted alike (e.g. a reversed polarity stays at 180 deg).
+ph = nan(size(c)); fin = isfinite(c);
+w = rad2deg(angle(c));
+use = ok & fin; if ~any(use), use = fin; end
+ph(use) = rad2deg(unwrap(angle(c(use))));
+ph(use) = ph(use) - 360 * round(median(ph(use)) / 360);
+rest = find(fin & ~use);
+if isempty(rest), return; end
+iu = find(use);
+if isscalar(iu), near = repmat(iu, size(rest)); else, near = interp1(iu, iu, rest, 'nearest', 'extrap'); end
+ph(rest) = w(rest) + 360 * round((ph(near) - w(rest)) / 360);
 end
 
 function r = yRange(y, ok)

@@ -4,8 +4,8 @@ function fig = plotCalibration(cal, opts)
 %   fig = tim.app.plotCalibration(cal, struct('Visible', 'off'))
 %   Two stacked axes drawn by the same view as the GUI (tim.plots.calibration):
 %   |C_k| [dB] and the phase of C_k [deg], colour of channel k, grey =
-%   invalid bins. Below the axes a footnote repeats the summary of the
-%   view (valid bins, ranges, re-mount repeatability per channel) and the
+%   invalid frequency lines. Below the axes a footnote repeats the summary of
+%   the view (valid lines, ranges, remounting repeatability per channel) and the
 %   empty-tube check (Test E), so that a saved figure is self-contained.
 %   cal = [] gives the empty view. Other opts fields (band, simulation,
 %   emptyText) are passed to the view.
@@ -30,7 +30,7 @@ lines = cell(size(d, 1), 1);
 for i = 1:size(d, 1)
     rep = 'not measured';
     if ~strcmp(d{i, 5}, none), rep = [strrep(d{i, 5}, ' / ', ' dB / ') deg]; end
-    if strcmp(d{i, 3}, none)                       % no valid bin (or not calibrated)
+    if strcmp(d{i, 3}, none)                       % no valid line (or not calibrated)
         lines{i} = sprintf('%s:   valid lines %s %% – no valid calibration,   remounting repeatability %s', ...
             d{i, 1}, d{i, 2}, rep);
     else

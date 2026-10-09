@@ -20,10 +20,13 @@ function v = validityMasks(res, geom, o)
 %                     upstream measured, pair-1 geometry (spacing limits of s1,
 %                     mode limit, near-singularity / condition / phase
 %                     sensitivity of pair 1), coherence and SNR of positions
-%                     1-2, calibration validity, |R| <= 1 + passivityTol, and
-%                     complete geometry. Downstream data (a rigid plug in front
-%                     of M3/M4, high-TL specimens with low downstream SNR) do
-%                     not reject R. (Formula review 2026-10-09, calval-1.)
+%                     1-2, calibration validity of positions 1-2 (o.calValidPos;
+%                     all channels when only o.calValid is given), |R| <= 1 +
+%                     passivityTol, and complete geometry. Downstream data (a
+%                     rigid plug in front of M3/M4, high-TL specimens with low
+%                     downstream SNR, a failed calibration of the M3/M4
+%                     channels) do not reject R. (Formula review 2026-10-09,
+%                     calval-1; review analysis-3.)
 %     v.validTau      v.valid & complete geometry & |Rterm| <= anechoicRmax
 %     v.validThinZt   v.valid & complete geometry & velocity mismatch <= max
 %     v.upstream      the upstream-only masks and flags (measured, geometryOK,
@@ -102,12 +105,20 @@ if ~isempty(o.quality)
         up.lowSNR = any(low(:, 1:2), 2);
     end
 end
-if ~isempty(o.calValid)
+if isfield(o, 'calValidPos') && ~isempty(o.calValidPos)
+    % per position (columns M1..M4): R uses only H1/H2, i.e. C of the channels
+    % in M1/M2 (the reference column is always valid). A partial calibration
+    % or a failed downstream switching measurement no longer rejects R
+    % (review analysis-3).
+    fl.calInvalid = ~all(o.calValidPos, 2);
+    up.calInvalid = ~all(o.calValidPos(:, 1:2), 2);
+elseif ~isempty(o.calValid)
     fl.calInvalid = ~o.calValid(:);
+    up.calInvalid = fl.calInvalid;   % all-channel validity only (older callers)
 else
-    fl.calInvalid = true(Nf, 1);   % no complex calibration -> never "valid"
+    fl.calInvalid = true(Nf, 1);     % no complex calibration -> never "valid"
+    up.calInvalid = fl.calInvalid;
 end
-up.calInvalid = fl.calInvalid;   % calibration measured separately with sound at every channel
 qualityOK = ~fl.lowCoherence & ~fl.lowSNR & ~fl.calInvalid;
 qualityOKup = ~up.lowCoherence & ~up.lowSNR & ~up.calInvalid;
 
@@ -130,7 +141,7 @@ v.valid = measured & geometryOK & qualityOK & ~fl.nonPassive;
 v.upstream = struct('measured', measuredUp, 'geometryOK', measuredUp & geometryOKup, ...
     'qualityOK', qualityOKup, 'valid', measuredUp & geometryOKup & qualityOKup & ~up.nonPassive & hasB, ...
     'flags', up, 'note', ['R needs only the upstream pair M1/M2: masks from pair-1 geometry, ' ...
-    'coherence/SNR of positions 1-2, calibration and |R| <= 1 + passivityTol.']);
+    'coherence/SNR of positions 1-2, calibration of positions 1-2 and |R| <= 1 + passivityTol.']);
 % quantity-specific masks (boundary quantities need the complete geometry;
 % v.valid alone then only qualifies the pair-local decomposition)
 v.validR = v.upstream.valid;

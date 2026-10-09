@@ -85,6 +85,30 @@ classdef TestPlotsCalibration < matlab.unittest.TestCase
             tc.verifyTrue(any(cellfun(@(y) all(isfinite(y)), get(grey, 'YData'))));
         end
 
+        function phaseNotOffsetByInvalidLines(tc)
+            % noisy (invalid) lines at the band edge must not offset the valid
+            % phase by 360 deg * n: curve, axis and summary stay near 0 deg
+            cal = tc.makeCal();
+            c = cal.C(:, 3); n = 6;
+            c(1:n) = abs(c(1:n)) .* exp(1j * deg2rad(120 * (1:n).'));    % unwrap through them: +720 deg
+            cal.C(:, 3) = c; cal.valid(1:n, 3) = false;
+            old = rad2deg(unwrap(angle(c)));
+            tc.assertGreaterThan(old(n + 1), 700, 'precondition: unwrapping all lines offsets the valid part');
+            ok = cal.valid(:, 3);
+            ax = tc.newAxes();
+            info = tim.plots.calibration(ax, cal);
+            hP = findobj(ax(2), 'Tag', 'calPhase3');
+            tc.verifyLessThan(max(abs(hP.YData(ok))), 10, 'valid phase near 0 deg');
+            tc.verifyEqual(hP.YData(ok), rad2deg(unwrap(angle(cal.C(ok, 3)))).', 'AbsTol', 1e-9);
+            tc.verifyLessThan(max(abs(ax(2).YLim)), 30, 'phase axis not stretched to 720 deg');
+            ph = sscanf(strrep(info.summary.data{2, 4}, char(8230), ' '), '%f');
+            tc.verifyLessThan(max(abs(ph)), 10, ['summary phase ' info.summary.data{2, 4}]);
+            % the grey (invalid) lines stay within 180 deg of the valid curve
+            g = findobj(ax(2), 'Type', 'line', 'Color', tim.gui.palette().invalid);
+            y = get(g, 'YData'); if iscell(y), y = cell2mat(y(:)); end
+            tc.verifyLessThanOrEqual(max(abs(y(:))), 180 + 10);
+        end
+
         function limitsHalfTickAndLinked(tc)
             cal = tc.makeCal();
             ax = tc.newAxes();

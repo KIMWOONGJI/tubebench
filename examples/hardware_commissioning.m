@@ -94,8 +94,10 @@ disp(report.H6)
 %     specimen section with its face at xFront (L = 0); M3/M4 are then behind
 %     the plug and record only background noise. Test D selects the frequency
 %     lines with the upstream-only masks (res.analysis.valid.upstream).
-%   * Condition: the reference channel (analysis.refChannel) must be at M1 or
-%     M2, otherwise the upstream coherence is lost (report.H7_D.warning).
+%   * Condition: with M3/M4 behind the plug the reference channel
+%     (analysis.refChannel) must be at M1 or M2, otherwise the upstream
+%     coherence is lost (report.H7_D.warning; not raised for a plug
+%     downstream of the reference microphone).
 %   * No passivity screen: lines with |R| > 1 + passivityTol count in the
 %     median deficit and are reported as nonPassiveBins.
 %   * Alternative: the plug as the termination downstream of M4, with the
@@ -124,9 +126,14 @@ disp(report.H7_E)
 rs = tim.app.processMeasurement(s.measure('stepped'), cfg, cal);
 rw = tim.app.processMeasurement(s.measure('sweep'), cfg, cal);
 Rw = interp1(rw.analysis.f, rw.analysis.R, rs.analysis.f);
-ok = rs.analysis.valid.validR & isfinite(Rw);    % R: validity of the upstream pair
-report.H8 = struct('f', rs.analysis.f, 'maxAbsDiffR', max(abs(rs.analysis.R(ok) - Rw(ok))), ...
-    'passed', max(abs(rs.analysis.R(ok) - Rw(ok))) < 0.03, 'criteria', 'max |R_stepped - R_sweep| < 0.03 over the valid frequency lines');
+% R: validity of the upstream pair in BOTH runs; Rw is interpolated linearly,
+% so both neighbouring sweep lines must be valid
+vw = double(rw.analysis.valid.validR);
+okW = interp1(rw.analysis.f, vw, rs.analysis.f, 'previous') == 1 & interp1(rw.analysis.f, vw, rs.analysis.f, 'next') == 1;
+ok = rs.analysis.valid.validR & okW & isfinite(Rw);
+report.H8 = struct('f', rs.analysis.f, 'maxAbsDiffR', max(abs(rs.analysis.R(ok) - Rw(ok))), 'validBins', nnz(ok), ...
+    'passed', any(ok) && max(abs(rs.analysis.R(ok) - Rw(ok))) < 0.03, ...
+    'criteria', 'max |R_stepped - R_sweep| < 0.03 over the frequency lines valid in both runs');
 disp(report.H8)
 
 %% Save the commissioning report and disconnect

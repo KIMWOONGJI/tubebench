@@ -76,6 +76,7 @@ classdef TestPlotsSaved < matlab.unittest.TestCase
             % text of a figure / view without TeX markup (for comparisons)
             s = strjoin(cellstr(s), ' ');
             s = strrep(s, '{\angle}', char(8736));
+            s = strrep(s, char(8810), '<<');                             % '≪' is drawn as '<<'
             s = regexprep(s, '\\color\[rgb\]\{[^}]*\}', '');
             s = regexprep(s, '[\\{}_^]', '');
         end
@@ -148,7 +149,11 @@ classdef TestPlotsSaved < matlab.unittest.TestCase
                 tc.verifyEqual(fig.Name, TestPlotsSaved.Titles{i});
                 tc.verifyNumElements(findobj(fig, 'Type', 'axes'), TestPlotsSaved.NumAxes(i), fig.Name);
                 tc.verifyEqual(findall(fig, 'Tag', 'timHeaderTitle').String, TestPlotsSaved.Titles{i});
-                tc.verifyNotEmpty(findall(fig, 'Tag', 'timHeaderDescription'));
+                % header = the texts of the GUI view page (tim.plots.viewText)
+                [ttl, desc] = tim.plots.viewText(TestPlotsSaved.Fields{i});
+                tc.verifyEqual(ttl, TestPlotsSaved.Titles{i});
+                tc.verifyEqual(TestPlotsSaved.plain(findall(fig, 'Tag', 'timHeaderDescription').String), ...
+                    TestPlotsSaved.plain(desc), fig.Name);
                 tc.verifySubstring(findall(fig, 'Tag', 'timFooter').String, 'transfer-impedance-tube-measurement');
                 info = getappdata(fig, 'timViewInfo');
                 tc.verifyTrue(isstruct(info) && isfield(info, 'summary'), fig.Name);
@@ -345,6 +350,37 @@ classdef TestPlotsSaved < matlab.unittest.TestCase
                 tc.verifyNotEmpty(findobj(fig, 'Tag', 'timEmptyState'), fig.Name);
                 tc.verifyEmpty(findall(fig, 'Tag', 'timSimulationMark'));
                 tc.verifyNumElements(findobj(fig, 'Type', 'axes'), TestPlotsSaved.NumAxes(i));
+            end
+        end
+
+        function measurementWithoutResult(tc)
+            % background noise / processing failed (res = []): the views the GUI
+            % shows for such a record, time signals and spectrum, drawn with data
+            f = tc.savedFigures([], tc.mSweep);
+            tc.verifyEqual(fieldnames(f).', {'waveforms', 'spectrum'});
+            tc.verifyEmpty(findobj(f.waveforms, 'Tag', 'timEmptyState'), 'time signals drawn');
+            tc.verifyEmpty(findobj(f.spectrum, 'Tag', 'timEmptyState'), 'spectrum drawn');
+            tc.verifyNotEmpty(findobj(f.spectrum, 'Type', 'line'));
+            tc.verifyNotEmpty(findall(f.spectrum, 'Tag', 'timSimulationMark'));
+            % opts.Views: only these figures, in view order; unknown names are an error
+            f = tc.savedFigures(tc.rSweep, tc.mSweep, struct('Views', {{'validity', 'reflection'}}));
+            tc.verifyEqual(fieldnames(f).', {'reflection', 'validity'});
+            f = tc.savedFigures([], tc.mSweep, struct('Views', {TestPlotsSaved.Fields}));
+            tc.verifyEqual(fieldnames(f).', TestPlotsSaved.Fields, 'explicit Views win over the default');
+            tc.verifyError(@() tim.app.plotResults(tc.rSweep, tc.mSweep, struct('Visible', 'off', ...
+                'Views', {{'reflection', 'nyquist'}})), 'tim:plotResults:views');
+        end
+
+        function descriptionsAsInTheGui(tc)
+            % one source for the view headers: the GUI view pages either call
+            % tim.plots.viewText or hold exactly its texts
+            src = tim.app.readTextUtf8(fullfile(tim.app.projectRoot(), '+tim', '+gui', 'TubeApp.m'));
+            if contains(src, 'tim.plots.viewText'), return; end
+            src = regexprep(src, '''\s*\.\.\.[^\n]*\n\s*''', '');          % join continued string literals
+            for i = 1:numel(TestPlotsSaved.Fields)
+                [ttl, desc] = tim.plots.viewText(TestPlotsSaved.Fields{i});
+                tc.verifySubstring(src, ['''' ttl ''', [''' desc ''']'], ...
+                    sprintf('TubeApp view page "%s": same description as tim.plots.viewText', ttl));
             end
         end
 

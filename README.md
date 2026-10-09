@@ -41,12 +41,12 @@ or configuration.
 
 ## Status (2026-10-09)
 
-* **Software**: complete. 174 automated tests in 16 test classes (simulation and recorded hardware
+* **Software**: complete. 189 automated tests in 16 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
   Results, Formula) and a message pane. Every view has a header, the graphs and a summary table;
-  the saved figures are drawn by the same views.
+  the saved figures are drawn by the same views, with the same titles and descriptions.
 * **Analysis**: tube losses by default with the visco-thermal (Kirchhoff) model, the ISO 10534-2
   attenuation as an option; air density from the ideal-gas law; R and its validity from the
   upstream microphone pair alone. See `docs/theory.md`.
@@ -82,8 +82,8 @@ config/                 user_config.json (lab settings), example_config.json (te
 +tim/+plots             the views, shared by the window and the saved figures: timeSignals,
                         spectrum, transferFunctions, reflection, transmissionLoss,
                         transferImpedance, validity, calibration; house style and helpers:
-                        style, fitAxes, legend, masked, bandValues, dataTitle, emptyState,
-                        thickSpecimen
+                        style, fitAxes, legend, masked, bandValues, octaveBands, dataTitle,
+                        emptyState, thickSpecimen, viewText (titles and descriptions)
 +tim/+gui               TubeApp (uifigure window), ViewPage (header + graphs + summary of a view),
                         drawTube3D (3D tube model), equationsPanel (Formula tab), Checklist,
                         palette, icon, closeApp

@@ -17,7 +17,7 @@ incident wave of ≈0.4 Pa (≈ 86 dB SPL), i.e. > 40 dB SNR per 2 Hz band.
 | B | stable sinusoid: relative amplitude/phase | `TestDsp/sineFitWithClockOffset`, `TestDsp/sineFitSnrUnbiased`, `TestValidationProcedures/testB` | `testB_singleFrequency` | SNR > 40 dB per 0.25 s block (narrow-band SNR of the sine fit, noise bandwidth 4 Hz; since 2026-10-09 an unbiased value, before it read 3.5 dB high); repeat scatter < 0.05 dB and < 0.2°; clock offset reported (typically < ±50 ppm) |
 | C | switching calibration; consistency before/after correction | `TestCalibration`, `TestEndToEnd/fullSweepWorkflow`, `TestValidationProcedures/testC` | `runCalibration`, `testC_calibrationConsistency` | remounting repeatability < 0.05 dB / 0.2°; independent interchanged measurement agrees after correction to < 0.05 dB and < 0.3° rms |
 | D | rigid termination | `TestAcoustics/rigidTermination`, `TestAcoustics/rigidPlugUpstreamOnly`, `TestValidationProcedures/testDrigid` | `testDE_reference(res,'rigid')` | after removing the propagation `exp(−2jkL)`: median magnitude deficit −0.02 … 0.05; phase error < 3° rms (upstream-pair frequency lines, no passivity screen; `nonPassiveBins` reported) |
-| E | empty-tube check (empty specimen section) | `TestAcoustics/emptyTube`, `TestAcoustics/emptySection75mm`, `TestValidationProcedures/testEempty` | `testDE_reference(res,'empty')`; automatic at the end of `runCalibration` | `\|\|τ\|−1\| < 0.02`, τ phase error < 2° rms, `\|R − R_term·e^{−2jkd}\| < 0.02` (medians over the frequency lines that meet the geometry and quality criteria, no passivity screen) |
+| E | empty-tube check (empty specimen section) | `TestAcoustics/emptyTube`, `TestAcoustics/emptySection75mm`, `TestValidationProcedures/testEempty` | `testDE_reference(res,'empty')`; automatic at the end of `runCalibration` | `\|\|τ/τ_exp\| − 1\| < 0.02` (`τ_exp = e^{−jkd}`), τ phase error < 2° rms, `\|R − R_term·e^{−2jkd}\| < 0.02` (medians over the frequency lines that meet the geometry and quality criteria, no passivity screen) |
 | F | synthetic waves with known amplitudes, mismatch and noise | `TestAcoustics/*` (exact to 1e-9; Monte-Carlo within the analytic bound), `TestEndToEnd` | – (simulation only) | – (verifies the algebra only; see below) |
 | G | stepped sine vs log sweep | `TestDsp/steppedVsSweep`, `TestEndToEnd/steppedSineAndCrossMethod` | commissioning section H8 | max `\|R_stepped − R_sweep\|` < 0.03 over the valid frequency lines |
 
@@ -54,13 +54,15 @@ Both tests compare with the wavenumber of the analysis (`res.analysis.k`, i.e.
     upstream-only masks (`res.analysis.valid.upstream`: in band, pair-1 geometry, coherence and SNR
     at M1 and M2, calibration). The plug may therefore sit in the specimen section, face at
     `xFront` (L = 0), with M3/M4 behind it recording only background noise. Condition: the
-    **reference channel must be at M1 or M2** (otherwise the upstream coherence is lost and
-    `r.warning` says so).
+    **reference channel must then be at M1 or M2** (otherwise the upstream coherence is lost).
+    `r.warning` says so when the reference microphone lies downstream of the plug face
+    `xFront + L`; with unknown microphone coordinates it always warns for a reference at M3/M4.
   * The passivity screen is **not** applied: an over-unity `|R|` must count in the median deficit,
     not be dropped. The number of lines with `|R| > 1 + passivityTol` is reported as
     `nonPassiveBins`.
   * Alternatively the plug can be the termination downstream of M4 with the empty specimen section
-    mounted (`L = x_plug − xFront`); pressure nodes at M3/M4 then do not matter either.
+    mounted (`L = x_plug − xFront`); pressure nodes at M3/M4 then do not matter either, and a
+    reference channel at M3 or M4 is allowed (no warning).
   * In the virtual tube a microphone behind the termination plane receives no sound (p = 0,
     `out.behindTermination`); the standing wave is not continued past the plug.
 * **E, empty-tube check**: mount the empty specimen section (lab tube: the original 75 mm part,
@@ -68,7 +70,10 @@ Both tests compare with the wavenumber of the analysis (`res.analysis.k`, i.e.
   column of thickness d = xRear − xFront = 75 mm. Theory, independent of the termination:
   `τ = exp(−jkd)` (free propagation of the forward wave, lossy wavenumber) and
   `R = R_term·exp(−2jkd)` (field continuity across the section). `R = 0` only for an anechoic
-  termination. Expected values for d = 75 mm, D = 29 mm, 20 °C:
+  termination. The pass criterion compares the measured τ with this expectation:
+  `|τ/τ_exp|` must deviate from 1 by less than 0.02 (`τ_exp = e^{−jkd}`, so the expected wall
+  attenuation of `|τ|` in the table below does not count as an error). Expected values for
+  d = 75 mm, D = 29 mm, 20 °C:
 
   | | 120 Hz | 1 kHz | 4.5 kHz |
   |---|---|---|---|

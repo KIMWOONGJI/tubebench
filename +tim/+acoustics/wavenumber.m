@@ -38,9 +38,15 @@ function [k, Zc] = wavenumber(f, air, diameter, lossModel)
 %                 equal-magnitude phase-velocity reduction. That is harmless
 %                 for |R| (< 0.008) but biases the thin-element Zt, which is
 %                 a small difference of pressures extrapolated over x3 - x2:
-%                 absolute error ~ k''(x3 - x2) rho c, i.e. 3-17 % for
-%                 |Zt|/rho c ~ 0.05 and 1-2 % for |Zt|/rho c ~ 1 (lab tube).
-%     'none'      k = k0 (lossless), Zc = rho c
+%                 absolute error ~ k''(x3 - x2) rho c (~0.02 rho c at 4.5 kHz
+%                 for x3 - x2 = 157 mm). Against the exact tube field (lab
+%                 tube, 120 Hz - 4.5 kHz, frequency-independent Zt) the error
+%                 reaches ~47 % at |Zt|/rho c = 0.05, ~12 % at 0.2 and ~2 %
+%                 at 1 (review analysis-1; the earlier figure 3-17 % was
+%                 for a Zt rising from 0.05 to 0.21 rho c). validateConfig
+%                 reports a warning for 'iso10534' and 'none'.
+%     'none'      k = k0 (lossless), Zc = rho c (thin-element Zt error up to
+%                 ~66 % at |Zt|/rho c = 0.05 in the lab tube)
 %
 %   The same model must be used for the analysis, the reference expectations
 %   (Test D/E) and the virtual rig (tim.sim.tubeModel); all of them take it

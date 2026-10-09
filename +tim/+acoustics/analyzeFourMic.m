@@ -29,6 +29,10 @@ function res = analyzeFourMic(f, H, geom, env, opts)
 %        quality          struct with coherence (Nf x 4) and snr_dB (Nf x 4)
 %        coherenceMin     (0.98)   snrMin_dB (20)
 %        calValid         (Nf x 1 logical) calibration validity
+%        calValidPos      (Nf x 4 logical, optional) calibration validity per
+%                         tube POSITION M1..M4; when given it replaces
+%                         calValid: all four columns for the four-microphone
+%                         masks, columns 1-2 for R (validR, Test D)
 %        fRange           [fmin fmax] analysis band
 %        validatedBands   (n x 2) experimentally validated bands [Hz]
 %        passivityTol     (0.05)  velocityMismatchMax (0.10)
@@ -168,7 +172,7 @@ end
 function o = fillDefaults(o)
 d = struct('lossModel', 'kirchhoff', 'velocityRef', 'mean', 'condMax', 40, ...
     'phaseUncertainty_rad', 0.002, 'maxPhaseSensitivity', 0.05, 'quality', [], ...
-    'coherenceMin', 0.98, 'snrMin_dB', 20, 'calValid', [], 'fRange', [], ...
+    'coherenceMin', 0.98, 'snrMin_dB', 20, 'calValid', [], 'calValidPos', [], 'fRange', [], ...
     'validatedBands', zeros(0, 2), 'passivityTol', 0.05, 'velocityMismatchMax', 0.10, ...
     'anechoicRmax', 0.1, 'lowerFraction', 0.01, 'upperFraction', 0.40);
 fn = fieldnames(d);

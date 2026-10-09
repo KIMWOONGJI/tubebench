@@ -37,6 +37,9 @@ function [cal, file, raw] = runCalibration(session, opts)
 %   Nf, repeatability) and after the empty-tube check (q.kind =
 %   'verification', q.check) - used by the GUI step list.
 %   Every raw measurement is returned in raw and saved with the calibration.
+%   The file is written (and adopted: session.Calibration,
+%   session.CalibrationFile) before the "return the microphones" prompt, so
+%   a cancel, Stop or error from there on keeps the calibration.
 
 if nargin < 2, opts = struct(); end
 cfg = session.Cfg;
@@ -140,6 +143,7 @@ if ~exist(d, 'dir'), mkdir(d); end
 file = tim.app.uniqueName(fullfile(d, [cal.version '.mat']));
 save(file, 'cal', 'raw', '-v7.3');
 session.Calibration = cal;
+session.CalibrationFile = file;                 % the GUI keeps this path also when the next step is cancelled
 session.log('Calibration %s saved to %s', cal.version, file);
 try
     if willCheck
@@ -148,13 +152,19 @@ try
         prompt(tim.app.msg(lang, 'calDoneNoCheck', why), home);
     end
 catch err
+    % every error at this step (cancel, Stop, or an error of the prompt
+    % callback): the saved file and the step list get the final reason
+    % instead of 'not performed yet' (review analysis-7)
     if any(strcmp(err.identifier, {'tim:gui:abort', 'tim:session:stopped'}))
         cal.meta.emptyCheck.text = 'not performed: cancelled by the operator – calibration saved without the empty-tube check';
-        save(file, 'cal', 'raw', '-v7.3');
-        session.Calibration = cal;
-        session.log('Empty-tube check (Test E): %s', cal.meta.emptyCheck.text);
-        report(struct('kind', 'verification', 'check', cal.meta.emptyCheck));
+    else
+        cal.meta.emptyCheck.text = ['not performed: error – calibration saved without the empty-tube check: ' ...
+            regexprep(err.message, '\.$', '')];
     end
+    save(file, 'cal', 'raw', '-v7.3');
+    session.Calibration = cal;
+    session.log('Empty-tube check (Test E): %s', cal.meta.emptyCheck.text);
+    report(struct('kind', 'verification', 'check', cal.meta.emptyCheck));
     rethrow(err);
 end
 if willCheck

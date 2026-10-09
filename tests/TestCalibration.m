@@ -154,8 +154,17 @@ classdef TestCalibration < matlab.unittest.TestCase
             [Hc, cv] = tim.cal.applyCalibration(fc, Htrue .* C, cal, 1);
             tc.verifyEqual(Hc, Htrue, 'AbsTol', 1e-12);
             tc.verifyTrue(all(cv));
-            [~, cv0] = tim.cal.applyCalibration(fc, Htrue, [], 1);
+            [~, cv0, ~, vc0] = tim.cal.applyCalibration(fc, Htrue, [], 1);
             tc.verifyFalse(any(cv0));
+            tc.verifyEqual(vc0, false(numel(fc), 4));
+            % review analysis-3: per-channel validity (DAQ channel columns) for the
+            % position-wise masks; calValid is the all-channel AND
+            cal.valid(11:20, 4) = false;
+            [~, cv, ~, vc] = tim.cal.applyCalibration(fc, Htrue .* C, cal, 1);
+            tc.verifySize(vc, [numel(fc) 4]);
+            tc.verifyFalse(any(vc(11:20, 4)));
+            tc.verifyTrue(all(vc(:, 1:3), 'all'));
+            tc.verifyEqual(cv, all(vc, 2));
             tc.verifyError(@() tim.cal.applyCalibration(fc, Htrue, cal, 2), 'tim:cal:ref');
         end
 

@@ -20,7 +20,11 @@ function info = validity(ax, res, opts)
 %   else [120 4500]), simulation, emptyText, stepped (default from res.kind).
 %
 %   info.summary  Criterion | Passing (bins) | % | Affects (which results
-%                 the criterion masks); note = res.analysis.valid.summary
+%                 the criterion masks); note = res.analysis.valid.summary +
+%                 what '(R: M1/M2)' means. The rows and flags above 'Valid R'
+%                 are for BOTH microphone pairs: they mask |τ|, α_d, TL and
+%                 Z_t; R needs only the upstream pair M1/M2 (row Valid R) and
+%                 is rejected only by their M1/M2 part.
 %   info.note     one-line explanation for the view header ('' when none)
 %   info.lines    patch / line handles of the rows (top to bottom)
 if nargin < 3, opts = struct(); end
@@ -51,7 +55,7 @@ if isempty(o.a)                                       % ---- empty state
     title(ax, char(160));                             % keeps the title line: no jump when data arrive
     tim.plots.fitAxes(ax, 'Axis', 'x', 'XRange', o.band);
     tim.plots.emptyState(ax, o.emptyText);
-    info.summary = summaryTable(rows, 0, '');
+    info.summary = summaryTable(rows, 0, rNote());
     return
 end
 
@@ -76,11 +80,17 @@ title(ax, tim.plots.dataTitle(res, struct('simulation', o.simulation)), 'Interpr
 xr = o.band;                                         % analysis band; stepped: every step stays visible
 if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
 tim.plots.fitAxes(ax, 'Axis', 'x', 'XRange', xr);
-info.summary = summaryTable(rows, numel(f), a.valid.summary);
+info.summary = summaryTable(rows, numel(f), [a.valid.summary ' ' rNote()]);
+nR = nnz(a.valid.validR);                             % R: upstream pair only (validityMasks)
 if isfield(res, 'calibration') && isfield(res.calibration, 'applied') && ~res.calibration.applied
     info.note = 'No calibration applied: no frequency line is valid. Load or run a calibration and reprocess.';
-elseif ~any(a.valid.valid)
+elseif ~a.boundary.available
+    info.note = 'Specimen face positions unknown (L1, d, L2): R, τ, TL and Z_t are not available.';
+elseif ~any(a.valid.valid) && nR == 0
     info.note = 'No valid frequency line. The red rows show which criteria reject them.';
+elseif ~any(a.valid.valid)
+    info.note = sprintf(['No frequency line valid for τ, TL and Z_t (red rows); R valid on %d lines ' ...
+        '(upstream pair M1/M2).'], nR);
 end
 nm = ~a.valid.measured;
 if o.stepped && any(nm)                               % a step that was not evaluated at all
@@ -92,14 +102,17 @@ end
 
 % ---------------------------------------------------------------------------
 function rows = criteria(a)
-% rows of the view: label (TeX), plain name, mask, flag row?, what it affects
-S = {'Measured (in band)',            'Measured (in band)',          'measured',    'all results'
-     'Geometry OK',                   'Geometry OK',                 'geometryOK',  'all results'
-     'Quality OK (coherence, SNR, cal.)', 'Quality OK (coherence, SNR, cal.)', 'qualityOK', 'all results'
-     'Passive',                       'Passive',                     '~nonPassive', 'all results'
-     '\bfValid',                      'Valid',                       'valid',       'all results'
+% rows of the view: label (TeX), plain name, mask, flag row?, what it affects.
+% Both-pair criteria mask τ, α_d, TL and Z_t; R (validR = upstream.valid) has
+% its own pair-1 version of them: '(R: M1/M2)', see rNote
+both = ['|τ|, α_d, TL, Z_t ' rOnly()];
+S = {'Measured (in band)',            'Measured (in band)',          'measured',    both
+     'Geometry OK',                   'Geometry OK',                 'geometryOK',  both
+     'Quality OK (coherence, SNR, cal.)', 'Quality OK (coherence, SNR, cal.)', 'qualityOK', both
+     'Passive',                       'Passive',                     '~nonPassive', '|τ|, α_d, TL, Z_t (R: |R| > 1)'
+     '\bfValid',                      'Valid',                       'valid',       '|τ|, α_d, TL, Z_t'
      'Valid R',                       'Valid R',                     'validR',      '|R|, ∠R'
-     'Valid \tau / TL',               'Valid τ / TL',                'validTau',    '|τ|, α, TL'
+     'Valid \tau / TL',               'Valid τ / TL',                'validTau',    '|τ|, α_d, TL'
      'Valid thin Z_t',                'Valid thin Z_t',              'validThinZt', 'Z_t, TL from Z_t'
      'Validated (experiment)',        'Validated (experiment)',      'validated',   'report only'};
 flags = {'outsideBand', 'belowSpacingLimit', 'aboveSpacingLimit', 'aboveModeCutOn', 'nearSingularity', ...
@@ -147,16 +160,28 @@ end
 end
 
 function t = flagAffects(name)
+% the both-pair flags reject R only through their pair-1 (M1/M2) part
+% (tim.acoustics.validityMasks, v.upstream.flags; R needs only the calibration
+% of the channels in M1 / M2); the mode cut-on is the same for both pairs
 switch name
-    case 'outsideBand', t = 'all (Measured)';
-    case {'belowSpacingLimit', 'aboveSpacingLimit', 'aboveModeCutOn', 'nearSingularity', ...
-            'illConditioned', 'phaseSensitive'}, t = 'all (Geometry OK)';
-    case {'lowCoherence', 'lowSNR', 'calInvalid'}, t = 'all (Quality OK)';
-    case 'nonPassive', t = 'all (Passive)';
+    case 'aboveModeCutOn', t = 'all results';
+    case {'outsideBand', 'belowSpacingLimit', 'aboveSpacingLimit', 'nearSingularity', ...
+            'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'calInvalid'}, t = ['|τ|, α_d, TL, Z_t ' rOnly()];
+    case 'nonPassive', t = '|τ|, α_d, TL, Z_t (R: |R| > 1)';
     case 'velocityMismatch', t = 'Z_t, TL from Z_t';
-    case 'terminationNotAnechoic', t = '|τ|, α, TL';
+    case 'terminationNotAnechoic', t = '|τ|, α_d, TL';
     otherwise, t = 'see Valid';
 end
+end
+
+function t = rOnly()
+t = '(R: M1/M2)';
+end
+
+function t = rNote()
+% the table note: what '(R: M1/M2)' in the Affects column means
+t = sprintf(['%s = R needs only the upstream pair: it is rejected only where the criterion fails at ' ...
+    'M1/M2 (row Valid R).'], rOnly());
 end
 
 function s = summaryTable(rows, nBins, note)

@@ -22,12 +22,20 @@ function figs = plotResults(res, meas, opts)
 %     impedance          Transfer impedance            tim.plots.transferImpedance (2)
 %     validity           Validity                      tim.plots.validity (1)
 %
+%   Header title and description: tim.plots.viewText (the texts of the GUI
+%   view pages).
+%
 %   opts (all optional): .Visible ('on' | 'off'), .Size (figure size in px,
-%   default [1200 700]), .simulation (default: true when meas.metadata
-%   has a WARNING field, i.e. simulated data: 'SIMULATION' in the titles of
-%   the views and a red 'SIMULATED DATA' mark in the header); every other
-%   field (band, emptyText, ...) is passed to the views. res or meas may be
-%   [] (the views show their empty state).
+%   default [1200 700]), .Views (cellstr of the fields above: only these
+%   figures are drawn and returned, in the order above), .simulation
+%   (default: true when meas.metadata has a WARNING field, i.e. simulated
+%   data: 'SIMULATION' in the titles of the views and a red 'SIMULATED DATA'
+%   mark in the header); every other field (band, emptyText, ...) is passed
+%   to the views. res or meas may be [] (the views show their empty state).
+%   Default views: all seven; a measurement WITHOUT a result (res = [] and
+%   meas given: background noise, or processing failed) gets only the views
+%   the GUI shows for it, 'waveforms' and 'spectrum':
+%     figs = tim.app.plotResults([], meas, struct('Visible', 'off'))
 %   Each figure keeps the info of its view (getappdata(fig, 'timViewInfo'));
 %   header, table and footer are arranged again when a visible figure is
 %   resized. A view that fails does not stop the others (nor the saving of
@@ -41,7 +49,18 @@ if nargin < 2, meas = []; end
 if nargin < 3 || isempty(opts), opts = struct(); end
 vis = 'on'; if isfield(opts, 'Visible'), vis = opts.Visible; end
 sz = [1200 700]; if isfield(opts, 'Size') && numel(opts.Size) == 2, sz = double(opts.Size(:).'); end
-vo = rmfield(opts, intersect(fieldnames(opts), {'Visible', 'Size'}));
+views = tim.plots.viewText();                         % all keys (= figs fields), in view order
+if isempty(res) && ~isempty(meas), views = {'waveforms', 'spectrum'}; end   % as the GUI shows it
+if isfield(opts, 'Views') && ~isempty(opts.Views)
+    want = cellstr(opts.Views);
+    bad = setdiff(want, tim.plots.viewText());
+    if ~isempty(bad)
+        error('tim:plotResults:views', 'Unknown view(s) %s (known: %s).', strjoin(bad, ', '), ...
+            strjoin(tim.plots.viewText(), ', '));
+    end
+    views = intersect(tim.plots.viewText(), want, 'stable');
+end
+vo = rmfield(opts, intersect(fieldnames(opts), {'Visible', 'Size', 'Views'}));
 if ~isfield(vo, 'simulation') || isempty(vo.simulation)
     vo.simulation = isstruct(meas) && isfield(meas, 'metadata') && isstruct(meas.metadata) && ...
         isfield(meas.metadata, 'WARNING');
@@ -49,47 +68,36 @@ end
 vo.simulation = logical(vo.simulation);
 foot = versionText(res);
 
-% field, header title, description (TeX), axes heights, view (texts as in the GUI)
+% field, axes heights, view; header title and description (plain text, as
+% in the GUI) from tim.plots.viewText
 V = {
-    'waveforms', 'Time signals', ['Recorded signal of every DAQ channel, with the tube port of its microphone ' ...
-        'in brackets.'], [1 1 1 1], ...
-        @(ax) tim.plots.timeSignals(ax, meas, vo)
-    'spectrum', 'Spectrum', ['Power spectral density of the sound pressure (swept sine, noise, background ' ...
-        'noise) or the level of every step (stepped sine). Dashed: analysis band.'], 1, ...
-        @(ax) tim.plots.spectrum(ax, meas, res, vo)
-    'transfer', 'Transfer functions', ['Calibrated transfer functions H = p(port) / p(reference) of the ' ...
-        'four ports, their phase and the coherence of every channel.'], [1 1 1], ...
-        @(ax) tim.plots.transferFunctions(ax, res, vo)
-    'reflection', 'Reflection and transmission', ['Reflection coefficient R at the specimen front face, ' ...
-        'transmission coefficient τ to the rear face and dissipation coefficient α_d = 1 − |R|² − |τ|². Grey: outside the valid range.'], ...
-        [2 1], @(ax) tim.plots.reflection(ax, res, vo)
-    'transmissionLoss', 'Transmission loss', ['Normal-incidence transmission loss TL = ' char(8722) ...
-        '20 log_{10}|τ| (anechoic termination). Grey: outside the valid range.'], 1, ...
-        @(ax) tim.plots.transmissionLoss(ax, res, vo)
-    'impedance', 'Transfer impedance', ['Thin-element transfer impedance Z_t = (p_{front} ' char(8722) ...
-        ' p_{rear}) / u, normalised by ρc (thin specimens: k·d << 1). Grey: outside the valid range.'], [1 1], ...
-        @(ax) tim.plots.transferImpedance(ax, res, vo)
-    'validity', 'Validity', ['Which frequency lines meet each criterion (geometry, coherence and SNR, ' ...
-        'passivity, anechoic termination, thin-element velocity match).'], 1, ...
-        @(ax) tim.plots.validity(ax, res, vo)
+    'waveforms',        [1 1 1 1], @(ax) tim.plots.timeSignals(ax, meas, vo)
+    'spectrum',         1,         @(ax) tim.plots.spectrum(ax, meas, res, vo)
+    'transfer',         [1 1 1],   @(ax) tim.plots.transferFunctions(ax, res, vo)
+    'reflection',       [2 1],     @(ax) tim.plots.reflection(ax, res, vo)
+    'transmissionLoss', 1,         @(ax) tim.plots.transmissionLoss(ax, res, vo)
+    'impedance',        [1 1],     @(ax) tim.plots.transferImpedance(ax, res, vo)
+    'validity',         1,         @(ax) tim.plots.validity(ax, res, vo)
     };
+V = V(ismember(V(:, 1), views), :);
 figs = struct();
 meter = newMeter();                                   % text sizes, shared by the figures
 cleanup = onCleanup(@() delete(ancestor(meter, 'figure')));
 for i = 1:size(V, 1)
-    [fig, ax, ov] = newFigure(V{i, 2}, vis, sz, V{i, 4});
+    [ttl, desc] = tim.plots.viewText(V{i, 1});
+    [fig, ax, ov] = newFigure(ttl, vis, sz, V{i, 2});
     fig.Tag = ['timSaved_' V{i, 1}];
     try
-        info = V{i, 5}(ax);
+        info = V{i, 3}(ax);
     catch err                                       % the data are saved even if a figure fails
-        warning('tim:plotResults:view', 'Figure ''%s'' could not be drawn: %s', V{i, 2}, err.message);
+        warning('tim:plotResults:view', 'Figure ''%s'' could not be drawn: %s', ttl, err.message);
         tim.plots.emptyState(ax(1), ['Figure could not be drawn: ' err.message]);
         info = struct('summary', [], 'note', 'Figure could not be drawn - see the warning in the command window.');
     end
     setappdata(fig, 'timViewInfo', info);
-    setappdata(fig, 'timSavedFrame', struct('title', V{i, 2}, 'description', V{i, 3}, ...
+    setappdata(fig, 'timSavedFrame', struct('title', ttl, 'description', tex(desc), ...
         'note', fieldText(info, 'note'), 'summary', fieldOr(info, 'summary', []), ...
-        'simulation', vo.simulation, 'footer', foot, 'overlay', ov, 'axes', ax, 'heights', V{i, 4}));
+        'simulation', vo.simulation, 'footer', foot, 'overlay', ov, 'axes', ax, 'heights', V{i, 2}));
     arrange(fig, meter);
     fig.SizeChangedFcn = @(f, ~) arrange(f);
     figs.(V{i, 1}) = fig;
@@ -363,7 +371,7 @@ if isempty(s), return; end
 words = strsplit(s, ' ');
 for k = numel(words):-1:2
     glue = any(strcmp(words{k}, {char(8211), char(8212), char(8722), '-', '/', char(8230), char(183), '='})) || ...
-        any(strcmp(words{k - 1}, {'>', '<', char(8805), char(8804), '~', char(177)})) || ...
+        any(strcmp(words{k - 1}, {'>', '<', '<<', char(8805), char(8804), '~', char(177)})) || ...
         (~isempty(regexp(words{k - 1}, '\d$', 'once')) && ~isempty(regexp(words{k}, ...
         '^(k?Hz|dB|mm|ms|s|Pa|mPa|mV|V|%)\W*$', 'once')));
     if glue, words{k - 1} = [words{k - 1} ' ' words{k}]; words(k) = []; end
@@ -400,12 +408,14 @@ end
 
 function s = tex(s)
 % plain text of a view -> TeX: \ { } ^ escaped, X_word as a subscript (Z_t,
-% R_term), the angle sign from the TeX symbol font (it is not in Arial)
+% R_term, α_d, p_front), the angle sign from the TeX symbol font (it is not
+% in Arial); '≪' is neither in Arial nor a TeX symbol: '<<'
 s = char(s);
 if isempty(s), return; end
 s = regexprep(s, '([\\{}^])', '\\$1');
 s = regexprep(s, '_(\w+)', '_{$1}');
 s = strrep(s, char(8736), '{\angle}');
+s = strrep(s, char(8810), '<<');
 end
 
 function [name, unit] = splitUnit(s)

@@ -7,6 +7,10 @@ function [hValid, hAll] = masked(ax, f, y, ok, colour, opts)
 %   because it is finite. Stepped sine (opts.stepped): results exist only
 %   at the step frequencies -> markers (valid: filled, colour; not valid:
 %   hollow, darker grey, so that an invalid step stays visible on white).
+%   Swept sine / noise: a valid frequency line between two invalid ones
+%   (a one-point segment of the coloured line, which MATLAB does not draw)
+%   gets a dot in the colour (Tag 'timIsolatedValid'), so that every line
+%   counted as valid by the octave-band tables is visible.
 %   Returns the coloured line (use it for the legend) and the grey one.
 if nargin < 6, opts = struct(); end
 stepped = isfield(opts, 'stepped') && opts.stepped;
@@ -27,6 +31,12 @@ if stepped
         'MarkerEdgeColor', colour, 'MarkerFaceColor', colour);
 else
     hValid = plot(ax, f, yv, ls, 'Color', colour, 'LineWidth', lw);
+    okv = ok & isfinite(y);
+    iso = okv & ~[false; okv(1:end - 1)] & ~[okv(2:end); false];   % valid, both neighbours not
+    if any(iso)
+        plot(ax, f(iso), y(iso), '.', 'Color', colour, 'MarkerSize', 3 * lw + 4, 'HitTest', 'off', ...
+            'Tag', 'timIsolatedValid');
+    end
 end
 if ~held, hold(ax, 'off'); end
 end

@@ -62,14 +62,16 @@ The same style is used in the window and in the saved figures:
 * frequency axes are logarithmic with **octave ticks** (31.5, 63, 125, 250, 500, 1k, 2k, 4k …) and
   cover the analysis band (stepped sine: every step);
 * **grey = not valid**. A curve is drawn thin and grey over its whole range, and its valid
-  frequency lines in colour on top. Nothing is shown as valid just because it is finite. Stepped
-  sine: one marker per step (filled = valid, hollow grey = not valid); a step without any value
-  is marked by a hollow triangle on the frequency axis;
+  frequency lines in colour on top (a single valid line between two that are not valid as a
+  coloured dot). Nothing is shown as valid just because it is finite. Stepped sine: one marker
+  per step (filled = valid, hollow grey = not valid); a step without any value is marked by a
+  hollow triangle on the frequency axis;
 * channel colours (Okabe–Ito, colour-blind safe): ch1 blue, ch2 vermilion, ch3 bluish green,
   ch4 reddish purple. Physical quantities (R, τ, α_d, TL, Z_t) use black, orange, sky blue and
   grey, never a channel colour;
 * every graph has a small toolbar: export, zoom in / out, pan, restore view. After a zoom the
-  ticks are automatic; "restore view" brings back the fitted limits and the octave ticks.
+  ticks are automatic; "restore view" brings back the fitted limits of the data shown now and the
+  octave ticks.
 
 ## 3. Safety behaviour
 
@@ -88,20 +90,31 @@ The same style is used in the window and in the saved figures:
   it. When an amplifier is chosen, its gain must be entered (section 4) before a measurement or a
   calibration can start.
 * **Excitation confirmation** (hardware mode): before the loudspeaker is driven, the dialog
-  "Confirm excitation" shows the signal, the generator amplitude in Vpk (Vpp in brackets), the
-  amplitude limit and the drive estimate with the amplifier gain. **Start excitation** drives the
-  loudspeaker, **Cancel** stops without driving it. The question comes once per combination of
-  amplitude and amplifier setting and again after any change (a calibration with ten sweeps asks
-  once). `amplifier.confirmBeforeExcitation = false` switches it off.
-* **Stop**: while an action runs, every field, button and menu is locked except the red Stop
-  button, which names the action ("Stop measurement", "Stop calibration", "Stop connection").
-  It switches the generator output off at once and ends the action. The tabs stay usable. In
+  "Confirm excitation" shows the signal, the generator amplitude in Vpk (Vpp in brackets; with
+  `generator.load = "50"` the programmed value into 50 Ω and the open-circuit voltage, section 9),
+  the amplitude limit and the drive estimate with the amplifier gain. **Start excitation** drives
+  the loudspeaker, **Cancel** stops without driving it; the window then reports "Measurement
+  cancelled: the loudspeaker was not driven." as information, not as an error. The question comes
+  once per combination of amplitude and amplifier setting and again after any change (a
+  calibration with ten sweeps asks once). `amplifier.confirmBeforeExcitation = false` switches it
+  off.
+* **Stop**: while an action runs, every field, button and menu is locked. The red **Stop** button
+  is enabled only during the actions it can stop: Connect, a measurement, the background-noise
+  recording and the switching calibration (its tooltip names the action). Saving, reprocessing and
+  loading cannot be interrupted; Stop stays disabled while they run. Stop switches the generator
+  output off at once and ends the action; a Stop pressed in the first moment of Connect, before
+  the instruments are contacted, is kept and stops the connection. The tabs stay usable. In
   hardware mode the Generator lamp turns orange while the loudspeaker can be driven, and the status
-  line says "… – loudspeaker driven, Stop switches it off".
+  line says "Measurement – loudspeaker driven" (or "Calibration – …"). A Stop acts only on the
+  running action: a question asked after that action has ended, e.g. the unsaved-measurement
+  question, is shown as usual.
 * **Errors and Stop** (network, stream, instrument error, Stop): the generator output is switched
   off and read back (`OUTP?`); the alert says whether the output is confirmed off, or asks you to
-  switch the 33220A output off at the instrument. If a recording was running, it is stopped and
-  the data received so far are saved to `data\emergency\partial_<time>.mat`.
+  switch the 33220A output off at the instrument. If the read-back does not confirm the output off,
+  the Generator lamp turns red and the status line reads "Generator output not confirmed off"
+  until a later read-back confirms it. If a recording was running, it is stopped and the data
+  received so far are saved to `data\emergency\partial_<time>.mat`; the views then show the last
+  measurement again.
 * **Data integrity**: the LAN-XI DataQuality flags (INVALID, clipped) and a software check
   (≥ 99 % of the input range) mark a measurement as failing. The results are still computed, the
   message pane lists the problem and a "Data integrity" warning appears.
@@ -111,8 +124,9 @@ The same style is used in the window and in the saved figures:
 * **Closing the window** (the window's X or File > Exit): a "Closing" dialog appears at once and
   lists the steps: generator output off, LAN-XI module back to Idle (2 s time-outs, so a
   switched-off instrument cannot delay it), window closed. If an action is running it is stopped
-  first (output off at once) and the window closes as soon as it has stopped, without the
-  unsaved-measurement question; a second close request closes at once.
+  first (output off at once) and the window closes as soon as it has stopped; if the last
+  measurement is not saved, the unsaved-measurement question is asked first (Cancel keeps the
+  window open). A second close request closes at once.
 * Start with a low generator amplitude **and a low amplifier gain**, and increase gradually
   (commissioning section H3 in `examples/hardware_commissioning.m`).
 
@@ -147,18 +161,19 @@ source forms a voltage divider, `V_spk = V_oc·Z/(Z + 50 Ω)`:
 | Operating mode | Simulation (virtual tube, practice) or Hardware (33220A and LAN-XI module). **Fixed while connected**: press Disconnect to change it. |
 | Connect | Connects the generator (output off) and the LAN-XI module, reads TEDS, sets up the channels and makes a 1 s signal check without excitation. Opens Setup > Connection, where every step is shown. |
 | Disconnect | Generator output off, LAN-XI module back to Idle, connections closed. |
-| Status | "Not connected", "Ready (simulation)", "Ready (hardware) - with warnings", "Connected (hardware) - a check FAILED", "Not ready – connection incomplete", "Busy: … – only Stop is available". |
+| Status | "Not connected" (grey); "Connecting (hardware)…", "Busy: …" or "Measurement – loudspeaker driven" (blue) while an action runs; "Ready (simulation)" (green); "Ready (hardware) – with warnings" or "Connected (hardware) – a check failed" (orange); "Generator output not confirmed off" (orange, section 3). The verdict of the connection checks stays in the status line after every later action. |
 | Lamps | Generator, LAN-XI, ch1–ch4: grey = not connected, blue = running, green = OK, orange = check, red = fault. Details in Setup > Connection. |
 
-Connect takes the operating mode and the other fields as they are; if a field is invalid, the
-connection uses the last valid settings and a "CHECK: …" line says so. After a failed connection
-the status reads "Not ready – connection incomplete" and Connect stays disabled: press
-**Disconnect**, remove the cause and press **Connect** again.
+Connect takes the operating mode and the other fields as they are. If a field is invalid, Connect
+stops with the alert "Check the settings" and does not connect: correct the field and press
+**Connect** again. A failed or stopped connection leaves no half-open connection: the status reads
+"Not connected", **Connect** and **Operating mode** are usable again, and Setup > Connection names
+the step that failed. Remove the cause and press **Connect** again.
 
 ### IMPEDANCE TUBE (lengths in mm)
 
-* **Diameter [mm]** (inner diameter D), **T [°C]** (air temperature) and **p [kPa]** (static
-  pressure) on one row.
+* **Diameter [mm]** (inner diameter D), **T [°C]** (air temperature; T in kelvin in the formulas)
+  and **p [kPa]** (static pressure, `p_s` in the formulas) on one row.
 * The five **distances** in the order of the tube, measured between port **centres** and specimen
   **faces**:
 
@@ -221,8 +236,9 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 
 * **Calibration** shows the active calibration:
   * "No calibration – results not valid" (red): without a calibration no result is ever valid;
-  * `CAL-yyyyMMdd-HHmmss`, followed by "✓ empty-tube check" when its Test E passed, or
-    "✗ empty-tube check FAILED" (orange);
+  * `CAL-yyyyMMdd-HHmmss`, followed by "✓ Test E" when its empty-tube check passed, or
+    "✗ Test E failed" (orange); no mark when the check was not performed. The tooltip gives the
+    result text of the check;
   * "– check" (orange) is appended when the calibration does not fit the set-up in the fields:
     temperature more than 3 K different, port distances changed, other operating mode, or Test E
     failed. The tooltip lists the reasons;
@@ -231,15 +247,20 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 * **Load calibration…** loads a `CAL-*.mat` file from the calibration folder. The file name is
   also stored by File > Save configuration…, so the next session starts with it.
 * **Run switching calibration…** runs the switching calibration with the empty specimen section
-  (needs a connection; `calibration_procedure.md`).
+  (needs a connection; `calibration_procedure.md`). The new calibration becomes the configured
+  calibration file in the same way, also when it was kept after a Cancel or Stop at the "return
+  the microphones" step: it is loaded at the next Connect and stored by File > Save configuration….
 
 ### MEASUREMENT
 
-* **Specimen**: name of the specimen. It becomes part of the data folder name when the measurement
-  is saved (section 12); the name in the field at the moment of Save measurement counts.
+* **Specimen**: name of the specimen. The name in the field when **Start measurement** is pressed
+  counts: it is stored in the metadata (`metadata.specimen`) and becomes part of the data folder
+  name when the measurement is saved (section 12). A later change of the field does not rename a
+  measurement that has already been started. A background-noise record carries no specimen name.
 * **Start measurement** (green): measures with the selected signal. In hardware mode it asks before
   the loudspeaker is driven (section 3). The Time signals view shows the four channels live.
-* **Stop** (red): stops the running action; the generator output is switched off at once.
+* **Stop** (red): stops the running connection, measurement, background-noise recording or
+  switching calibration; the generator output is switched off at once. Disabled otherwise.
 * **Measure background noise**: 2 s without excitation (background noise of every channel); then
   the Spectrum view opens.
 
@@ -248,7 +269,8 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 * **Last result**: "No measurement"; "Swept sine 11:15:37 – not saved" (red) after a measurement;
   "Saved: `<folder>`" (green, the tooltip gives the full path) after Save measurement.
 * **Save measurement**: raw data, results, configuration, metadata, CSV files and figures into a
-  new folder under `data\` (section 12).
+  new folder under `data\` (section 12). A background-noise record, or a measurement that could
+  not be processed, is saved with its raw data and the figures of its time signals and spectrum.
 * **Reprocess**: computes the results of the last measurement again with the current IMPEDANCE TUBE
   fields (geometry, temperature, pressure) and the active calibration, e.g. after correcting a
   distance or loading another calibration. Save measurement again to keep the new results (a new
@@ -258,10 +280,10 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 
 | Control | Enabled when |
 |---|---|
-| Operating mode, Connect | not connected |
-| Disconnect | connected (also after a failed connection) |
-| Start measurement, Measure background noise, Run switching calibration… | the connection is complete (status "Ready") |
-| Stop | only while an action runs |
+| Operating mode, Connect | not connected (also after a failed or stopped connection) |
+| Disconnect | connected |
+| Start measurement, Measure background noise, Run switching calibration… | the connection is complete (status "Ready …" or "Connected … – a check failed") |
+| Stop | only while Connect, a measurement, the background-noise recording or the switching calibration runs |
 | Save measurement | a measurement or a background-noise record exists |
 | Reprocess | a measurement exists (not for background noise) |
 | Amplifier gain | an amplifier other than "none (direct drive)" is chosen |
@@ -273,8 +295,9 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 2. Check the **Operating mode**. It cannot be changed while connected.
 3. Press **Connect**. Setup > Connection opens and lists every step with its result and duration
    (section 6). Read the line above the list: "Connected - all checks passed.", "Connected with
-   warnings …" (orange items) or "Connected, but a check FAILED …" (red items). Check the
-   sensitivity source of every channel and the background level of the signal check.
+   warnings – see the orange items below." or "Connected, but a check failed – see the red items
+   below." The status line keeps this verdict. Check the sensitivity source of every channel and
+   the background level of the signal check.
 4. Check the **IMPEDANCE TUBE** fields against the tube (D, T, p, s1, L1, d, L2, s2) and look at
    Setup > Tube setup. Enter the measured temperature and static pressure. Store the values with
    File > Save configuration… and commit `config/user_config.json`.
@@ -284,13 +307,13 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 6. Optional: **Measure background noise** and check the Spectrum view.
 7. **Calibration**: Load calibration… (an existing `CAL-*.mat` that fits the set-up), or Run
    switching calibration… (`calibration_procedure.md`; 12 operator steps, about 5 min of sweeps
-   with the default settings). The Calibration line must show the version and "✓ empty-tube
-   check".
+   with the default settings). The Calibration line must show the version and "✓ Test E".
 8. Mount the **specimen section with the specimen**, check L1, d and L2 for this specimen, and
-   enter its name in **Specimen**.
+   enter its name in **Specimen** (before Start measurement: the name at Start counts).
 9. Press **Start measurement**. In hardware mode confirm the excitation dialog (**Start
    excitation**). The Time signals view shows the last 0.5 s of every channel live ("LIVE · 3.2 s
-   recorded …") with the level of every channel in the header. Stop ends the measurement at once.
+   recorded …") with the level of every channel in the header. Stop ends the measurement at once;
+   the views then show the last measurement again.
 10. Check the result: Measurement > Transfer functions (coherence and SNR against their limits),
     the Results views and Results > Validity (why frequency lines are not valid). The message pane
     gives the summary line of the validity masks.
@@ -413,16 +436,24 @@ and the dissipation coefficient α_d = 1 − |R|² − |τ|² (both mask `validT
 termination (dotted; grey where the downstream pair is not reliable) and the limit up to which the
 termination counts as anechoic (dashed, `analysis.anechoicRmax` = 0.1). Bottom graph: the phase of
 R. Summary **Octave bands**: mean |R|, |τ| and α_d over the valid frequency lines of each octave
-band 125–4000 Hz (centre/√2 to centre·√2); "–" = no valid line. |τ| and α_d need an anechoic
-termination.
+band (centre/√2 to centre·√2); "–" = no valid line. |τ| and α_d need an anechoic termination.
+
+The octave-band tables of the three Results views list every octave band that overlaps the
+analysis band (default 120–4500 Hz: 125 … 4000 Hz). A band that lies only partly inside the
+analysis band is marked "*" ("125*", "4000*" with the default band): its value is the mean over
+the part inside the analysis band only, and the note under the table says so ("* = only partly
+inside the analysis band (120–4500 Hz).").
 
 ### Results > Transmission loss
 
 Normal-incidence transmission loss **TL from τ** = −20 log10 |τ| (solid; needs an anechoic
 termination, mask `validTau`). For a thin specimen also the **TL from Z_t** =
-20 log10 |1 + Z_t/(2ρc)| (dashed, independent of the termination, mask `validThinZt`). For a thick
-specimen (k·d > 1 in the analysis band) the TL from Z_t is not drawn and the note says why.
-Summary **Octave bands**: energy mean over the valid lines, TL = −10 log10(mean |τ|²).
+20 log10 |1 + Z_t/(2Z_c)| (dashed, independent of the termination, mask `validThinZt`), with Z_c
+the characteristic impedance of the tube-loss model (Z_c ≈ ρc, within 0.5 %; `theory.md`
+section 3A). For a thick specimen (k·d > 1 in the analysis band) the TL from Z_t is not drawn and
+the note says why. Without L1, d and L2 the graph stays empty with the message "Specimen face
+positions unknown (L1, d, L2): the transmission loss is not available." Summary **Octave bands**:
+energy mean over the valid lines, TL = −10 log10(mean |τ|²).
 
 ### Results > Transfer impedance
 
@@ -443,9 +474,15 @@ SNR, cal.)", "Passive", **"Valid"**, "Valid R", "Valid τ / TL", "Valid thin Z_t
 (experiment)". Below a separator one row per rejection reason ("Rejected: low coherence",
 "Rejected: termination not anechoic", …), red where it rejects.
 Stepped sine: one square per step. Summary **Validity criteria**: number and share of passing
-lines and which results each criterion affects; the note is the summary line of the masks.
-"Valid R" uses only the upstream pair M1/M2 (section 10) and may therefore pass where "Valid" does
-not.
+lines and which results each criterion affects; the note is the summary line of the masks
+("… N valid (R: M, upstream pair), …"). "Valid R" uses only the upstream pair M1/M2 (section 10)
+and may therefore pass where "Valid" does not. The column "Affects" says so: "Measured", "Geometry
+OK", "Quality OK" and their rejection reasons (band, spacing, singularity, condition, phase
+sensitivity, coherence, SNR) affect "|τ|, α_d, TL, Z_t (R: M1/M2)", i.e. they reject R only where
+they fail at M1/M2 (row "Valid R"); "Passive" rejects R only for |R| > 1 + `passivityTol`; the
+mode cut-on and a missing calibration affect all results. When no line is valid
+for τ, TL and Z_t but R is valid, the header note says so ("… R valid on N lines (upstream pair
+M1/M2)."); without L1, d and L2 it says that R, τ, TL and Z_t are not available.
 
 ### Formula
 
@@ -511,10 +548,10 @@ missing in the file keeps its default. Lengths in metres, amplitudes in Vpp (the
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | `"simulation"` | `"simulation"` or `"hardware"` (lab file: hardware) |
-| `ui.language` | `"en"` | `"en"` or `"ko"`: operator prompts and dialog buttons of the calibration steps, the excitation confirmation and the channel identification. Logs and window labels stay in English. |
+| `ui.language` | `"en"` | `"en"` or `"ko"`: operator prompts, dialog titles and buttons of the calibration steps (including the step header and the diagram hint), the excitation confirmation (also its drive line in the log line "Excitation confirmed") and the channel identification, and the command-window prompts of scripts. The calibration prompts are also written to the log in the selected language, and the errors "estimated loudspeaker power exceeds the limit" and "Amplifier gain not entered" are raised in it. All other log lines and errors, the window labels and the documents stay in English. |
 | `generator.host`, `port` | 169.254.2.20, 5025 | 33220A (SCPI over TCP) |
 | `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit** of the programmed amplitude in Vpp, at most 20 Vpp |
-| `generator.load` | `"INF"` | 33220A output load setting, see below |
+| `generator.load` | `"INF"` | 33220A output load setting, exactly `"INF"` or `"50"`, see below |
 | `amplifier.model` | `""` | `"none (direct drive)"` (must start with "none"), `"power amplifier"` or a model name |
 | `amplifier.gainFactor` | NaN | voltage gain as a factor (×10 = 10 = 20 dB); 1 for direct drive; `gain_dB` is derived |
 | `amplifier.gainSetting` | `""` | free text, e.g. the knob position (scripts) |
@@ -536,7 +573,7 @@ missing in the file keeps its default. Lengths in metres, amplitudes in Vpp (the
 | `excitation` | section 8 | `mode` and the settings of `sweep`, `stepped`, `noise` |
 | `analysis.refChannel` | 1 | reference channel of the transfer functions |
 | `analysis.fMin`, `fMax`, `df` | 120, 4500, 2 Hz | analysis band and frequency-line spacing (`fMax` ≤ 0.45 × sample rate) |
-| `analysis.lossModel` | `"kirchhoff"` | tube-loss model: `"kirchhoff"` (visco-thermal wall losses, attenuation and phase-velocity reduction, matching characteristic impedance), `"iso10534"` (ISO 10534-2 attenuation only, for ISO-conformant work) or `"none"`. The same model is used by the analysis, Tests D/E and the virtual tube (`theory.md` section 1). |
+| `analysis.lossModel` | `"kirchhoff"` | tube-loss model: `"kirchhoff"` (visco-thermal wall losses, attenuation and phase-velocity reduction, matching characteristic impedance), `"iso10534"` (ISO 10534-2 attenuation only, for ISO-conformant work) or `"none"`. The same model is used by the analysis, Tests D/E and the virtual tube (`theory.md` section 1). `"iso10534"` and `"none"` bias a thin-element Z_t (up to about 47 % and about two thirds of Z_t at \|Z_t\|/(ρc) = 0.05 in the lab tube) and give a "CHECK: …" warning. A configuration saved before `"kirchhoff"` became the default (2026-10-09), and the `config.json` of an older measurement folder, still name `"iso10534"`. |
 | `analysis.velocityRef` | `"mean"` | velocity in Z_t: `"mean"`, `"upstream"` or `"downstream"` |
 | `analysis.coherenceMin`, `snrMin_dB` | 0.98, 20 dB | quality limits of the validity masks |
 | `analysis.condMax`, `phaseUncertainty_rad`, `maxPhaseSensitivity` | 40, 0.002, 0.05 | geometry limits of the decomposition |
@@ -563,11 +600,16 @@ OUTP:LOAD setting only changes what the programmed amplitude means:
 | `"INF"` (default) | the open-circuit voltage | = programmed | direct drive; amplifier with a high-impedance input |
 | `"50"` | the voltage across a 50 Ω load | 2 × programmed | only an amplifier with a 50 Ω input (rejected with direct drive) |
 
-The amplitude field and the amplitude limit always refer to the programmed value. The drive
-estimate uses `V_in = V_oc·Z_in/(Z_in + 50 Ω)` at the amplifier input, with
+The amplitude field and the amplitude limit always refer to the programmed value. With `"50"` the
+excitation confirmation shows the programmed value ("programmed into 50 Ω") and the open-circuit
+voltage. The drive estimate uses `V_in = V_oc·Z_in/(Z_in + 50 Ω)` at the amplifier input, with
 `Z_in = amplifier.inputImpedance_ohm`; when that is NaN, `"INF"` means a high-impedance input
 (`V_in = V_oc`) and `"50"` a 50 Ω input (`V_in` = programmed value). The loudspeaker voltage is
-`V_in` × gain (amplifier output impedance ≈ 0) and the power `P = V_spk,pk²/(2Z)`.
+`V_in` × gain (amplifier output impedance ≈ 0) and the power `P = V_spk,pk²/(2Z)`. With `"50"`, an
+amplifier and no `amplifier.inputImpedance_ohm`, the settings check warns ("CHECK: Generator
+output load '50' … with an amplifier of unknown input impedance …"): with a high-impedance
+amplifier input the loudspeaker would get up to 4 × the estimated power. Enter the input impedance
+in `config/user_config.json` (no field in the window).
 
 ## 10. Results and how to read them
 
@@ -590,8 +632,9 @@ estimate uses `V_in = V_oc·Z_in/(Z_in + 50 Ω)` at the amplifier input, with
 | `valid.*` | masks, the reason for every rejection (`valid.flags`), `valid.upstream` (masks of the upstream pair), `valid.summary` | – |
 
 * `validR` uses **only the upstream pair** M1/M2: its geometry (spacing s1), the coherence and SNR
-  at M1 and M2, the calibration and |R| ≤ 1 + `passivityTol`. A rigid plug in front of M3/M4 or a
-  high-TL specimen with a weak downstream signal does not reject R.
+  at M1 and M2, the calibration of the channels in M1 and M2 and |R| ≤ 1 + `passivityTol`. A rigid
+  plug in front of M3/M4, a high-TL specimen with a weak downstream signal or a failed
+  calibration of the M3/M4 channels does not reject R.
 * `validTau` and `validThinZt` use both pairs (`valid`) plus their own condition.
 * The near-singularity criterion (k·s close to π) is tested separately for each pair.
 * For a thick specimen (the 75 mm lab specimen section: k·d up to about 6 at 4.5 kHz) the
@@ -653,14 +696,16 @@ res2 = tim.app.processMeasurement(S.meas, cfg2, C.cal);
 ## 12. Stored data
 
 **Save measurement** writes a new folder `data\<yyyyMMdd_HHmmss>_<signal>_<specimen>\`, e.g.
-`20261009_111537_sweep_foam_25mm` (`<signal>` = sweep, stepped or background; characters other
-than letters, digits, `_` and `-` in the specimen name become `_`; without a name the folder ends
-with the signal). Folders are never overwritten; a suffix `_2`, `_3`, … is added if needed.
+`20261009_111602_sweep_foam_25mm` (`<yyyyMMdd_HHmmss>` = the time of saving; the measurement time
+is in `metadata.json` and `README.txt`; `<signal>` = sweep, stepped or background; `<specimen>` =
+the name entered at Start measurement, characters other than letters, digits, `_` and `-` become
+`_`; without a name, and always for background noise, the folder ends with the signal). Folders are
+never overwritten; a suffix `_2`, `_3`, … is added if needed.
 
 | File | Content |
 |---|---|
 | `raw.mat` | `meas`: raw volts of every repetition, settings, generator events, microphones and sensitivities, metadata (instrument identities, firmware, TEDS, LAN-XI setup, amplifier, configuration) and the undecoded stream bytes of the last repetition |
-| `result.mat` | `res` (spectra, calibration info, analysis, validity); not for background noise |
+| `result.mat` | `res` (spectra, calibration info, analysis, validity); not for background noise or a measurement without results |
 | `config.json`, `metadata.json` | configuration snapshot; metadata including `softwareInfo` |
 | `results.csv` | one row per frequency line: R, τ, R_term, Z_t, TL, power fractions, condition numbers, every mask and flag |
 | `spectra.csv` | transfer functions per channel, coherence, SNR; stepped sine also the step levels |
@@ -671,9 +716,12 @@ The **saved figures** are drawn by the same views as the window (`tim.app.plotRe
 (title, description, note), the graphs, the summary table on the right, the software version in
 the footer and a red "SIMULATED DATA" mark for simulated data. File names: `fig_waveforms` (Time
 signals), `fig_spectrum`, `fig_transfer` (Transfer functions), `fig_reflection`,
-`fig_transmissionLoss`, `fig_impedance` (Transfer impedance), `fig_validity`. A background-noise
-record is saved without results, CSV files and figures. The calibration view is drawn by
-`tim.app.plotCalibration(cal)`; it is not saved with a measurement.
+`fig_transmissionLoss`, `fig_impedance` (Transfer impedance), `fig_validity`. The titles and
+descriptions of the views come from one source (`tim.plots.viewText`) for the window and the saved
+figures. A background-noise record, or a measurement that could not be processed, is saved
+without results and CSV files, with the figures it has in the window: `fig_waveforms` and
+`fig_spectrum`. The calibration view is drawn by `tim.app.plotCalibration(cal)`; it is not saved
+with a measurement.
 
 Simulated measurements are labelled "SIMULATED DATA" in `README.txt` and in the metadata, and are
 stored separately in `data\simulation\` and `calibration\simulation\`, so they cannot be confused
@@ -688,8 +736,10 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 
 | Symptom | Likely cause / action |
 |---|---|
-| Start measurement is greyed out | not connected, or the connection is incomplete: Disconnect, remove the cause, Connect |
-| Alert "Check the settings" | a field is not valid (e.g. the stop frequency is not above the start frequency, L1, d or L2 is not a number): correct it and start again |
+| Start measurement is greyed out | not connected; a failed or stopped connection leaves the instruments disconnected: remove the cause (Setup > Connection names the failed step) and press Connect |
+| Alert "Check the settings" | a field is not valid (e.g. the stop frequency is not above the start frequency, L1, d or L2 is not a number): correct it and press Connect, Start measurement or Run switching calibration… again |
+| Status "Generator output not confirmed off", Generator lamp red | the read-back after a Stop or an error did not confirm that the 33220A output is off: switch the output off at the instrument |
+| Alert "Measurement cancelled" | Cancel in "Confirm excitation": the loudspeaker was not driven; nothing to repair |
 | "enter the voltage gain set on the amplifier …" or "Amplifier gain not entered" | an amplifier is chosen: type its gain into Amplifier gain |
 | Excitation refused: estimated loudspeaker power exceeds the limit | lower the Amplitude or the amplifier gain, or raise Power limit [W] deliberately |
 | Signal check: LAN-XI flag INVALID on all channels, no TEDS | microphones not connected, or wrong connector (`lanxi.connector` BNC ↔ LEMO), cable fault |
@@ -701,6 +751,6 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | `tim:gen:amplitude` | requested amplitude above `generator.maxVpp`, or changed at the front panel |
 | `tim:gen:scpiError` | the 33220A reported an error (message included); output switched off |
 | "Excitation not detected" | amplifier off or muted, loudspeaker disconnected, level too low |
-| Calibration "– check" (orange) | hover over it: temperature changed by more than 3 K, port distances changed, other mode or Test E failed: recalibrate |
+| Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed or other mode: check the set-up and recalibrate |
 | Few valid frequency lines | Results > Validity: "no valid calibration" (load or run a calibration), low coherence / low SNR (amplitude, repetitions), termination not anechoic (τ, TL), velocity mismatch (thick specimen: thin-element Z_t not applicable) |
 | Transfer impedance view empty, "Thin-element model not applicable" | the specimen is thick (k·d > 1): use Reflection and transmission and Transmission loss |

@@ -9,7 +9,9 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
     %   code; the formulas use the glossary symbols (D diameter, d thickness,
     %   kappa for the ratio of specific heats, tau_a for the anechoic
     %   coefficient) and the code's choices (0.58 c/D, Zc in the velocity,
-    %   Kirchhoff k, stepped SNR per block); plain text has no ASCII math.
+    %   Kirchhoff k, stepped SNR per block, the Zt bias of 'iso10534'); the
+    %   texts name the control-panel section and fields; plain text has no
+    %   ASCII math.
 
     properties
         fig
@@ -116,6 +118,11 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
             k = tim.acoustics.wavenumber(1000, air, cfg.geometry.diameter);
             Cw = -imag(k) * air.c * cfg.geometry.diameter / sqrt(1000);
             tc.verifyTrue(contains(e, sprintf('C_w = %.3f\\cdot10^{-2}', 100 * Cw)));
+            % Zt bias of the ISO 10534-2 loss model as documented in tim.acoustics.wavenumber
+            % (review analysis-1; the old figure 3-17 % understated it)
+            t = strjoin(tc.plain, newline);
+            tc.verifyTrue(contains(t, '47 % at |Zt|/(ρc) = 0.05, 12 % at 0.2 and 2 % at 1'), 'iso10534 Zt bias');
+            tc.verifyFalse(contains(t, '3–17 %'), 'old iso10534 Zt bias figure');
         end
 
         function glossarySymbols(tc)
@@ -128,6 +135,12 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
             tc.verifyEmpty(strfind(e, '\tau = \frac{2}'), 'tau_a written as tau');
             % no static pressure p_a, no chain response c_k
             tc.verifyEmpty(regexp(e, 'p_a\}?\s*/\s*101325|c_k|c_\{\\mathrm\{ref\}\}', 'once'));
+            % the texts name the control panel as it is: lengths are entered in the IMPEDANCE TUBE
+            % section (Tube setup is a view), T and p_s in the fields 'T [°C]' and 'p [kPa]'
+            t = strjoin(tc.plain, newline);
+            tc.verifyTrue(contains(t, 'as entered in IMPEDANCE TUBE'), 'input section of the positions');
+            tc.verifyFalse(contains(t, 'entered in Tube setup'), 'Tube setup is a view, not the input section');
+            tc.verifyTrue(contains(t, 'field T [°C]') && contains(t, 'field p [kPa]'), 'field labels of T and p_s');
         end
 
         function plainTextHasNoAsciiMath(tc)

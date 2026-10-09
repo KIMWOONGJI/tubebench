@@ -43,23 +43,27 @@ classdef TestPlotsResults < matlab.unittest.TestCase
     end
 
     methods (Static)
-        function res = result(kind, f, geom, sample, xTerm, calibrated, nanStep, badStep)
+        function res = result(kind, f, geom, sample, xTerm, calibrated, nanStep, badStep, snr, geomAnalysis)
             % analytic four-microphone result in the layout of tim.app.processMeasurement
+            % (snr: SNR [dB] per position M1..M4, default 60 dB everywhere;
+            % geomAnalysis: geometry given to the analysis, default geom)
             env = struct('temperature_C', 20, 'pressure_Pa', 101325, 'c_override', [], 'rho_override', []);
             m = tim.sim.tubeModel(f, geom, env, sample, struct('R', 0.05, 'x', xTerm));
             H = m.p ./ m.p(:, 1);
             n = numel(f); coh = ones(n, 4);
             if nargin > 6 && ~isempty(nanStep), H(nanStep, :) = NaN; end
             if nargin > 7 && ~isempty(badStep), coh(badStep, :) = 0.5; end
-            o = struct('fRange', [120 4500], 'quality', struct('coherence', coh, 'snr_dB', 60 * ones(n, 4)));
+            if nargin < 9 || isempty(snr), snr = [60 60 60 60]; end
+            o = struct('fRange', [120 4500], 'quality', struct('coherence', coh, 'snr_dB', repmat(snr, n, 1)));
             if calibrated
                 o.calValid = isfinite(H(:, 1));
                 cal = struct('applied', true, 'version', 'CAL-20261009-120000');
             else
                 cal = struct('applied', false, 'version', 'none');
             end
+            if nargin < 10 || isempty(geomAnalysis), geomAnalysis = geom; end
             res = struct('kind', kind, 'timestamp', '2026-10-09 12:00:00', 'calibration', cal, ...
-                'analysis', tim.acoustics.analyzeFourMic(f, H, geom, env, o));
+                'analysis', tim.acoustics.analyzeFourMic(f, H, geomAnalysis, env, o));
         end
     end
 
@@ -153,8 +157,11 @@ classdef TestPlotsResults < matlab.unittest.TestCase
             tc.verifyNoChannelColours(ax(1)); tc.verifyNoChannelColours(ax(2));
             % summary: octave means over the valid bins
             s = info.summary;
-            tc.verifyEqual(s.columns, {'Band [Hz]', '|R|', '|τ|', 'α'});
-            tc.verifyEqual(s.data(:, 1).', {'125', '250', '500', '1000', '2000', '4000'});
+            tc.verifyEqual(s.columns, {'Band [Hz]', '|R|', '|τ|', 'α_d'});
+            tc.verifyEqual(s.data(:, 1).', {'125*', '250', '500', '1000', '2000', '4000*'}, ...
+                '125 and 4000 Hz bands only partly inside 120 ... 4500 Hz');
+            tc.verifySubstring(s.note, '* = only partly inside the analysis band (120');
+            tc.verifyTrue(startsWith(lg.String{3}, '\alpha_d = 1'), 'dissipation coefficient α_d (glossary)');
             in = v.validR & a.f >= 1000 / sqrt(2) & a.f < 1000 * sqrt(2);
             tc.verifyEqual(s.data{4, 2}, sprintf('%.2f', mean(abs(a.R(in)))));
             tc.verifyEmpty(info.note);
@@ -306,9 +313,116 @@ classdef TestPlotsResults < matlab.unittest.TestCase
             tc.verifyEqual(size(s.data, 1), 9 + nFlags);
             tc.verifyEqual(s.data{strcmp(s.data(:, 1), 'Rejected: no valid calibration'), 2}, 0);
             tc.verifyEqual(s.data{strcmp(s.data(:, 1), 'Rejected: velocity mismatch'), 4}, 'Z_t, TL from Z_t');
-            tc.verifyEqual(s.data{strcmp(s.data(:, 1), 'Rejected: termination not anechoic'), 4}, '|τ|, α, TL');
-            tc.verifyEqual(s.note, a.valid.summary);
+            tc.verifyEqual(s.data{strcmp(s.data(:, 1), 'Rejected: termination not anechoic'), 4}, '|τ|, α_d, TL');
+            tc.verifyTrue(startsWith(s.note, a.valid.summary), 'table note = summary of the masks + R note');
+            tc.verifySubstring(s.note, '(R: M1/M2) = R needs only the upstream pair');
             tc.verifyEqual(ax.XLim, [125 / sqrt(2), 4000 * sqrt(2)], 'RelTol', 1e-9);
+        end
+
+        function validityROnlyNeedsUpstreamPair(tc)
+            % low SNR at M3/M4 (high-TL specimen): nothing valid for τ / TL / Z_t,
+            % but R (upstream pair M1/M2) is valid - the view must not say otherwise
+            gLab = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
+                'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.075);
+            r = TestPlotsResults.result('sweep', (120:2:4500).', gLab, struct('type', 'porous', 'sigma', 1e4), ...
+                0.436, true, [], [], [60 60 5 5]);
+            v = r.analysis.valid;
+            tc.assertFalse(any(v.valid)); tc.assertTrue(any(v.validR));
+            ax = tc.axesRows(1);
+            info = tim.plots.validity(ax, r);
+            tc.verifySubstring(info.note, sprintf('R valid on %d lines (upstream pair M1/M2)', nnz(v.validR)));
+            tc.verifyFalse(contains(info.note, 'No valid frequency line'), info.note);
+            d = info.summary.data;
+            row = @(name) find(strcmp(d(:, 1), name), 1);
+            tc.verifyEqual(d{row('Valid R'), 2}, nnz(v.validR));
+            for name = {'Measured (in band)', 'Geometry OK', 'Quality OK (coherence, SNR, cal.)', 'Rejected: low SNR', ...
+                    'Rejected: low coherence', 'Rejected: below the spacing limit'}
+                tc.verifyEqual(d{row(name{1}), 4}, '|τ|, α_d, TL, Z_t (R: M1/M2)', name{1});
+            end
+            tc.verifyEqual(d{row('Valid'), 4}, '|τ|, α_d, TL, Z_t');
+            tc.verifyEqual(d{row('Rejected: no valid calibration'), 4}, '|τ|, α_d, TL, Z_t (R: M1/M2)', 'R needs only the calibration of M1/M2');
+            tc.verifyFalse(any(contains(d(:, 4), 'all (')), 'no "all (...)": R has its own upstream masks');
+            % reflection view: |R| drawn in colour on the valid lines
+            clf(tc.fig); ax = tc.axesRows([2 1]);
+            info = tim.plots.reflection(ax, r);
+            tc.verifyEqual(nnz(isfinite(info.lines(1).YData)), nnz(v.validR));
+        end
+
+        function facePositionsUnknown(tc)
+            % L1, d, L2 not entered: TL explains it in the axes (default limits),
+            % Validity names the reason in its header note
+            g = struct('diameter', 0.029, 'micPositions', [-0.070 -0.041 0.116 0.145], ...
+                'spacingUp', 0.029, 'spacingDown', 0.029, 'xFront', 0, 'xRear', 0.075);
+            gUnknown = g; gUnknown.xFront = NaN; gUnknown.xRear = NaN;
+            r = TestPlotsResults.result('sweep', (120:2:4500).', g, struct('type', 'porous', 'sigma', 1e4), ...
+                0.436, true, [], [], [], gUnknown);
+            tc.assertFalse(r.analysis.boundary.available);
+            ax = tc.axesRows(1);
+            info = tim.plots.transmissionLoss(ax, r);
+            es = findobj(ax, 'Tag', 'timEmptyState');
+            tc.verifyNumElements(es, 1);
+            tc.verifySubstring(es.String, 'Specimen face positions unknown');
+            tc.verifyEmpty(info.lines);
+            tc.verifyEqual(info.note, 'Specimen face positions unknown (L1, d, L2): the transmission loss is not available.');
+            tc.verifyGreaterThanOrEqual(ax.YLim(2), 30, 'default limits, not a +-1.25 dB axis');
+            tc.verifyHouseStyle(ax);
+            tc.verifyEqual(ax.Title.String, tim.plots.dataTitle(r));
+            tc.verifyTrue(all(strcmp(info.summary.data(:, 2), char(8211))));
+            clf(tc.fig); ax = tc.axesRows(1);
+            info = tim.plots.validity(ax, r);
+            tc.verifySubstring(info.note, 'Specimen face positions unknown (L1, d, L2): R, τ, TL and Z_t');
+            % without a calibration the missing calibration comes first
+            r.calibration = struct('applied', false, 'version', 'none');
+            clf(tc.fig); ax = tc.axesRows(1);
+            info = tim.plots.transmissionLoss(ax, r);
+            tc.verifyTrue(startsWith(info.note, 'No calibration applied'), info.note);
+            tc.verifySubstring(findobj(ax, 'Tag', 'timEmptyState').String, 'face positions unknown');
+        end
+
+        function octaveBandsCoverTheAnalysisBand(tc)
+            % every octave band that overlaps the analysis band is listed; partial ones are marked
+            B = tim.plots.octaveBands([50 6300]);
+            tc.verifyEqual(B.labels.', {'63*', '125', '250', '500', '1000', '2000', '4000', '8000*'});
+            tc.verifyEqual(B.centres.', 1000 * 2.^(-4:3), 'RelTol', 1e-12);
+            tc.verifyEqual(B.partial.', [true false(1, 6) true]);
+            tc.verifySubstring(B.note, '50');
+            B = tim.plots.octaveBands([1000 / sqrt(2), 2000 * sqrt(2)]);      % exactly two full bands
+            tc.verifyEqual(B.labels.', {'1000', '2000'});
+            tc.verifyEmpty(B.note);
+            % the views use them: a wide band summarises every line
+            ax = tc.axesRows([2 1]);
+            info = tim.plots.reflection(ax, tc.lab, struct('band', [50 6300]));
+            tc.verifyEqual(info.summary.data(:, 1).', {'63*', '125', '250', '500', '1000', '2000', '4000', '8000*'});
+            tc.verifySubstring(info.summary.note, '* = only partly inside');
+            clf(tc.fig); ax = tc.axesRows(1);
+            info = tim.plots.transmissionLoss(ax, tc.lab);
+            tc.verifyEqual(info.summary.data([1 end], 1).', {'125*', '4000*'});
+            clf(tc.fig); ax = tc.axesRows([1 1]);
+            info = tim.plots.transferImpedance(ax, tc.thin);
+            tc.verifyEqual(info.summary.data([1 end], 1).', {'125*', '4000*'});
+            tc.verifySubstring(info.summary.note, '* = only partly inside');
+        end
+
+        function maskedIsolatedValidLineVisible(tc)
+            % a valid line between two invalid ones: a coloured dot (a one-point
+            % segment of the coloured line is not drawn)
+            ax = tc.axesRows(1);
+            f = (100:100:1000).'; y = f / 1000;
+            ok = logical([1 1 0 1 0 0 1 1 0 1]).';         % lines 4 and 10 isolated
+            P = tim.gui.palette();
+            h = tim.plots.masked(ax, f, y, ok, P.q.first);
+            iso = findobj(ax, 'Tag', 'timIsolatedValid');
+            tc.verifyNumElements(iso, 1);
+            tc.verifyEqual(iso.XData(:), f([4 10]));
+            tc.verifyEqual(iso.YData(:), y([4 10]));
+            tc.verifyEqual(iso.Color, P.q.first);
+            tc.verifyEqual(isfinite(h.YData(:)), ok);
+            cla(ax);
+            tim.plots.masked(ax, f, y, true(size(f)), P.q.first);
+            tc.verifyEmpty(findobj(ax, 'Tag', 'timIsolatedValid'), 'no dot without an isolated line');
+            cla(ax);
+            tim.plots.masked(ax, f, y, ok, P.q.first, struct('stepped', true));
+            tc.verifyEmpty(findobj(ax, 'Tag', 'timIsolatedValid'), 'stepped sine: markers anyway');
         end
 
         function emptyStates(tc)
@@ -341,7 +455,7 @@ classdef TestPlotsResults < matlab.unittest.TestCase
             tc.addTeardown(@() delete(uf));
             ax = [uiaxes(uf, 'Position', [10 230 1080 400]), uiaxes(uf, 'Position', [10 10 1080 210])];
             info = tim.plots.reflection(ax, tc.lab, struct('band', [500 2000], 'simulation', true));
-            tc.verifyEqual(info.summary.data(:, 1).', {'500', '1000', '2000'});
+            tc.verifyEqual(info.summary.data(:, 1).', {'500*', '1000', '2000*'});
             tc.verifySubstring(ax(1).Title.String, 'SIMULATION');
             tc.verifyHouseStyle(ax(1));
             info = tim.plots.validity(ax(1), tc.step);

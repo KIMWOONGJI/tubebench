@@ -22,9 +22,14 @@
      (radius over viscous boundary layer; 66 at 100 Hz for D = 29 mm).
    * `'iso10534'`: the empirical ISO 10534-2 attenuation `k = ω/c − j·1.94·10⁻²·√f/(c·D)` with
      `Z_c = ρc`. It is the ISO-conformant option for absorption work. It omits the phase-velocity
-     reduction, which biases a thin-element `Z_t` by 3–17 % at `|Z_t|/(ρc) ≈ 0.05` and by 1–2 % at
-     `|Z_t|/(ρc) ≈ 1` (lab tube); the effect on `|R|` is below 0.008.
-   * `'none'`: no losses.
+     reduction, which biases a thin-element `Z_t` by about `k″·(x3 − x2)·ρc` (≈ 0.02ρc at 4.5 kHz
+     in the lab tube): up to about 47 % at `|Z_t|/(ρc) = 0.05`, 12 % at 0.2 and 2 % at 1 (lab tube,
+     120 Hz–4.5 kHz); the effect on `|R|` is below 0.008.
+   * `'none'`: no losses (thin-element `Z_t` error about 0.03ρc at 4.5 kHz, up to about two thirds
+     of `Z_t` at `|Z_t|/(ρc) = 0.05`).
+
+   `'iso10534'` and `'none'` give a "CHECK:" warning. Configurations saved before `'kirchhoff'`
+   became the default (2026-10-09) still name `'iso10534'`.
 4. Air properties: `c = 343.2 m/s·√(T/293 K)` (ISO 10534-2) and the ideal-gas density of dry air
    `ρ = p_s/(287.05 J/(kg K)·T)` = 1.2041 kg/m³ at 20 °C and 101.325 kPa. (Until 2026-10-09 the ISO
    expression `1.186·(p_s/101325)·(293/T)` was used; it is 1.55 % low, so absolute `Z_t`, `T12` and
@@ -63,8 +68,9 @@
 
 ## Known limitations
 
-* **Geometry not yet provided**: microphone positions and specimen faces are unknown, so boundary
-  quantities are disabled until they are entered.
+* **Geometry not yet verified**: the CAD design values of the lab tube are entered
+  (`config/user_config.json`: s1 29, L1 41, d 75, L2 41, s2 29 mm) but not yet checked on the real
+  tube (calipers); Tests D/E are pending.
 * **Hardware-dependent functions are partly unverified**. See `hardware_status.md`: generator
   output, sweep triggering, the microphone signal chain, TEDS and calibration on hardware are
   **pending**. No physical accuracy is claimed.
@@ -105,7 +111,7 @@
 ## Recommendations for future development
 
 1. Measure the geometry (micrometer/caliper; acoustic centre of the 4957 relative to its holder)
-   and enter it; then run Tests D/E and populate `validatedBands`.
+   and correct the CAD values where needed; then run Tests D/E and populate `validatedBands`.
 2. Add an uncertainty budget (Monte-Carlo propagation of position, temperature, calibration and
    noise uncertainties through `analyzeFourMic`; the noise part already exists in the tests).
 3. Two-source (source switching) transfer-matrix method, as an alternative to the two-load method.
