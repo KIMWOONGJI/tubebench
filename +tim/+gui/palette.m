@@ -8,10 +8,10 @@ function p = palette()
 %   p.ok/warn/fail/run/idle   status colours (lamps, checklists); always
 %                shown together with an icon or a text, never alone
 %   p.ui.*       colours of the window (section bars, panels, texts)
-% Channels 1-3 and the quantities use the Okabe-Ito palette (colour-blind safe);
-% ch4 is a darkened yellow (contrast about 2.7:1 on white).
+% Channels 1 and 3 and the quantities use the Okabe-Ito palette (colour-blind
+% safe); ch2 is raspberry, ch4 a darkened yellow (contrast about 2.7:1 on white).
 p.ch = [0.000 0.447 0.698      % ch1 blue
-        0.835 0.369 0.000      % ch2 vermillion
+        0.761 0.094 0.357      % ch2 raspberry (#C2185B; distinct from the status red p.fail)
         0.000 0.620 0.451      % ch3 bluish green
         0.750 0.600 0.000];    % ch4 dark yellow (#BF9900; pure yellow is too light on white)
 % quantities (Okabe-Ito black, orange, sky blue, yellow-dark, grey)

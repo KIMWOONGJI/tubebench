@@ -66,9 +66,9 @@ The same style is used in the window and in the saved figures:
   coloured dot). Nothing is shown as valid just because it is finite. Stepped sine: one marker
   per step (filled = valid, hollow grey = not valid); a step without any value is marked by a
   hollow triangle on the frequency axis;
-* channel colours (Okabe–Ito, colour-blind safe): ch1 blue, ch2 vermilion, ch3 bluish green,
-  ch4 dark yellow (darkened so that it stays visible on white). Physical quantities (R, τ, α_d,
-  TL, Z_t) use black, orange, sky blue and grey, never a channel colour;
+* channel colours: ch1 blue, ch2 raspberry, ch3 bluish green, ch4 dark yellow (darkened so that
+  it stays visible on white); every channel is also labelled. Physical quantities (R, τ, α_d, TL,
+  Z_t) use black, orange, sky blue and grey, never a channel colour;
 * every graph has a small toolbar: export, zoom in / out, pan, restore view. After a zoom the
   ticks are automatic; "restore view" brings back the fitted limits of the data shown now and the
   octave ticks.
