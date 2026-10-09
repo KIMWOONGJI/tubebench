@@ -36,7 +36,7 @@ writePng(folder, 'ok', {circle, chk}, {P.ok, white}, S);
 % warn: amber disc + "!"
 ex = seg(X, Y, [0 -0.52], [0 0.12], 0.13) | hypot(X, Y - 0.43) < 0.13;
 writePng(folder, 'warn', {circle, ex}, {P.warn, white}, S);
-% fail: vermillion disc + "x"
+% fail: red disc (P.fail) + "x"
 cr = seg(X, Y, [-0.36 -0.36], [0.36 0.36], 0.13) | seg(X, Y, [-0.36 0.36], [0.36 -0.36], 0.13);
 writePng(folder, 'fail', {circle, cr}, {P.fail, white}, S);
 % skip: light grey disc + dash
