@@ -3,10 +3,46 @@
 | | |
 |---|---|
 | Target version | 1.2.0 (next version; not before the start-up work of 2026-10-10 is merged) |
-| Status | planned - written 2026-10-10, not started |
+| Status | in progress since 2026-10-11 on branch `wo-001`; merged into `main` only after the owner's hardware check (§0) |
 | Requested by | the owner (Woongji Kim) |
 | Scope | software only; hardware tests need the owner's approval and presence |
 | Depends on | nothing else; the in-tube hardware verification stays on hold independently |
+
+## 0. Owner decisions and design changes (2026-10-11) - these override older text below
+
+1. **No concrete second instrument.** The contract is designed without one (see change B).
+2. **Instrument choice only in the configuration** (`generator.driver`, `daq.driver`); no
+   selection controls in the GUI. The GUI **shows which instruments are in use**: the driver's
+   display name and the identity the instrument reports (model, serial, firmware) in the
+   INSTRUMENTS section / connection view and in the metadata of every measurement.
+   A user with another instrument either selects an existing driver in the configuration or
+   first adds a driver (with the guide below, or with the skill in Claude Code).
+3. **Hardware check at the end:** when the software work is done, the owner reconnects the
+   33220A and the LAN-XI 3676; then connect and identify (output off), a short measurement at a
+   level the owner approves (not above the configured default 0.2 Vpp), Stop and output-off
+   checks. Only after that is the work marked hardware-verified and merged into `main`
+   (version 1.2.0). Until then: software-verified only.
+4. **Change A - guide and templates first, skill as a thin layer.** The knowledge for adding an
+   instrument lives in files that work without Claude Code: `docs/instrument_interface.md`
+   (contract), `docs/adding_an_instrument.md` (step-by-step guide for a person), templates outside
+   `.claude/` (e.g. `templates/instrument/`) and the contract tests. The skill
+   `.claude/skills/add-instrument/SKILL.md` only runs that procedure (facts → suitability →
+   driver from the templates → offline tests → step-by-step hardware verification) and repeats
+   the safety rules; it must not hold information the guide lacks.
+5. **Change B - the contract must not be shaped like 33220A + LAN-XI.** The likely instruments
+   of other labs are an NI DAQ (Data Acquisition Toolbox) or an audio interface (Audio Toolbox):
+   one device with analog output and inputs on a **shared clock**, often block-wise instead of
+   streaming acquisition, without TEDS or recorder states. Therefore:
+   - one driver object may take both roles; capabilities declare the roles, whether output and
+     input share a clock, streaming vs. block acquisition, TEDS yes/no, and the MATLAB products
+     the driver needs;
+   - optional toolboxes are needed only by the driver that uses them: the registry reports a
+     clear error (`tim:instr:missingProduct`) when a selected driver lacks one, and the base
+     requirements stay MATLAB + Signal Processing Toolbox;
+   - prove it with a deliberately different **simulated combined driver** (output + 4 inputs,
+     shared clock, block acquisition, no TEDS) at contract level on `SimulatedRig`: registered,
+     selectable in the configuration, passing the contract tests and a simulated calibration +
+     measurement through the session and the (hidden) GUI without driver-specific code there.
 
 ## 1. Goal
 
@@ -157,7 +193,5 @@ first; no clicking or typing on the owner's screen; commit, never push unless as
    suite runs. Part 2: small (one skill file, templates, dry run).
 2. Risks: changing the session can break the Stop/close safety paths - keep the existing tests on
    closing, Stop and output-off and add contract tests before refactoring; the start-up work of
-   2026-10-10 (deferred view building) touches `TubeApp.m` too - start after it is merged.
-3. Open questions for the owner: is there a concrete second instrument (another generator, an NI
-   or other DAQ, a combined device)? Designing against a real second device makes the contract
-   realistic. Should the instrument choice be selectable in the GUI or only in the configuration?
+   2026-10-10 (deferred view building) is merged (3e24bc2), so `TubeApp.m` is free.
+3. Open questions for the owner: answered on 2026-10-11, see §0.
