@@ -14,6 +14,11 @@ classdef MockLanXiHttp < handle
     %     TedsPresent      logical 1x4 - channels returning a TEDS record
     %     FailPath         path for which the next request fails (network error)
     %     StreamOptions    struct passed to MockLanXiStream (chunking, corruption...)
+    %
+    %   Log lists every request ('METHOD path'). While tim.instr.mockBusLog
+    %   records (tests/TestBusTraffic), every request goes there with its body
+    %   (bus 'REST': 'PUT /rest/rec/open {"performTransducerDetection":false}')
+    %   and every stream connection as 'STREAM open port <port>'.
 
     properties
         Rig = []
@@ -47,6 +52,7 @@ classdef MockLanXiHttp < handle
             if nargin < 4, body = []; end
             method = upper(method);
             obj.Log{end+1} = sprintf('%s %s', method, path);
+            tim.instr.mockBusLog('add', 'REST', strtrim(sprintf('%s %s %s', method, path, bodyText(body))));
             if ~isempty(obj.FailPath) && strcmpi(path, obj.FailPath)
                 obj.FailPath = '';
                 error('tim:lanxi:network', 'LAN-XI %s %s failed: mock network error', method, path);
@@ -96,6 +102,7 @@ classdef MockLanXiHttp < handle
 
         function s = openStream(obj, ~, port)
             %OPENSTREAM Stream factory for tim.instr.LanXi in simulation.
+            tim.instr.mockBusLog('add', 'STREAM', sprintf('open port %d', port));
             if port ~= obj.Port
                 error('tim:lanxi:streamConnect', 'Mock: no listener on port %d.', port);
             end
@@ -167,4 +174,15 @@ end
 
 function s = readJson(file)
 s = jsondecode(tim.app.readTextUtf8(file));
+end
+
+function t = bodyText(body)
+% request body as LanXiHttp sends it: struct -> JSON, text as is
+if isstruct(body)
+    t = jsonencode(body);
+elseif ischar(body) || isstring(body)
+    t = char(body);
+else
+    t = '';
+end
 end

@@ -11,6 +11,10 @@ classdef MockScpiTransport < handle
     %
     %   Fault injection: set FailNextQuery = true to emulate a timeout,
     %   or InjectError = '-222,"Data out of range"' to push an error.
+    %
+    %   Log lists every command ('> cmd'), every response ('< resp') and the
+    %   close; the same lines go to tim.instr.mockBusLog (bus 'SCPI') while
+    %   it records (tests/TestBusTraffic).
 
     properties
         Rig = []                 % optional tim.sim.SimulatedRig
@@ -33,7 +37,7 @@ classdef MockScpiTransport < handle
 
         function write(obj, cmd)
             obj.assertOpen();
-            obj.Log{end+1} = ['> ' cmd];
+            obj.addLog(['> ' cmd]);
             parts = strsplit(cmd, ';');
             for i = 1:numel(parts)
                 obj.execute(strtrim(parts{i}));
@@ -45,17 +49,20 @@ classdef MockScpiTransport < handle
 
         function resp = query(obj, cmd, ~)
             obj.assertOpen();
-            obj.Log{end+1} = ['> ' cmd];
+            obj.addLog(['> ' cmd]);
             if obj.FailNextQuery
                 obj.FailNextQuery = false;
                 error('tim:scpi:timeout', 'No response to "%s" (mock timeout).', cmd);
             end
             resp = obj.answer(upper(strtrim(cmd)));
-            obj.Log{end+1} = ['< ' resp];
+            obj.addLog(['< ' resp]);
         end
 
         function tf = isOpen(obj), tf = ~obj.Closed; end
-        function close(obj), obj.Closed = true; end
+        function close(obj)
+            if ~obj.Closed, obj.addLog('close'); end
+            obj.Closed = true;
+        end
     end
 
     methods (Access = private)
@@ -68,6 +75,11 @@ classdef MockScpiTransport < handle
 
         function assertOpen(obj)
             if obj.Closed, error('tim:scpi:closed', 'Mock transport closed.'); end
+        end
+
+        function addLog(obj, line)
+            obj.Log{end+1} = line;
+            tim.instr.mockBusLog('add', 'SCPI', line);
         end
 
         function execute(obj, cmd)

@@ -23,6 +23,7 @@ classdef MockLanXiStream < handle
         SignalChannels double
         Opt struct
         Running logical = false
+        Closed logical = false
         Produced double = 0
         Backlog uint8 = zeros(1, 0, 'uint8')
         T0 double
@@ -74,6 +75,9 @@ classdef MockLanXiStream < handle
         end
 
         function close(obj)
+            % the socket close goes to tim.instr.mockBusLog (bus 'STREAM')
+            if ~obj.Closed, tim.instr.mockBusLog('add', 'STREAM', 'close'); end
+            obj.Closed = true;
             obj.Running = false;
         end
     end

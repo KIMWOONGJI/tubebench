@@ -44,7 +44,7 @@ or configuration.
 
 ## Status (2026-10-10)
 
-* **Software**: complete. 200 automated tests in 16 test classes (simulation and recorded hardware
+* **Software**: complete. 202 automated tests in 17 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -76,7 +76,7 @@ tubebench.m, start_tubebench.bat   start the window
 config/                 user_config.json (lab settings), example_config.json (template),
                         sim_thin_screen.json (virtual tube)
 +tim/+instr             Keysight33220A, ScpiTcpTransport, LanXi, LanXiHttp, LanXiTcpStream,
-                        LanXiStreamParser, RecordingStream, Mock* (simulation)
+                        LanXiStreamParser, RecordingStream, Mock* (simulation), mockBusLog
 +tim/+acq               checkIntegrity, voltsToPascal
 +tim/+dsp               sweepResponse, sineResponse, welchResponse, detectExcitation, estimateSweepLaw
 +tim/+cal               switchingCorrection, buildCalibration, interpolateCalibration,
@@ -100,7 +100,8 @@ config/                 user_config.json (lab settings), example_config.json (te
 +tim/+cad               readStep (STEP assembly reader used for the tube dimensions)
 resources/icons         status and button icons
 resources/logo          the tubebench mark: SVG (light, reverse) and PNG 16/32/48/256 px (window icon)
-tests/                  matlab.unittest suites + fixtures (real LAN-XI responses and stream)
+tests/                  matlab.unittest suites + fixtures (real LAN-XI responses and stream,
+                        bus traffic of a simulated session: TestBusTraffic)
 examples/               demo_simulation.m, hardware_commissioning.m, bench_test_no_tube.m,
                         output/ (example plots)
 docs/                   see below
