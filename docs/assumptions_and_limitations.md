@@ -127,7 +127,7 @@
 9. **Standalone application (deferred until development is largely complete, decided
    2026-10-08).** The lab license includes MATLAB Compiler (`license('test','Compiler') = 1`),
    but the toolbox is not installed. Steps: install MATLAB Compiler (Add-On Explorer); add a
-   build script (`compiler.build.standaloneApplication` for `tim.gui.TubeApp`). Make paths
+   build script (`compiler.build.standaloneApplication` for `tim.gui.Tubebench`). Make paths
    deployment-aware: when `isdeployed`, config/data/calibration must live next to the exe or in
    the user's Documents folder, not under the project root. Include `tests/fixtures` (needed by
    the simulation mode) and the example config. Target PCs need the free MATLAB Runtime

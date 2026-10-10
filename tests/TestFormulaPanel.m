@@ -1,7 +1,7 @@
 classdef TestFormulaPanel < matlab.unittest.TestCase
     %TESTFORMULAPANEL The "Formula" view (tim.gui.equationsPanel).
     %   The panel is built in an invisible uifigure (inside a uitab, as in
-    %   TubeApp). Checked: no error or warning while building; the common view
+    %   Tubebench). Checked: no error or warning while building; the common view
     %   layout (tim.gui.ViewPage header 'Formula'); every LaTeX string renders
     %   with the R2022b LaTeX interpreter (each one is drawn once with text()
     %   in an invisible figure, an invalid string gives a warning); the

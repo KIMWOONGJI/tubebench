@@ -68,10 +68,10 @@ Possible issues and remedies (each requires **your** decision; the software neve
 3. Check `config/user_config.json` (lab settings, part of the repository; see the user guide).
    On a set-up other than the lab tube, create it from `config/example_config.json`.
 4. Start the program: double-click `start_tubebench.bat` in the project folder, or type
-   `tubebench` (`tubebench sim`: virtual tube for practice) in MATLAB. The old names
-   `start_tubeapp.bat` and `tubeapp` still work. `start_tubebench.bat` starts MATLAB without its
-   desktop (`-nodesktop -nosplash`: about 1.5 s faster, and the program window is the only large
-   window). A small MATLAB command window stays open behind the program; closing the program
+   `tubebench` (`tubebench sim`: virtual tube for practice) in MATLAB (the old names
+   `start_tubeapp.bat` and `tubeapp` were removed on 2026-10-11). `start_tubebench.bat` starts
+   MATLAB without its desktop (`-nodesktop -nosplash`: about 1.5 s faster, and the program window
+   is the only large window). A small MATLAB command window stays open behind the program; closing the program
    leaves it open (MATLAB is not quit automatically): type `tubebench` there to open the program
    again, and `exit` (or close that window) to quit MATLAB. Help > User guide still opens the
    documents in the MATLAB Editor. The main window appears about 16 s after the double-click; the

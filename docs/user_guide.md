@@ -20,8 +20,6 @@ the **Formula** tab of the window.
      again, and `exit` (or close that window) to quit MATLAB;
    * or type `tubebench` / `tubebench sim` / `tubebench myconf.json` in MATLAB.
 
-   The old names `start_tubeapp.bat` and `tubeapp` still work.
-
    For script-based use, run `start_here.m` section by section (section 11).
 
 ## 2. The window
@@ -789,7 +787,7 @@ stored separately in `data\simulation\` and `calibration\simulation\`, so they c
 with real measurements and calibrations.
 
 **Practising without hardware**: `tubebench sim` (or
-`app = tim.gui.TubeApp('config/sim_thin_screen.json')`) opens the window on a virtual tube with a
+`app = tim.gui.Tubebench('config/sim_thin_screen.json')`) opens the window on a virtual tube with a
 thin resistive screen (Z_t = 400 + jω·0.05 Pa·s/m). Press Connect, Run switching calibration…,
 then Start measurement. The Transfer impedance and Transmission loss views show the results.
 

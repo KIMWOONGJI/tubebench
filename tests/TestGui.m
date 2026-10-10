@@ -114,7 +114,7 @@ classdef TestGui < matlab.unittest.TestCase
             % the start window always disappears, also when the start-up fails
             % (a visible start: the start window appears for about 1 s)
             n0 = numel(findall(groot, 'Type', 'figure'));
-            tc.verifyError(@() tim.gui.TubeApp(fullfile(tc.tmp, 'missing.json')), 'tim:io:open');
+            tc.verifyError(@() tim.gui.Tubebench(fullfile(tc.tmp, 'missing.json')), 'tim:io:open');
             tc.verifyEqual(numel(findall(groot, 'Type', 'figure')), n0, 'no window left');
         end
 
@@ -189,7 +189,7 @@ classdef TestGui < matlab.unittest.TestCase
             % cancel option; timers keep running while it waits.
             % (uiconfirm needs a visible window: it appears for about 1 s)
             n0 = numel(findall(groot, 'Type', 'figure'));
-            app = tim.gui.TubeApp('', 'Visible', 'on');
+            app = tim.gui.Tubebench('', 'Visible', 'on');
             tc.addTeardown(@() delete(app));
             % start window (user request 2026-10-10): steps shown while the main
             % window was built hidden, closed when the main window appeared.
@@ -257,7 +257,7 @@ classdef TestGui < matlab.unittest.TestCase
             c.geometry.xFront = 0; c.geometry.xRear = 0.075;
             c.geometry.micPositions = [-0.070 -0.041 0.116 0.145];
             file = fullfile(tc.tmp, 'lab.json'); tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             ax = app.H.axCalSetup;
             tc.verifyEmpty(ax.Children, 'not drawn at start-up');
             tc.verifySubstring(strjoin(cellstr(app.H.calText.Text), ' '), 'Run switching calibration');
@@ -276,7 +276,7 @@ classdef TestGui < matlab.unittest.TestCase
             c = tim.app.defaultConfig(); c.mode = 'simulation';
             c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
             s = app.Session; fig = app.Fig;
             tc.assertTrue(s.Connected);
@@ -298,7 +298,7 @@ classdef TestGui < matlab.unittest.TestCase
             c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
             c.excitation.sweep.duration = 3; c.excitation.sweep.repetitions = 4;
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
             s = app.Session; fig = app.Fig;
             closer = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) tim.gui.closeApp(fig, app));
@@ -327,7 +327,7 @@ classdef TestGui < matlab.unittest.TestCase
             c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
             c.excitation.sweep.duration = 3; c.excitation.sweep.repetitions = 4;
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
             feval(h.connect.ButtonPushedFcn, h.connect, []);
             stopper = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) feval(h.stop.ButtonPushedFcn, h.stop, []));
@@ -354,7 +354,7 @@ classdef TestGui < matlab.unittest.TestCase
             c.calibration.repeatConfigI = false;
             file = fullfile(tc.tmp, 'cfg.json');
             tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off');
+            app = tim.gui.Tubebench(file, 'Visible', 'off');
             cleanup = onCleanup(@() delete(app));
             h = app.H;
             feval(h.connect.ButtonPushedFcn, h.connect, []);
@@ -406,7 +406,7 @@ classdef TestGui < matlab.unittest.TestCase
                 'amplitudeVpp', 0.2, 'settleTime', 0.1, 'recordTime', 0.2, 'nBlocks', 2, 'repetitions', 1);
             c.excitation.sweep.duration = 2; c.excitation.sweep.repetitions = 1;
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
             tc.assertEqual(h.exMode.Value, 'stepped');
             feval(h.connect.ButtonPushedFcn, h.connect, []);
@@ -445,7 +445,7 @@ classdef TestGui < matlab.unittest.TestCase
             c.geometry.xFront = 0; c.geometry.xRear = 0.075;
             c.geometry.micPositions = [-0.070 -0.041 0.116 0.145];
             file = fullfile(tc.tmp, 'lab.json'); tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
             tc.verifyEqual([h.tubeD.Value h.s1.Value h.s2.Value], [29 29 29]);      % bit-exact
             tc.verifyEqual({h.L1.Value, h.dTh.Value, h.L2.Value}, {'41', '75', '41'});
@@ -460,7 +460,7 @@ classdef TestGui < matlab.unittest.TestCase
         function leftPanelFitsWithoutScrolling(tc)
             % user request 2026-10-09: no scrolling in the control panel on the lab screen
             % (window = work area of the 1920 x 1080 lab laptop screen: about 975 px inside the title and menu bars)
-            app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
             L = app.H.left; g = L.Parent;
             rh = L.RowHeight;
             tc.verifyTrue(all(cellfun(@isnumeric, rh)), 'left panel uses fixed row heights only');
@@ -487,7 +487,7 @@ classdef TestGui < matlab.unittest.TestCase
 
         function steppedFieldsFollowTheMode(tc)
             % before 2026-10-09 f start/stop, duration and repetitions reached only the sweep
-            app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H; c = tim.app.defaultConfig();
             tc.verifyEqual(h.durLabel.Text, 'Sweep duration [s]');
             h.exMode.Value = 'stepped'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'sweep'));
@@ -510,7 +510,7 @@ classdef TestGui < matlab.unittest.TestCase
             c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
             c.calibration.repeatConfigI = false;
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             app.PromptInSimulation = true;                      % ask at every step, as with hardware
             h = app.H;
             tc.verifyEqual(h.calText.Interpreter, 'html');
@@ -553,7 +553,7 @@ classdef TestGui < matlab.unittest.TestCase
             % the app starts with another set-up (L1 9 mm longer) and no measurement
             c2 = c; c2.geometry.micPositions(1:2) = c.geometry.micPositions(1:2) - 0.009;
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c2, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
             L1 = h.L1.Value;
             app.openMeasurement(d, false);                         % keep the fields
@@ -594,7 +594,7 @@ classdef TestGui < matlab.unittest.TestCase
             % user request 2026-10-09: version and repository in Help > About of a
             % menu bar (as in other programs) instead of a footer; tab "Formula"
             n0 = numel(findall(groot, 'Type', 'figure'));
-            app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            app = tim.gui.Tubebench('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
             tc.verifyEqual(numel(findall(groot, 'Type', 'figure')), n0 + 1, 'hidden window: no start window');
             tc.verifyEmpty(app.StartSteps);
             tc.verifyEqual(app.Fig.Name, 'tubebench', 'program name (user decision 2026-10-10)');
@@ -641,7 +641,7 @@ classdef TestGui < matlab.unittest.TestCase
             % Connection; a view opened before the background has prepared it is
             % prepared at once (major tab: its selected sub tab)
             n0 = numel(timerfindall);
-            app = tim.gui.TubeApp(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 600);
+            app = tim.gui.Tubebench(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 600);
             tc.addTeardown(@() delete(app));      % (600 s: the background queue does not start here)
             tc.verifyTrue(app.Deferred);
             for p = app.Parts
@@ -690,7 +690,7 @@ classdef TestGui < matlab.unittest.TestCase
             % the background queue prepares every view, one step per timer tick,
             % with its first drawing; afterwards no timer is left
             n0 = numel(timerfindall);
-            app = tim.gui.TubeApp(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
+            app = tim.gui.Tubebench(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
             tc.addTeardown(@() delete(app));
             t0 = tic;
             while isnan(app.ReadyTime) && toc(t0) < 240, pause(0.1); end
@@ -728,7 +728,7 @@ classdef TestGui < matlab.unittest.TestCase
             c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
             c.excitation.sweep.duration = 2; c.excitation.sweep.repetitions = 2;
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
-            app = tim.gui.TubeApp(file, 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0.2);
+            app = tim.gui.Tubebench(file, 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0.2);
             tc.addTeardown(@() delete(app));
             h = app.H;
             feval(h.connect.ButtonPushedFcn, h.connect, []);
@@ -774,7 +774,7 @@ classdef TestGui < matlab.unittest.TestCase
             % closing the window during the background preparation: no error, no
             % timer left (the timer belongs to the window)
             n0 = numel(timerfindall);
-            app = tim.gui.TubeApp('', 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
+            app = tim.gui.Tubebench('', 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
             fig = app.Fig;
             tc.addTeardown(@() delete(fig(isvalid(fig))));
             t0 = tic;

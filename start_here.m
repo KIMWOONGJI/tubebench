@@ -24,7 +24,7 @@ fprintf('Mode: %s\n', upper(cfg.mode));
 fprintf('  - %s\n', warn{:});
 
 %% 1) (optional) Graphical interface instead of the sections below
-% tubebench        % real instruments (config/user_config.json)  (old name: tubeapp)
+% tubebench        % real instruments (config/user_config.json)
 % tubebench sim    % virtual tube (practice)
 
 %% 2) Self-test of the software (simulation only, ~3 min)

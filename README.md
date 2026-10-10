@@ -31,8 +31,6 @@ edit start_here.m           % step-by-step script entry point (no window)
 run examples/demo_simulation.m   % full simulated workflow + example plots
 ```
 
-The old names `tubeapp` and `start_tubeapp.bat` still work (they call `tubebench`).
-
 The window guides through Connect → tube geometry → excitation → switching calibration → Start
 measurement → Save measurement; `docs/user_guide.md` describes every control and view (also in
 the window under Help > User guide).
@@ -69,11 +67,12 @@ or configuration.
 ## Structure
 
 The code is the MATLAB package `+tim` (tim = transfer-impedance measurement, the internal package
-of tubebench); its package and class names (`tim.gui.TubeApp`, …) did not change with the program name.
+of tubebench, which kept its name when the program was renamed). The main window is the class
+`tim.gui.Tubebench`.
 
 ```
 start_here.m            entry point (sections)        run_tests.m   automated tests
-tubebench.m, start_tubebench.bat   start the window (old names tubeapp.m, start_tubeapp.bat)
+tubebench.m, start_tubebench.bat   start the window
 config/                 user_config.json (lab settings), example_config.json (template),
                         sim_thin_screen.json (virtual tube)
 +tim/+instr             Keysight33220A, ScpiTcpTransport, LanXi, LanXiHttp, LanXiTcpStream,
@@ -94,7 +93,7 @@ config/                 user_config.json (lab settings), example_config.json (te
                         transferImpedance, validity, calibration; house style and helpers:
                         style, fitAxes, legend, masked, bandValues, octaveBands, dataTitle,
                         emptyState, thickSpecimen, viewText (titles and descriptions)
-+tim/+gui               TubeApp (uifigure window), ViewPage (header + graphs + summary of a view),
++tim/+gui               Tubebench (uifigure window), ViewPage (header + graphs + summary of a view),
                         drawTube3D (3D tube model), equationsPanel (Formula tab), Checklist,
                         StartWindow (start window with progress), palette, icon, logo, closeApp
 +tim/+val               hardware validation procedures (Tests A–E)

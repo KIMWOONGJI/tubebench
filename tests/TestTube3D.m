@@ -23,7 +23,7 @@ classdef TestTube3D < matlab.unittest.TestCase
 
     methods (Test)
         function returnedStruct(tc)
-            % fields used by TubeApp (calibration animation, labels, glow)
+            % fields used by Tubebench (calibration animation, labels, glow)
             [g, td] = tc.lab();
             M = tim.gui.drawTube3D(tc.ax, g, td, [2 1 3 4]);
             for f = {'micGroup', 'micLabel', 'micX0', 'portX', 'portLabel', 'lift', 'zHandle', ...

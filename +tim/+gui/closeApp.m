@@ -1,5 +1,5 @@
 function closeApp(fig, app)
-%CLOSEAPP Close request of the TubeApp window - always closes the window.
+%CLOSEAPP Close request of the Tubebench window - always closes the window.
 %   A "Closing" dialog appears at once and shows the steps (generator
 %   output off, LAN-XI module back to Idle with short time-outs, window
 %   deleted). During a running measurement / calibration a stop is requested first and

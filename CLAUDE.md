@@ -9,8 +9,9 @@ measurements. A Keysight/Agilent 33220A generator drives the loudspeaker; four B
 record on an HBK LAN-XI 3676 through its Open API (HTTP REST + binary TCP stream). It needs only
 MATLAB and the Signal Processing Toolbox. Every feature also runs without hardware in simulation
 mode. The code is the package `+tim`, which kept its name when the program was renamed to
-tubebench; class names such as `tim.gui.TubeApp` did not change. README.md has the package map
-and docs/ has the theory and procedures. Code, comments, UI text and docs are in English;
+tubebench; the main window is `tim.gui.Tubebench`, started by `tubebench.m` /
+`start_tubebench.bat` (the old names `tubeapp` and `tim.gui.TubeApp` were removed). README.md has
+the package map and docs/ has the theory and procedures. Code, comments, UI text and docs are in English;
 operator prompts exist in English and Korean (`tim.app.msg`).
 
 ## Commands
@@ -90,7 +91,7 @@ function. `tim.gui.ViewPage` shows it in the window (header + axes + summary tab
 only from `tim.plots.viewText`. A change to a view therefore changes both outputs, and both are
 tested (TestPlots*, TestGui).
 
-**GUI.** `tim.gui.TubeApp` (one large class) is a thin layer over `MeasurementSession`; every
+**GUI.** `tim.gui.Tubebench` (one large class) is a thin layer over `MeasurementSession`; every
 action is also available from scripts (`start_here.m`).
 
 - It is built programmatically with uifigure components, not as an .mlapp file.

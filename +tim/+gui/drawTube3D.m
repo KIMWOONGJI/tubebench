@@ -475,7 +475,7 @@ end
 
 function h = portGlow(ax, xc, r, z0, z1, rIn)
 % translucent yellow cylinder + ring around a calibration port (whole, also
-% in the section view); TubeApp pulses FaceAlpha while the operator works
+% in the section view); Tubebench pulses FaceAlpha while the operator works
 yel = [1 0.85 0.25]; t = linspace(0, 2 * pi, 49);
 X = xc + [r; r] * cos(t); Y = [r; r] * sin(t); Z = [z0; z1] * ones(size(t));
 h = surf(ax, X, Y, Z, 'FaceColor', yel, 'EdgeColor', 'none', 'FaceAlpha', 0.35, ...

@@ -31,12 +31,15 @@ classdef TestSoftwareInfo < matlab.unittest.TestCase
 
         function launchersAndProjectName(tc)
             % user decision 2026-10-10: program renamed to tubebench; tubebench.m /
-            % start_tubebench.bat start it, the old tubeapp / start_tubeapp.bat still work
+            % start_tubebench.bat start it. 2026-10-11: the old names (tubeapp,
+            % start_tubeapp.bat, class tim.gui.TubeApp) removed
             root = tim.app.projectRoot();
             tc.verifyEqual(which('tubebench'), fullfile(root, 'tubebench.m'));
-            tc.verifyEqual(which('tubeapp'), fullfile(root, 'tubeapp.m'));
+            tc.verifyEqual(exist(fullfile(root, '+tim', '+gui', 'Tubebench.m'), 'file'), 2);
+            for old = {'tubeapp.m', 'start_tubeapp.bat', fullfile('+tim', '+gui', 'TubeApp.m')}
+                tc.verifyFalse(isfile(fullfile(root, old{1})), ['old name removed: ' old{1}]);
+            end
             tc.verifyError(@() tubebench('no_such_config.json'), 'tubebench:config');
-            tc.verifyError(@() tubeapp('no_such_config.json'), 'tubebench:config', 'tubeapp calls tubebench');
             bat = tim.app.readTextUtf8(fullfile(root, 'start_tubebench.bat'));
             tc.verifySubstring(bat, '-r "tubebench(''%MODE%'')"');
             % user choice 2026-10-10 ("D"): MATLAB without its desktop (faster start);
@@ -44,8 +47,6 @@ classdef TestSoftwareInfo < matlab.unittest.TestCase
             tc.verifySubstring(bat, '-nodesktop -nosplash -sd "%ROOT%"');
             tc.verifyFalse(contains(regexp(bat, '-r "[^"]*"', 'match', 'once'), 'exit'), ...
                 'MATLAB keeps running after the program is closed');
-            bat = tim.app.readTextUtf8(fullfile(root, 'start_tubeapp.bat'));
-            tc.verifySubstring(bat, 'call "%~dp0start_tubebench.bat" %*', 'old .bat calls the new one');
             for f = {'user_config.json', 'example_config.json', 'sim_thin_screen.json'}
                 cfg = jsondecode(tim.app.readTextUtf8(fullfile(root, 'config', f{1})));
                 tc.verifyEqual(cfg.projectName, 'tubebench', f{1});

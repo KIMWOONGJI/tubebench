@@ -376,13 +376,13 @@ classdef TestPlotsSaved < matlab.unittest.TestCase
         function descriptionsAsInTheGui(tc)
             % one source for the view headers: the GUI view pages either call
             % tim.plots.viewText or hold exactly its texts
-            src = tim.app.readTextUtf8(fullfile(tim.app.projectRoot(), '+tim', '+gui', 'TubeApp.m'));
+            src = tim.app.readTextUtf8(fullfile(tim.app.projectRoot(), '+tim', '+gui', 'Tubebench.m'));
             if contains(src, 'tim.plots.viewText'), return; end
             src = regexprep(src, '''\s*\.\.\.[^\n]*\n\s*''', '');          % join continued string literals
             for i = 1:numel(TestPlotsSaved.Fields)
                 [ttl, desc] = tim.plots.viewText(TestPlotsSaved.Fields{i});
                 tc.verifySubstring(src, ['''' ttl ''', [''' desc ''']'], ...
-                    sprintf('TubeApp view page "%s": same description as tim.plots.viewText', ttl));
+                    sprintf('Tubebench view page "%s": same description as tim.plots.viewText', ttl));
             end
         end
 

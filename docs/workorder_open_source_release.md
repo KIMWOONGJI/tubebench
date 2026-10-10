@@ -52,7 +52,7 @@
 
 1. **LICENSE** (MIT, `Copyright (c) 2026 Woongji Kim`); a "License" section in README; the
    copyright/licence line in the help header of the entry files only (`tubebench.m`,
-   `+tim/+gui/TubeApp.m`).
+   `+tim/+gui/Tubebench.m`).
 2. **Author visibility:**
    - README header: name, logo (`resources/logo`), one-line description, links to
      <https://kimwoongji.github.io> and the File Exchange page, badges (licence, MATLAB version,

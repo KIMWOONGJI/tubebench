@@ -5,12 +5,11 @@ function app = tubebench(what)
 %                          %   (falls back to config/example_config.json)
 %   tubebench sim          % virtual tube for practice: config/sim_thin_screen.json
 %   tubebench myconf.json  % any configuration file (absolute, or in config/)
-%   app = tubebench(...)   % also return the app object (tim.gui.TubeApp)
+%   app = tubebench(...)   % also return the app object (tim.gui.Tubebench)
 %
 %   Can be called from any current folder once the project folder is on
 %   the MATLAB path; it adds the project to the path itself. Windows users
 %   can also double-click start_tubebench.bat in the project folder.
-%   The old names tubeapp and start_tubeapp.bat still work.
 
 root = fileparts(mfilename('fullpath'));
 addpath(root);
@@ -31,6 +30,6 @@ else
     end
 end
 fprintf('Starting tubebench with %s\n', file);
-a = tim.gui.TubeApp(file);
+a = tim.gui.Tubebench(file);
 if nargout > 0, app = a; end
 end

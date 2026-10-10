@@ -1,10 +1,10 @@
-classdef TubeApp < handle
-    %TUBEAPP Main window of tubebench (uifigure, R2022b) for the transfer-impedance tube.
+classdef Tubebench < handle
+    %TUBEBENCH Main window of tubebench (uifigure, R2022b) for the transfer-impedance tube.
     %
-    %   app = tim.gui.TubeApp();                      % default / example config
-    %   app = tim.gui.TubeApp('config/user_config.json');
-    %   app = tim.gui.TubeApp(file, 'Visible', 'off')  % hidden window (automated tests)
-    %   app = tim.gui.TubeApp(file, 'Deferred', false) % visible, every view built before it appears
+    %   app = tim.gui.Tubebench();                      % default / example config
+    %   app = tim.gui.Tubebench('config/user_config.json');
+    %   app = tim.gui.Tubebench(file, 'Visible', 'off')  % hidden window (automated tests)
+    %   app = tim.gui.Tubebench(file, 'Deferred', false) % visible, every view built before it appears
     %   app.openMeasurement('data/20261009_111602_sweep_foam')  % show a saved measurement
     %   app.ensureBuilt('all')                         % wait until every view is prepared
     %
@@ -77,7 +77,7 @@ classdef TubeApp < handle
         LastPrompt struct = struct('text', '', 'options', {{}})   % last question of the bar (tests)
         % ---- progressive start-up: views prepared after the window is shown
         Deferred logical = false   % views built in the background (default: visible window)
-        PartState struct = struct()% per view (TubeApp.Parts): 'none' | 'built' (controls exist) | 'ready' (drawn)
+        PartState struct = struct()% per view (Tubebench.Parts): 'none' | 'built' (controls exist) | 'ready' (drawn)
         BuildQueue cell = {}       % views still to prepare in the background, in this order
         BuildTimer = []            % timer that prepares the queue, one step per tick
         Building char = ''         % view being prepared now (background steps wait)
@@ -103,7 +103,7 @@ classdef TubeApp < handle
     end
 
     methods
-        function app = TubeApp(cfgFile, opts)
+        function app = Tubebench(cfgFile, opts)
             arguments
                 cfgFile = ''
                 opts.Visible (1,:) char = 'on'
@@ -398,14 +398,14 @@ classdef TubeApp < handle
 
         %% ------------------------------------------- progressive start-up
         function tf = isBuilt(app, part)
-            %ISBUILT The controls of a view exist (TubeApp.Parts; its first
+            %ISBUILT The controls of a view exist (Tubebench.Parts; its first
             %   drawing may still be pending in the background).
             tf = isfield(app.PartState, part) && ~strcmp(app.PartState.(part), 'none');
         end
 
         function ensureBuilt(app, parts, how)
             %ENSUREBUILT Prepare views now (controls + first drawing with the data
-            %   of now), unless they are ready: a name of TubeApp.Parts, a cell
+            %   of now), unless they are ready: a name of Tubebench.Parts, a cell
             %   array of names or 'all'. Every code path that uses the controls of
             %   a view calls it first; every action calls it BEFORE it acquires
             %   data, so nothing is built while the data stream runs.
@@ -417,7 +417,7 @@ classdef TubeApp < handle
                 p = parts{i};
                 if ~isvalid(app), return; end
                 if ~isfield(app.PartState, p)
-                    error('tim:gui:part', 'Unknown view "%s" (TubeApp.Parts).', p);
+                    error('tim:gui:part', 'Unknown view "%s" (Tubebench.Parts).', p);
                 end
                 if strcmp(app.PartState.(p), 'ready'), continue; end
                 if strcmp(app.Constructing, p)
@@ -2519,7 +2519,7 @@ classdef TubeApp < handle
             app.stopPulse();
             if ~isfield(app.H, 'calHi') || isempty(app.H.calHi), return; end
             app.PulseTimer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.35, 'BusyMode', 'drop', ...
-                'Name', 'TubeApp-calibration-pulse', 'TimerFcn', @(~, ~) app.pulseStep());
+                'Name', 'Tubebench-calibration-pulse', 'TimerFcn', @(~, ~) app.pulseStep());
             start(app.PulseTimer);
         end
         function pulseStep(app)
