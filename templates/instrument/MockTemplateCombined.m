@@ -18,7 +18,9 @@ classdef MockTemplateCombined < handle
     %   samples and gets the microphone voltages of the same samples back,
     %   y = rig.respond(x); writeZero() is rig.respond(zeros(0, 1)) (the rig's
     %   OutputLog records "output at 0 V"). The contract tests read the rig's
-    %   OutputLog to check what was really played.
+    %   OutputLog to check what was really played. Like an analog output, the
+    %   output keeps its last value after stop() and close(): only writeZero()
+    %   sets 0 V (Playing, the test hook outputOn, shows it).
     %
     %   Fault injection (the driver's testHooks): fault('broken') - the link is
     %   lost, every operation fails; fault('error') - the device reports an
@@ -109,15 +111,17 @@ classdef MockTemplateCombined < handle
         end
 
         function stop(obj)
+            % the output keeps its last value (as an NI analog output does):
+            % only writeZero() sets it to 0 V
             obj.operation('stop');
             obj.Running = false;
         end
 
         function close(obj)
+            % released: the output keeps its last value as well
             if ~obj.Closed, obj.Log{end+1} = 'close'; end
             obj.Closed = true;
             obj.Running = false;
-            obj.Playing = false;
         end
 
         function setTimeout(~, ~)

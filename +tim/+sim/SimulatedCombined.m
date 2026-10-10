@@ -34,7 +34,8 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
     %
     %   OUTPUT OFF = 0 V (section 3.1): 0 V is written on creation, by
     %   outputOff, close and delete, and every plan or abnormal end finishes
-    %   with a 5 ms raised-cosine fade to 0 V followed by zeros.
+    %   with a 5 ms raised-cosine fade to 0 V followed by zeros; then the
+    %   device is stopped and 0 V is written once more.
     %   Waveforms (section 3.3): sine; exponential (LOG) or linear (LIN) swept
     %   sine, sample-exact, phase continuous, back to fStart after the sweep;
     %   Gaussian noise with rms = Vpp / 6.6. Load 'INF' only (the programmed
@@ -321,9 +322,10 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
                     error('tim:simcombined:timeout', 'Acquisition time-out (%d of %d samples).', n, nSamples);
                 end
             end
-            obj.Executing = false; obj.Recording = false;
-            obj.finishOutput();                       % fade to 0 V, zeros
-            obj.device('stop');
+            obj.Executing = false;
+            obj.finishOutput();                       % the rest of the fade to 0 V
+            obj.Recording = false; obj.device('stop');
+            obj.writeZero();                          % 0 V after the stop (contract section 3.1)
             obj.commitPlan();
             obj.Done = true;
             [data, info] = obj.collect(nSamples);
@@ -379,9 +381,15 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
             if obj.Closed, return; end
             obj.Closed = true;
             obj.OutputArmed = false;
+            if obj.Executing, obj.haltOutput(); obj.finishOutput(); end
+            obj.Planning = false; obj.Executing = false;
+            wasRecording = obj.Recording; obj.Recording = false;
+            try                                       % stopped, then 0 V (contract section 3.1)
+                if wasRecording, obj.device('stop'); end
+            catch err
+                warning('tim:simcombined:close', 'Simulated device: close: %s', err.message);
+            end
             try
-                if obj.Executing, obj.haltOutput(); obj.finishOutput(); end
-                obj.Planning = false; obj.Executing = false; obj.Recording = false;
                 obj.writeZero();
                 obj.device('release');
             catch err
@@ -644,7 +652,8 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
 
         function finishOutput(obj)
             % end of playing: a running fade (or an output still on) is
-            % completed to 0 V after the last recorded sample, then 0 V
+            % completed to 0 V after the last recorded sample; the caller then
+            % stops the device and writes 0 V
             o = obj.Out;
             if isempty(o), return; end
             fadeN = round(obj.FadeTime * obj.SampleRate);
@@ -661,7 +670,6 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
             end
             obj.Out.fadeStart = NaN; obj.Out.on = false;
             obj.DeviceOn = false;
-            obj.Rig.respond(zeros(0, 1));                % 0 V
         end
 
         function writeZero(obj)
@@ -673,19 +681,24 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
 
         function endAcquire(obj)
             % onCleanup of acquire: on an abnormal end AbortFcn first (no device
-            % operation before it), then the output to 0 V and the device stopped -
+            % operation before it), then the rest of the fade, the device stopped
+            % and the output at 0 V, each step also when the one before failed -
             % unless close() did that already
             obj.Planning = false;
             if ~obj.Done, obj.callAbortFcn(); end
             wasPlaying = obj.Executing;
             obj.Executing = false; obj.Recording = false;
             if ~obj.Done && ~obj.Closed
+                if wasPlaying, obj.finishOutput(); end   % through the rig: cannot fail
                 try
-                    if wasPlaying, obj.finishOutput(); end
-                    obj.writeZero();
                     obj.device('stop');
                 catch err
                     warning('tim:simcombined:stop', 'Simulated device: stop after an error: %s', err.message);
+                end
+                try
+                    obj.writeZero();                  % 0 V after the stop (contract section 3.1)
+                catch err
+                    warning('tim:simcombined:stop', 'Simulated device: output to 0 V after the stop: %s', err.message);
                 end
             end
             obj.DeviceOn = false;
@@ -749,9 +762,12 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
         end
 
         function progress(obj, key, state, detail)
+            % checklist step of prepare (a failing callback does not stop the
+            % setup); close() from the callback: prepare ends, nothing more is sent
             if ~isempty(obj.ProgressFcn)
                 try, obj.ProgressFcn(key, state, detail); catch, end
             end
+            obj.assertOpen('prepare');
         end
 
         function setFault(obj, name, value)

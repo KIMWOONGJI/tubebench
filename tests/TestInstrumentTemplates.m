@@ -32,10 +32,23 @@ classdef TestInstrumentTemplates < matlab.unittest.TestCase
             for d = dir(fullfile(src, 'TestTemplate*.m')).'
                 copyfile(fullfile(src, d.name), f.Folder);
             end
+            % the combined template with another device block (4096 samples), made
+            % with the replacements of the guide's step 3: the contract cases must
+            % not assume the template's 2048
+            for t = {'TemplateCombined', 'MockTemplateCombined'}
+                txt = tim.app.readTextUtf8(fullfile(src, [t{1} '.m']));
+                txt = strrep(strrep(txt, 'TemplateCombined', 'TemplateBigBlock'), 'TEMPLATECOMBINED', 'TEMPLATEBIGBLOCK');
+                txt = strrep(txt, 'templatecombined', 'templatebigblock');
+                txt = strrep(txt, '''blockSamples'', 2048)', '''blockSamples'', 4096)');
+                fid = fopen(fullfile(pkg, [strrep(t{1}, 'TemplateCombined', 'TemplateBigBlock') '.m']), 'w', 'n', 'UTF-8');
+                fwrite(fid, unicode2native(txt, 'UTF-8')); fclose(fid);
+            end
             tc.applyFixture(matlab.unittest.fixtures.PathFixture(f.Folder));
-            for n = fieldnames(tc.Classes).'
-                tim.instr.drivers('add', struct('name', n{1}, 'class', ['tim.instr.' tc.Classes.(n{1})]));
-                tc.addTeardown(@() tim.instr.drivers('remove', n{1}));
+            names = [fieldnames(tc.Classes).', {'templatebigblock'}];
+            classes = [struct2cell(tc.Classes).', {'TemplateBigBlock'}];
+            for i = 1:numel(names)
+                tim.instr.drivers('add', struct('name', names{i}, 'class', ['tim.instr.' classes{i}]));
+                tc.addTeardown(@() tim.instr.drivers('remove', names{i}));
             end
         end
     end
@@ -50,8 +63,8 @@ classdef TestInstrumentTemplates < matlab.unittest.TestCase
             tc.verifyEmpty(which('TemplateSource'), 'the bare template class is not found');
             tc.verifyEmpty(regexpi(fileread(which('tim.instr.drivers')), 'template', 'once'), ...
                 'no template in the registry file');
-            files = [{dir(fullfile(src, '*.m')).name}, {'ref_template.md', 'config_snippet.json'}];
-            tc.verifyNumElements(files, 11);
+            files = [{dir(fullfile(src, '*.m')).name}, {'ref_template.md', 'config_snippet.json', 'config_snippet_combined.json'}];
+            tc.verifyNumElements(files, 12);
             for f = files
                 tc.verifySubstring(fileread(fullfile(src, f{1})), 'TODO', [f{1} ' marks the instrument facts']);
             end
@@ -72,6 +85,21 @@ classdef TestInstrumentTemplates < matlab.unittest.TestCase
             tc.verifyEmpty(runQuietly(suite(keep)), 'contract cases that failed for a template');
         end
 
+        function anotherBlockSizeMeetsTheContract(tc)
+            % the combined template with a device block of 4096 samples (a
+            % newcomer's device buffer): the same contract cases pass
+            tc.assertEqual(tim.instr.driverInfo('templatebigblock').defaults.settings.blockSamples, 4096);
+            p = matlab.unittest.parameters.Parameter.fromData( ...
+                'driver', {'templatebigblock'}, 'source', {'templatebigblock'}, 'acquisition', {'templatebigblock'}, ...
+                'instrumentSource', {'templatesource'}, 'separateAcquisition', {'templateacquisition'}, ...
+                'blockDevice', {'templatebigblock'});
+            suite = matlab.unittest.TestSuite.fromClass(?TestInstrumentContract, 'ExternalParameters', p);
+            keep = arrayfun(@(s) ~isempty(s.Parameterization) && ...
+                any(strcmp({s.Parameterization.Value}, 'templatebigblock')), suite);
+            tc.verifyGreaterThan(nnz(keep), 20, 'every case of a combined block device');
+            tc.verifyEmpty(runQuietly(suite(keep)), 'contract cases that failed with a block of 4096 samples');
+        end
+
         function driverTestTemplatesPass(tc)
             suite = matlab.unittest.Test.empty;
             for n = {'TestTemplateSource', 'TestTemplateAcquisition', 'TestTemplateCombined'}
@@ -82,8 +110,9 @@ classdef TestInstrumentTemplates < matlab.unittest.TestCase
         end
 
         function configSnippetSelectsTheTemplates(tc)
-            % the snippet loads without a warning, selects the template drivers,
-            % and the inputs take the acquisition driver's defaults
+            % the snippets load without a warning and select the template drivers
+            % (a source and a separate DAQ; a device in both roles); the inputs
+            % take the acquisition driver's defaults
             file = fullfile(templateFolder(), 'config_snippet.json');
             cfg = tc.verifyWarningFree(@() tim.app.loadConfig(file));
             tc.verifyEqual(cfg.generator.driver, 'templatesource');
@@ -92,6 +121,19 @@ classdef TestInstrumentTemplates < matlab.unittest.TestCase
             tc.verifyEqual({cfg.acquisition.sampleRate, cfg.acquisition.range, cfg.acquisition.filter}, ...
                 {def.sampleRate, def.range, def.filter});
             tc.verifyWarningFree(@() tim.app.validateConfig(cfg, 'instruments'));
+            % a device in both roles: named in both sections, its settings in daq.<reg>
+            file = fullfile(templateFolder(), 'config_snippet_combined.json');
+            cfg = tc.verifyWarningFree(@() tim.app.loadConfig(file));
+            tc.verifyEqual({cfg.generator.driver, cfg.daq.driver}, {'templatecombined', 'templatecombined'});
+            tc.verifyEqual(cfg.daq.templatecombined.blockSamples, 2048);
+            tc.verifyWarningFree(@() tim.app.validateConfig(cfg, 'instruments'));
+            % the same settings in the generator section are not read: a warning
+            u = jsondecode(tim.app.readTextUtf8(file));
+            u.generator.templatecombined = u.daq.templatecombined;
+            u.daq = rmfield(u.daq, 'templatecombined');
+            f2 = fullfile(tc.Folder, 'misplaced.json');
+            fid = fopen(f2, 'w', 'n', 'UTF-8'); fwrite(fid, unicode2native(jsonencode(u), 'UTF-8')); fclose(fid);
+            tc.verifyWarning(@() tim.app.loadConfig(f2), 'tim:config:misplacedSettings');
         end
     end
 end

@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "mode": "simulation",
+  "generator": {
+    "driver": "templatecombined",
+    "maxVpp": 0.2,
+    "load": "INF"
+  },
+  "daq": {
+    "driver": "templatecombined",
+    "templatecombined": {
+      "address": "TODO what selects the device: NI device name (daqlist), audio device name",
+      "timeout": 5,
+      "blockSamples": 2048
+    }
+  }
+}

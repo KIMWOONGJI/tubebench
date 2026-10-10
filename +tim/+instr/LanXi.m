@@ -140,6 +140,7 @@ classdef LanXi < tim.instr.Acquisition
 
         function teds = detectTransducers(obj)
             %DETECTTRANSDUCERS TEDS detection; returns 1xN cell (struct or []).
+            obj.assertNotClosed('TEDS detection');
             obj.Http.request('POST', '/rest/rec/channels/input/all/transducers/detect');
             t0 = tic;
             st = obj.status();
@@ -148,6 +149,7 @@ classdef LanXi < tim.instr.Acquisition
                     error('tim:lanxi:teds', 'TEDS detection did not finish within %.0f s.', obj.TedsTimeout);
                 end
                 pause(0.2);
+                obj.assertNotClosed('TEDS detection');   % close() from a callback during the pause
                 st = obj.status();
             end
             d = obj.Http.request('GET', '/rest/rec/channels/input/all/transducers');
@@ -242,9 +244,11 @@ classdef LanXi < tim.instr.Acquisition
 
         function prepare(obj, c)
             %PREPARE Idle -> RecorderStreaming including TEDS detection.
-            %   Steps are reported to ProgressFcn (keys open, teds, setup).
-            %   c.connector (scripts) overrides the connector of the driver
-            %   settings (daq.lanxi.connector).
+            %   Steps are reported to ProgressFcn (keys open, teds, setup);
+            %   close() from ProgressFcn ends prepare with tim:instr:closed and
+            %   nothing more is sent. c.connector (scripts) overrides the
+            %   connector of the driver settings (daq.lanxi.connector; ''
+            %   keeps the module's own setting, as before 1.2.0).
             obj.assertNotClosed('prepare');
             if ~isfield(c, 'connector') && isfield(obj.Settings, 'connector')
                 c.connector = obj.Settings.connector;
@@ -266,6 +270,7 @@ classdef LanXi < tim.instr.Acquisition
                     if numel(found) == numel(obj.Teds), st = 'ok'; else, st = 'warn'; end
                     obj.progress('teds', st, txt);
                 catch err
+                    if strcmp(err.identifier, 'tim:instr:closed'), rethrow(err); end
                     obj.log('TEDS detection failed (continuing with manual sensitivities): %s', err.message);
                     obj.Teds = {};
                     obj.progress('teds', 'warn', ['failed - manual sensitivities: ' err.message]);
@@ -523,6 +528,10 @@ classdef LanXi < tim.instr.Acquisition
             %FROMCONFIG REST client (or the mock on ctx.rig), module/info and
             %   return to Idle: the checklist steps 'lanxi' and 'idle', with the
             %   same requests in the same order as MeasurementSession.connect.
+            %   A Stop (tim:session:stopped from a step) or an error after the
+            %   client exists returns the module to Idle before the error
+            %   propagates (best effort, 2 s time-out): the object is not
+            %   returned, so nobody else could close it.
             st = ctx.settings;
             sim = strcmp(ctx.mode, 'simulation');
             if sim
@@ -541,16 +550,24 @@ classdef LanXi < tim.instr.Acquisition
             obj = tim.instr.LanXi(http, factory, 'Host', st.host);
             obj.Settings = st;
             obj.Roles = ctx.roles;
-            info = obj.moduleInfo();
-            tim.instr.Instrument.reportStep(ctx, 'lanxi', 'ok', ...
-                sprintf('%s  s/n %d  firmware %s', info.model, info.serial, info.firmware));
-            tim.instr.Instrument.reportStep(ctx, 'idle', 'run', sprintf('state %s', info.moduleState));
-            if ~strcmp(info.moduleState, 'Idle')
-                obj.log('Module not in state Idle (%s): returning it to Idle.', info.moduleState);
+            try
+                info = obj.moduleInfo();
+                tim.instr.Instrument.reportStep(ctx, 'lanxi', 'ok', ...
+                    sprintf('%s  s/n %d  firmware %s', info.model, info.serial, info.firmware));
+                tim.instr.Instrument.reportStep(ctx, 'idle', 'run', sprintf('state %s', info.moduleState));
+                if ~strcmp(info.moduleState, 'Idle')
+                    obj.log('Module not in state Idle (%s): returning it to Idle.', info.moduleState);
+                    obj.shutdown();
+                    tim.instr.Instrument.reportStep(ctx, 'idle', 'ok', sprintf('was %s – returned to Idle', info.moduleState));
+                else
+                    tim.instr.Instrument.reportStep(ctx, 'idle', 'ok', 'Idle');
+                end
+            catch err
+                % release what was opened (before 1.2.0 the session's close(true)
+                % did this after a failed connection): status, and Idle if needed
+                obj.setTimeout(2);
                 obj.shutdown();
-                tim.instr.Instrument.reportStep(ctx, 'idle', 'ok', sprintf('was %s – returned to Idle', info.moduleState));
-            else
-                tim.instr.Instrument.reportStep(ctx, 'idle', 'ok', 'Idle');
+                rethrow(err);
             end
         end
 
@@ -623,9 +640,13 @@ classdef LanXi < tim.instr.Acquisition
             if obj.Verbose, fprintf('[LAN-XI] %s\n', sprintf(varargin{:})); end
         end
         function progress(obj, key, state, detail)
+            % checklist step of prepare (a failing callback does not stop the
+            % setup); close() from the callback (the window closed during a
+            % step): prepare ends here, nothing more is sent
             if ~isempty(obj.ProgressFcn)
                 try, obj.ProgressFcn(key, state, detail); catch, end
             end
+            obj.assertNotClosed('prepare');
         end
     end
 end

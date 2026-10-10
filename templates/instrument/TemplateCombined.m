@@ -18,8 +18,8 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
     %   paragraph and the TODO line at the end of this help by a description of
     %   your driver: "TODO" must not occur in the file any more.
     %   The planning engine (acquire, render, apply, synthesize, haltOutput,
-    %   finishOutput, endAcquire) is that of tim.sim.SimulatedCombined, with the
-    %   virtual tube replaced by the device session; it needs no change.
+    %   finishOutput, endOutput, endAcquire) is that of tim.sim.SimulatedCombined,
+    %   with the virtual tube replaced by the device session; it needs no change.
     %
     %   Selected for BOTH roles: generator.driver = daq.driver = 'templatecombined';
     %   its settings are daq.templatecombined. The session then holds one object
@@ -32,12 +32,15 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
     %     id = Dev.identify()          vendor, model, serial, firmware, raw
     %     fs = Dev.configure(c)        inputs and the output channel; returns the
     %                                  rate the device REALLY runs at
-    %     Dev.writeZero()              output at 0 V now, device idle
+    %     Dev.writeZero()              output at 0 V now, device idle; must work
+    %                                  in every state, also AFTER Dev.stop(), and
+    %                                  leave the output at 0 V (it is called after
+    %                                  every stop)
     %     Dev.start()                  start playing and recording
     %     [y, st] = Dev.playRecord(x)  play x (m x 1 volts) and return the m x C
     %                                  input volts recorded at the same samples;
     %                                  st.fault, st.overload: 1 x C logical
-    %     Dev.stop()                   stop playing and recording
+    %     Dev.stop()                   stop playing and recording at once
     %     Dev.close()                  release the device
     %     Dev.setTimeout(t)            I/O time-out [s]
     %   Examples of the hardware side (check every call in the vendor's and
@@ -45,9 +48,12 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
     %   Toolbox - audioPlayerRecorder, one call per frame plays and records
     %   (ASIO driver on Windows; full-scale units: section 3.4 and 4.2 of the
     %   contract); an NI device through the Data Acquisition Toolbox - one
-    %   DataAcquisition with an analog output and four inputs, the output
-    %   preloaded / queued block by block. A sample-producing output can keep
-    %   its last value after a stop: write 0 V (contract section 3.1).
+    %   DataAcquisition with an analog output and four inputs; its output is
+    %   queued ahead, so the recorded block lags the played one: read
+    %   docs/adding_an_instrument.md section 4.1 before writing the session.
+    %   A sample-producing output can keep its last value after a stop: every
+    %   end of playing (normal, Stop, error, close) stops the device and THEN
+    %   writes 0 V (endOutput; contract section 3.1).
     %
     %   TIMING (contract section 8.3). acquire(n, onBlock) first runs a PLANNING
     %   PASS: onBlock(B), onBlock(2B), ... up to n without waiting (B =
@@ -58,8 +64,10 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
     %   onBlock(nDone) again from the first block; a level, frequency, trigger
     %   or outputOn call then raises tim:gen:schedule, and outputOff stops the
     %   output at once (5 ms fade to 0 V, then zeros).
-    %   OUTPUT OFF = 0 V: written on creation, by outputOff, close and delete,
-    %   and every plan or abnormal end finishes with a fade to 0 V.
+    %   OUTPUT OFF = 0 V: written on creation, by outputOff, close and delete;
+    %   every plan or abnormal end finishes with a fade to 0 V, then the device
+    %   is stopped and 0 V is written once more (each step also when the one
+    %   before failed).
     %   TODO one line: the device (vendor, model), its interface and the manual.
 
     properties (SetAccess = private)
@@ -219,7 +227,8 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
 
         function tf = isOutputOn(obj, ~)
             %ISOUTPUTON State of the device session ('device' read-back): the
-            %   output is producing a signal. False outside an acquisition.
+            %   output is producing a signal. False outside an acquisition -
+            %   unless 0 V could not be written after a stop (state unknown: true).
             tf = obj.DeviceOn;
         end
 
@@ -335,8 +344,9 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
                 end
             end
             obj.Executing = false;
-            obj.finishOutput();                               % fade to 0 V, zeros
+            obj.finishOutput();                               % the rest of the fade to 0 V
             obj.stopDevice();
+            obj.writeZero();                                  % 0 V after the stop (section 3.1)
             obj.commitPlan();
             obj.Done = true;
             [data, info] = obj.collect(nSamples);
@@ -391,14 +401,10 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
             if obj.Closed, return; end
             obj.Closed = true;
             obj.OutputArmed = false;
-            try
-                if obj.Executing, obj.haltOutput(); obj.finishOutput(); end
-                obj.Planning = false; obj.Executing = false;
-                obj.writeZero();
-            catch err
-                warning('tim:templatecombined:close', 'Device: close: %s', err.message);
-            end
-            obj.stopDevice();
+            wasPlaying = obj.Executing;
+            if wasPlaying, obj.haltOutput(); end
+            obj.Planning = false; obj.Executing = false;
+            obj.endOutput(wasPlaying);                        % fade, stop, then 0 V
             try, obj.Dev.close(); catch, end
         end
 
@@ -441,7 +447,7 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
                 'labels', struct('source', 'Output', 'acquisition', 'Inputs'), ...
                 'defaults', struct( ...
                     'settings', struct( ...                                 % daq.templatecombined
-                        'address', 'Dev1', ...                              % TODO what selects the device
+                        'address', '', ...                                  % TODO what selects the device; no default
                         'timeout', 5, ...                                   % I/O time-out [s]
                         'blockSamples', 2048), ...                          % TODO samples per block (device buffer)
                     'acquisition', struct('sampleRate', 16384, ...          % TODO defaults of acquisition.*
@@ -495,8 +501,13 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
             d = tim.instr.TemplateCombined.describe();
             c = tim.instr.TemplateCombined.capabilities();
             st = tim.instr.Instrument.settingsFrom(cfg, 'daq', d.name, d.defaults.settings);
-            if ~(ischar(st.address) || isstring(st.address)) || isempty(strtrim(char(st.address)))
-                error('tim:config:address', 'Device address (daq.%s.address) is empty.', d.name);
+            if ~(ischar(st.address) || isstring(st.address))
+                error('tim:config:address', 'Device address (daq.%s.address) must be text.', d.name);
+            end
+            if strcmp(cfg.mode, 'hardware') && isempty(strtrim(char(st.address)))
+                % no default address: a forgotten setting never opens another device
+                error('tim:config:address', 'Device address (daq.%s.address) is empty: set the name or address of the device.', ...
+                    d.name);
             end
             if ~(isscalar(st.timeout) && st.timeout > 0)
                 error('tim:config:timeout', 'Device time-out (daq.%s.timeout) must be greater than 0 s.', d.name);
@@ -508,6 +519,20 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
             report = [tim.instr.SignalSource.checkSourceConfig(cfg, c, d.displayName), ...
                 tim.instr.Acquisition.checkAcquisitionConfig(cfg, c, d)];
         end
+
+        % OPTIONAL (TODO keep and fill in, or delete): a support package or vendor
+        % runtime that ver does not list is checked by a static checkInstalled(),
+        % which tim.instr.create calls in hardware mode before any I/O. E.g. for an
+        % NI device (check daqvendorlist in the R2022b documentation):
+        %
+        % function checkInstalled()
+        %     v = daqvendorlist;
+        %     if ~any(strcmp(v.ID, 'ni') & v.IsOperational)
+        %         error('tim:instr:missingProduct', ['The %s needs the Data Acquisition Toolbox ' ...
+        %             'support package for NI-DAQmx and the NI-DAQmx driver (not installed or not ' ...
+        %             'operational).'], tim.instr.TemplateCombined.describe().displayName);
+        %     end
+        % end
 
         function obj = fromConfig(cfg, ctx)
             %FROMCONFIG Open the device (hardware: the device session; simulation:
@@ -704,7 +729,8 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
 
         function finishOutput(obj)
             % end of playing: a running fade (or an output still on) is
-            % completed to 0 V after the last recorded sample, then 0 V
+            % completed to 0 V after the last recorded sample; the caller then
+            % stops the device and writes 0 V
             o = obj.Out;
             if isempty(o) || ~isfield(o, 'on'), return; end
             fadeN = round(obj.FadeTime * obj.SampleRate);
@@ -716,17 +742,39 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
                 rest = obj.Out.fadeStart + fadeN - obj.Received;
                 if rest > 0
                     x = obj.synthesize(obj.Received, rest);    % played, not recorded
+                    obj.Out.fadeStart = NaN; obj.Out.on = false;
                     obj.Dev.playRecord(x);
                 end
             end
             obj.Out.fadeStart = NaN; obj.Out.on = false;
-            obj.writeZero();
+        end
+
+        function endOutput(obj, wasPlaying)
+            % every abnormal end and close: the rest of the fade, the device
+            % stopped, then 0 V. Each step runs even when the one before failed
+            % (a device that stalls fails the fade as well), and 0 V comes AFTER
+            % the stop: an analog output keeps its last value (contract 3.1).
+            % Never throws (a failure is a warning).
+            if wasPlaying
+                try
+                    obj.finishOutput();
+                catch err
+                    warning('tim:templatecombined:stop', 'Device: fade to 0 V failed: %s', err.message);
+                end
+            end
+            obj.stopDevice();
+            try
+                obj.writeZero();
+            catch err
+                warning('tim:templatecombined:stop', 'Device: output to 0 V after the stop failed: %s', err.message);
+            end
         end
 
         function writeZero(obj)
-            % 0 V on the output (device idle)
-            obj.DeviceOn = false;
+            % 0 V on the output (device idle); the output counts as off only
+            % when the device session confirmed the write
             obj.Dev.writeZero();
+            obj.DeviceOn = false;
         end
 
         function stopDevice(obj)
@@ -742,22 +790,15 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
 
         function endAcquire(obj)
             % onCleanup of acquire: on an abnormal end AbortFcn first (no device
-            % operation before it), then the output to 0 V and the device stopped -
-            % unless close() did that already
+            % operation before it), then the device stopped and the output at
+            % 0 V (endOutput) - unless close() did that already
             obj.Planning = false;
             if ~obj.Done, obj.callAbortFcn(); end
             wasPlaying = obj.Executing;
             obj.Executing = false;
             if ~obj.Done && ~obj.Closed
-                try
-                    if wasPlaying, obj.finishOutput(); end
-                    obj.writeZero();
-                catch err
-                    warning('tim:templatecombined:stop', 'Device: output to 0 V after an error: %s', err.message);
-                end
-                obj.stopDevice();
+                obj.endOutput(wasPlaying);
             end
-            obj.DeviceOn = false;
         end
 
         function noteFaults(obj, st)
@@ -819,10 +860,12 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
         end
 
         function progress(obj, key, state, detail)
-            % checklist step of prepare (a failing callback does not stop the setup)
+            % checklist step of prepare (a failing callback does not stop the
+            % setup); close() from the callback: prepare ends, nothing more is sent
             if ~isempty(obj.ProgressFcn)
                 try, obj.ProgressFcn(key, state, detail); catch, end
             end
+            obj.assertOpen('prepare');
         end
     end
 end

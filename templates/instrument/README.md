@@ -15,6 +15,7 @@ the files into a temporary `+tim/+instr` folder and checks that the three driver
 | `TestTemplateSource.m`, `TestTemplateAcquisition.m`, `TestTemplateCombined.m` | the driver test of each driver template | `tests/Test<Name>.m` |
 | `ref_template.md` | protocol reference with a manual source for every command | `docs/ref_<instrument>.md` |
 | `config_snippet.json` | configuration sections that select the drivers (a source and a separate DAQ) | into a copy of a `formatVersion` 2 configuration |
+| `config_snippet_combined.json` | the same for one device in both roles (named in both sections, its settings in `daq.<registry name>` only) | the same |
 
 The guide's step 3 copies the three files of one template and replaces, case-sensitive, the class
 name (`TemplateSource` → `<Name>`; this also renames `MockTemplateSource` and

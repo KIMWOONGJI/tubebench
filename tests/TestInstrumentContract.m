@@ -13,7 +13,9 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
     %   that plays a planned output (combined block device, section 8.3) is
     %   switched on inside the planning pass of an acquisition (whilePlaying);
     %   the block cases check what was really played with the rig's
-    %   OutputLog and the driver's playedSignal hook.
+    %   OutputLog and the driver's playedSignal hook, and place their actions
+    %   in multiples of the driver's block (settings.blockSamples, planUnit),
+    %   so they hold for any block size.
 
     properties (TestParameter)
         driver = TestInstrumentContract.registered('')
@@ -113,7 +115,7 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             end
             src.prepare(tc.channelSetup(cfg));
             src.armOutput(true);
-            B = 2048; done = false;
+            B = planUnit(src); done = false;
             function onBlock(n)
                 if src.isPlanning()
                     if n == B, src.outputOn(); end
@@ -135,7 +137,7 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             % schedule: on and triggered at the pre-roll, off after waitComplete;
             % p = the played output samples, on = the planned trigger sample
             src.prepare(tc.channelSetup(cfg));
-            fs = src.SampleRate; B = 2048;
+            fs = src.SampleRate; B = planUnit(src);
             nPre = 4 * B; nSweep = round(s.duration * fs);
             on = NaN; off = NaN; early = false;
             function onBlock(n)
@@ -561,6 +563,43 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyEqual(numel(h.traffic()), n, 'nothing is sent after close()');
         end
 
+        function closeFromProgressDuringPrepare(tc, acquisition)
+            % the window is closed while prepare reports a step (its checklist
+            % callback runs drawnow, so the close request is processed inside
+            % prepare): at each step that prepare starts, close() from
+            % ProgressFcn ends prepare with tim:instr:closed and nothing is
+            % sent after close() (section 2.2, duty 9)
+            k = 0; steps = 0;
+            while true
+                k = k + 1;
+                [acq, h, cfg] = tc.make('acquisition', acquisition);
+                runs = 0; sent = NaN;
+                acq.ProgressFcn = @(key, state, detail) closeAtRun(state);
+                err = [];
+                try
+                    acq.prepare(tc.channelSetup(cfg));
+                catch err
+                end
+                if isnan(sent), break; end                   % fewer than k steps: every step done
+                steps = k;
+                tc.verifyNotEmpty(err, sprintf('prepare ends after close() at step %d', k));
+                if ~isempty(err)
+                    tc.verifyEqual(err.identifier, 'tim:instr:closed', sprintf('step %d', k));
+                end
+                tc.verifyEqual(numel(h.traffic()), sent, sprintf('nothing is sent after close() at step %d', k));
+                tc.verifyFalse(acq.isAcquiring());
+            end
+            tc.assumeGreaterThan(steps, 0, 'prepare reports no step');
+            function closeAtRun(state)
+                if ~strcmp(state, 'run'), return; end
+                runs = runs + 1;
+                if runs == k
+                    acq.close();
+                    sent = numel(h.traffic());
+                end
+            end
+        end
+
         function excitationRecordedWithSeparateSource(tc, separateAcquisition)
             % data-driven timing (section 8.2): a separate source switched on
             % and off from onBlock lies inside the record
@@ -612,7 +651,7 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             [dev, h, cfg] = tc.make('acquisition', blockDevice);
             dev.configureSine(1000, 0.2);
             dev.prepare(tc.channelSetup(cfg));
-            fs = dev.SampleRate; B = 2048; fadeN = round(5e-3 * fs);
+            fs = dev.SampleRate; B = planUnit(dev); fadeN = round(5e-3 * fs);
             function onBlock(n)
                 if ~dev.isPlanning(), return; end
                 switch n
@@ -644,16 +683,17 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             dev.configureSine(1000, 0.2);
             dev.prepare(tc.channelSetup(cfg));
             rows = size(rig.OutputLog, 1);
+            B = planUnit(dev);
             function onBlock(n)
                 if ~dev.isPlanning(), return; end
-                if n == 2048, dev.outputOn(); end
-                if n >= 4 * 2048
+                if n == B, dev.outputOn(); end
+                if n >= 4 * B
                     dev.outputOff();                                  % the window's Stop ...
                     error('tim:session:stopped', 'Measurement stopped by user.');   % ... and the session's check
                 end
             end
             dev.armOutput(true);
-            tc.verifyError(@() dev.acquire(8 * 2048, @onBlock), 'tim:session:stopped');
+            tc.verifyError(@() dev.acquire(8 * B, @onBlock), 'tim:session:stopped');
             log = rig.OutputLog(rows + 1:end, :);
             tc.verifyTrue(all(log(:, 3) == 0), 'nothing was played');
             tc.verifyEqual(log(end, 4), 0);
@@ -681,12 +721,12 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             end
             dev.armOutput(true);
             tc.verifyError(@() dev.acquire(16 * B, @onBlock), 'tim:session:stopped');
+            tc.verifyFalse(h.outputOn(), 'off before anything else switches it off');
             dev.armOutput(false);
             log = rig.OutputLog;
             k = find(log(:, 3) > 0, 1, 'last');
             tc.verifyLessThanOrEqual(log(k, 1) + log(k, 2), s0 + stopAt + B, 'output ended within one block');
             tc.verifyEqual(log(end, 4), 0, 'the last output value is 0 V');
-            tc.verifyFalse(h.outputOn());
             tc.verifyGreaterThanOrEqual(size(dev.collect(), 1), stopAt, 'partial data kept');
         end
 
@@ -694,18 +734,48 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             [dev, h, cfg, rig] = tc.make('acquisition', blockDevice);
             dev.configureNoise(0.2);
             dev.prepare(tc.channelSetup(cfg));
+            B = planUnit(dev);
             function onBlock(n)
                 if dev.isPlanning()
-                    if n == 2048, dev.outputOn(); end
-                elseif n >= 5 * 2048
+                    if n == B, dev.outputOn(); end
+                elseif n >= 5 * B
                     error('test:onBlock', 'failure in onBlock');
                 end
             end
             dev.armOutput(true);
-            tc.verifyError(@() dev.acquire(12 * 2048, @onBlock), 'test:onBlock', 'the error passes unchanged');
+            tc.verifyError(@() dev.acquire(12 * B, @onBlock), 'test:onBlock', 'the error passes unchanged');
+            tc.verifyFalse(h.outputOn(), 'off before anything else switches it off');
             dev.armOutput(false);
-            tc.verifyFalse(h.outputOn());
             tc.verifyEqual(rig.OutputLog(end, 4), 0, 'the last output value is 0 V');
+        end
+
+        function deviceStallWhilePlayingLeavesOutputAtZero(tc, blockDevice)
+            % the device stops delivering while the output plays (a time-out; on
+            % an NI device an output underrun or a lost USB link): the rest of the
+            % fade fails as well, and still the device is stopped and the output
+            % set to 0 V - an analog output keeps its last value after a stop
+            % (section 3.1, duty 12). Checked before anything else (armOutput,
+            % the session) switches the output off.
+            [dev, h, cfg, rig] = tc.make('acquisition', blockDevice);
+            dev.configureSine(1000, 0.2);
+            dev.prepare(tc.channelSetup(cfg));
+            B = planUnit(dev);
+            h.stallAfter(4 * B);
+            function onBlock(n)
+                if dev.isPlanning() && n == B, dev.outputOn(); end
+            end
+            dev.armOutput(true);
+            ws = warning('off', 'all'); restore = onCleanup(@() warning(ws));   % the driver warns about the failed fade
+            tc.verifyError(@() dev.acquire(8 * B, @onBlock), ?MException, 'the stall ends the acquisition');
+            clear restore
+            tc.verifyGreaterThan(max(abs(h.playedSignal())), 0.05, 'the output played when the device stalled');
+            tc.verifyFalse(h.outputOn(), 'the output is at 0 V');
+            tc.verifyEqual(rig.OutputLog(end, 4), 0, 'the last output value is 0 V');
+            tc.verifyFalse(h.isRecording(), 'the device is stopped');
+            tc.verifyFalse(dev.isOutputOn(), 'the read-back says off');
+            dev.armOutput(false);
+            h.stallAfter(Inf);
+            tc.verifySize(dev.acquire(4096), [4096 4], 'the next acquisition works');
         end
 
         function plannedSweepFollowsItsLaw(tc, blockDevice)
@@ -888,4 +958,18 @@ end
 function quiet(obj)
 % no console lines from a driver that has them (LAN-XI Verbose)
 if isprop(obj, 'Verbose'), obj.Verbose = false; end
+end
+
+function U = planUnit(dev)
+% sample unit of the block-device cases: the smallest multiple of the
+% driver's block B (settings.blockSamples, section 8.3) that is at least 2048
+% samples, so that every planned action falls on a planning call (n = B, 2B,
+% ...) whatever block size the device uses
+md = dev.metadata();
+if ~(isfield(md.settings, 'blockSamples') && isscalar(md.settings.blockSamples) && md.settings.blockSamples >= 1)
+    error('tim:test:blockSamples', ['A block device states its block size B as settings.blockSamples ' ...
+        '(metadata().settings; docs/instrument_interface.md section 8.3).']);
+end
+B = md.settings.blockSamples;
+U = B * ceil(2048 / B);
 end

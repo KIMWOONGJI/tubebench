@@ -25,6 +25,9 @@ classdef TestBusTraffic < matlab.unittest.TestCase
     %   the log ('# -> error <identifier>'). These are the Stop / output-off
     %   paths WO-001 §6.2 names as the highest refactoring risk: an intended
     %   change of their order is an explicit, owner-approved fixture update.
+    %   A Stop during the LAN-XI connect step (stopDuringConnectReturnsTheModuleToIdle)
+    %   is checked against an explicit list: the status request moved from
+    %   the window's close to the driver (review of 2026-10-11).
     %
     %   Deterministic: fixed rng seed, SimulatedRig seed 1, mock stream seed
     %   7; the mocks change state at once (one status poll per wait) and the
@@ -98,6 +101,30 @@ classdef TestBusTraffic < matlab.unittest.TestCase
             n = numel(viaRegistry);
             tc.verifyEqual(viaRegistry, expected(2:n + 1), 'the connect section of the fixture');
             tc.verifyEqual(expected{n + 2}, 'REST GET /rest/rec/module/info', 'prepareAcquisition follows');
+            clear stopLog
+        end
+
+        function stopDuringConnectReturnsTheModuleToIdle(tc)
+            % operator Stop while the LAN-XI connect step runs (after module/info
+            % answered): the driver returns the module to Idle (status request)
+            % before the error propagates, as the object is never returned. The
+            % code before WO-001 sent the same request from the window's
+            % close(true), after the generator's close lines; now it comes before
+            % them - an intended change of order (review 2026-10-11), checked
+            % here and not part of the faults fixture recorded on that code
+            c = TestBusTraffic.scenarioConfig(tc.tmp);
+            tim.instr.mockBusLog('start');
+            stopLog = onCleanup(@() tim.instr.mockBusLog('stop'));
+            s = tim.app.MeasurementSession(c);
+            s.ProgressCallback = @(key, state, detail) stopWhen(s, key, state, 'lanxi', 'ok');
+            tc.verifyError(@() s.connect(), 'tim:session:stopped');
+            s.close(true);                                   % the window after a failed connection
+            actual = tim.instr.mockBusLog('stop');
+            expected = TestBusTraffic.readFixture();
+            k = find(strcmp(expected, 'REST GET /rest/rec/module/info'), 1);
+            tc.verifyEqual(actual, [expected(2:k); {'REST GET /rest/rec/onchange'; 'SCPI > OUTP OFF'; ...
+                'SCPI > SWE:STAT OFF'; 'SCPI > SYST:LOC'; 'SCPI close'}], ...
+                'connect up to module/info, the status request of the driver, then the generator closed');
             clear stopLog
         end
 
@@ -321,6 +348,11 @@ start = s.Rig.SampleCounter; done = false;
         end
     end
 s.BlockCallback = @check;
+end
+
+function stopWhen(s, key, state, atKey, atState)
+% the operator presses Stop when the checklist step atKey reports atState
+if strcmp(key, atKey) && strcmp(state, atState), s.requestStop(); end
 end
 
 function closeFast(s)

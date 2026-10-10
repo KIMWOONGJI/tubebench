@@ -252,7 +252,7 @@ classdef TemplateAcquisition < tim.instr.Acquisition
                 'labels', struct('acquisition', 'DAQ'), ...                 % short lamp label
                 'defaults', struct( ...
                     'settings', struct( ...                                 % daq.templateacquisition
-                        'address', 'Dev1', ...                              % TODO what selects the device (NI name, IP address, ...)
+                        'address', '', ...                                  % TODO what selects the device (NI name, IP address, ...); no default
                         'timeout', 5, ...                                   % I/O time-out [s]
                         'stallTimeout', 2), ...                             % s without data = stalled
                     'acquisition', struct('sampleRate', 16384, ...          % TODO defaults of acquisition.*
@@ -292,8 +292,13 @@ classdef TemplateAcquisition < tim.instr.Acquisition
             %   acquisition limits (tim.instr.Acquisition.checkAcquisitionConfig).
             d = tim.instr.TemplateAcquisition.describe();
             st = tim.instr.Instrument.settingsFrom(cfg, 'daq', d.name, d.defaults.settings);
-            if ~(ischar(st.address) || isstring(st.address)) || isempty(strtrim(char(st.address)))
-                error('tim:config:address', 'DAQ address (daq.%s.address) is empty.', d.name);
+            if ~(ischar(st.address) || isstring(st.address))
+                error('tim:config:address', 'DAQ address (daq.%s.address) must be text.', d.name);
+            end
+            if strcmp(cfg.mode, 'hardware') && isempty(strtrim(char(st.address)))
+                % no default address: a forgotten setting never opens another device
+                error('tim:config:address', 'DAQ address (daq.%s.address) is empty: set the name or address of the device.', ...
+                    d.name);
             end
             if ~(isscalar(st.timeout) && st.timeout > 0)
                 error('tim:config:timeout', 'DAQ time-out (daq.%s.timeout) must be greater than 0 s.', d.name);
@@ -303,6 +308,20 @@ classdef TemplateAcquisition < tim.instr.Acquisition
             end
             report = tim.instr.Acquisition.checkAcquisitionConfig(cfg, tim.instr.TemplateAcquisition.capabilities(), d);
         end
+
+        % OPTIONAL (TODO keep and fill in, or delete): a support package or vendor
+        % runtime that ver does not list is checked by a static checkInstalled(),
+        % which tim.instr.create calls in hardware mode before any I/O. E.g. for an
+        % NI device (check daqvendorlist in the R2022b documentation):
+        %
+        % function checkInstalled()
+        %     v = daqvendorlist;
+        %     if ~any(strcmp(v.ID, 'ni') & v.IsOperational)
+        %         error('tim:instr:missingProduct', ['The %s needs the Data Acquisition Toolbox ' ...
+        %             'support package for NI-DAQmx and the NI-DAQmx driver (not installed or not ' ...
+        %             'operational).'], tim.instr.TemplateAcquisition.describe().displayName);
+        %     end
+        % end
 
         function obj = fromConfig(~, ctx)
             %FROMCONFIG Open the device session (hardware) or the mock on ctx.rig
@@ -389,10 +408,12 @@ classdef TemplateAcquisition < tim.instr.Acquisition
         end
 
         function progress(obj, key, state, detail)
-            % checklist step of prepare (a failing callback does not stop the setup)
+            % checklist step of prepare (a failing callback does not stop the
+            % setup); close() from the callback: prepare ends, nothing more is sent
             if ~isempty(obj.ProgressFcn)
                 try, obj.ProgressFcn(key, state, detail); catch, end
             end
+            obj.assertOpen('prepare');
         end
     end
 end
