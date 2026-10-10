@@ -1,14 +1,30 @@
-function report = validateConfig(cfg)
+function report = validateConfig(cfg, scope)
 %VALIDATECONFIG Consistency checks of a configuration. Errors on fatal problems,
 %   returns a cell array of warnings (geometry incomplete, etc.).
+%
+%   report = tim.app.validateConfig(cfg)
+%   report = tim.app.validateConfig(cfg, 'instruments')
+%
 %   Messages name the GUI quantity first; the configuration key follows in
-%   parentheses for script users.
+%   parentheses for script users. The instrument drivers selected by
+%   generator.driver and daq.driver check their part (their static
+%   checkConfig): the driver settings sub-struct and the allowed values of the
+%   generic settings - generator.load and maxVpp, excitation signals, levels,
+%   sweep times and frequencies, sample rate, analysis band, input range,
+%   filter and CCLD. A configuration with the old instrument keys
+%   (formatVersion 1, built in code) is read through tim.app.migrateConfig.
+%   An unknown driver name gives the warning tim:config:driver and skips that
+%   driver's limits, so the configuration of a measurement folder from
+%   another set-up still loads; with 'instruments' (the measurement session,
+%   i.e. Connect) it is an error.
 
+if nargin < 2, scope = ''; end
+cfg = tim.app.migrateConfig(cfg);
 report = {};
 assert(any(strcmp(cfg.mode, {'simulation', 'hardware'})), 'tim:config:mode', ...
     'Operating mode (mode) must be "simulation" or "hardware".');
-assert(cfg.generator.maxVpp > 0 && cfg.generator.maxVpp <= 20, 'tim:config:maxVpp', ...
-    'Generator amplitude limit (generator.maxVpp) must be greater than 0 and at most 10 Vpk (20 Vpp).');
+assert(isscalar(cfg.generator.maxVpp) && cfg.generator.maxVpp > 0, 'tim:config:maxVpp', ...
+    'Generator amplitude limit (generator.maxVpp) must be greater than 0.');
 lim = cfg.generator.maxVpp;
 exName = {'sweep', 'swept sine'; 'stepped', 'stepped sine'; 'noise', 'random noise'};
 for i = 1:size(exName, 1)
@@ -18,14 +34,15 @@ for i = 1:size(exName, 1)
             'of %.3g Vpk (%.3g Vpp, generator.maxVpp).'], exName{i, 2}, v / 2, v, lim / 2, lim);
     end
 end
-% generator output load setting (33220A OUTP:LOAD; source impedance always 50 ohm).
-% EXACT values: Keysight33220A (mustBeMember) and the GUI compare the raw text,
-% so 'inf' or ' 50' must not pass here and fail only at Connect (review analysis-6)
+% generator output load setting (33220A OUTP:LOAD). The allowed values come
+% from the generator driver (capabilities().source.loads, checked below with
+% EXACT text: Keysight33220A (mustBeMember) and the GUI compare the raw text,
+% so 'inf' or ' 50' must not pass here and fail only at Connect, review analysis-6)
 ld = cfg.generator.load;
 if isstring(ld) && isscalar(ld), ld = char(ld); end
-if ~ischar(ld) || ~any(strcmp(ld, {'INF', '50'}))
-    got = ld; if ~ischar(got), got = mat2str(got); end
-    error('tim:config:load', 'Generator output load (generator.load) must be ''INF'' or ''50'' (got ''%s'').', got);
+if ~ischar(ld)
+    error('tim:config:load', 'Generator output load (generator.load) must be text such as ''INF'' or ''50'' (got %s).', ...
+        mat2str(ld));
 end
 hasAmp = isfield(cfg, 'amplifier');
 direct = hasAmp && startsWith(lower(cfg.amplifier.model), 'none');
@@ -70,12 +87,12 @@ assert(isequal(sort(pos), 1:4) && isequal(sort(ch), 1:4), 'tim:config:mics', ...
 assert(ismember(cfg.analysis.refChannel, 1:4), 'tim:config:ref', ...
     'Reference channel (analysis.refChannel) must be 1, 2, 3 or 4.');
 fs = cfg.acquisition.sampleRate;
-assert(ismember(fs, [4096 8192 16384 32768 65536]), 'tim:config:fs', ...
-    'Sample rate %g Hz is not supported by the LAN-XI module 3676 (use 4096, 8192, 16384, 32768 or 65536 Hz).', fs);
-fNy = 0.45 * fs;                       % usable band of the 3676 anti-alias filter
-if cfg.analysis.fMax > fNy
-    error('tim:config:fmax', ['Upper limit of the analysis band (analysis.fMax) %g Hz is above 0.45 × sample rate ' ...
-        '= %.0f Hz (sample rate %d Hz).'], cfg.analysis.fMax, fNy, fs);
+assert(isscalar(fs) && isnumeric(fs) && fs > 0, 'tim:config:fs', ...
+    'Sample rate (acquisition.sampleRate) must be a positive number of samples per second.');
+if cfg.analysis.fMax >= fs / 2
+    % the drivers limit the band to their anti-alias filter (bandFraction x sample rate)
+    error('tim:config:fmax', ['Upper limit of the analysis band (analysis.fMax) %g Hz is above half the sample rate ' ...
+        '(sample rate %g S/s).'], cfg.analysis.fMax, fs);
 end
 lm = cfg.analysis.lossModel;
 if ~(ischar(lm) || isstring(lm)) || ~any(strcmp(lm, {'kirchhoff', 'iso10534', 'none'}))
@@ -98,17 +115,9 @@ sw = cfg.excitation.sweep;
 if sw.fStart > cfg.analysis.fMin || sw.fStop < cfg.analysis.fMax
     report{end+1} = 'Swept sine: start/stop frequencies do not cover the analysis band, so its edges will have a low SNR.';
 end
-if sw.fStop > fNy
-    error('tim:config:sweep', 'Swept sine: stop frequency %g Hz is above 0.45 × sample rate = %.0f Hz (sample rate %d Hz).', ...
-        sw.fStop, fNy, fs);
-end
 assert(sw.repetitions >= 1 && sw.repetitions <= 100, 'tim:config:repetitions', ...
     'Swept sine: repetitions must be between 1 and 100.');
 st = cfg.excitation.stepped;
-if st.fStop > fNy
-    error('tim:config:stepped', 'Stepped sine: stop frequency %g Hz is above 0.45 × sample rate = %.0f Hz (sample rate %d Hz).', ...
-        st.fStop, fNy, fs);
-end
 assert(st.nPoints >= 1 && st.nPoints <= 400 && st.repetitions >= 1 && st.repetitions <= 100, 'tim:config:stepped', ...
     'Stepped sine: number of steps must be between 1 and 400 and repetitions between 1 and 100.');
 if st.fStart < cfg.analysis.fMin || st.fStop > cfg.analysis.fMax
@@ -126,5 +135,37 @@ if all(isfinite(g.micPositions))
         report{end+1} = ['Microphone port positions disagree with the microphone spacings s1/s2 by more than 1 mm; ' ...
             'the port positions are used.'];
     end
+end
+report = [report, checkDrivers(cfg, strcmp(scope, 'instruments'))];
+end
+
+function report = checkDrivers(cfg, required)
+% the selected drivers check their part of the configuration (a combined
+% driver once); an unknown name is a warning, or an error when required
+report = {};
+sections = {'generator', 'daq'};
+roles = {'source', 'acquisition'};
+roleText = {'signal source (generator)', 'acquisition (DAQ)'};
+registered = {tim.instr.drivers().name};
+checked = {};
+for k = 1:2
+    name = cfg.(sections{k}).driver;
+    if isstring(name) && isscalar(name), name = char(name); end
+    if ~ischar(name) || ~any(strcmp(name, registered))
+        got = name; if ~ischar(got), got = mat2str(got); end
+        msg = sprintf(['Unknown instrument driver "%s" (%s.driver; registered: %s): the instrument settings of this ' ...
+            'configuration are not checked and it cannot connect.'], got, sections{k}, strjoin(registered, ', '));
+        if required, error('tim:config:driver', '%s', msg); end
+        warning('tim:config:driver', '%s', msg);
+        continue
+    end
+    d = tim.instr.driverInfo(name);
+    if ~any(strcmp(roles{k}, d.capabilities.roles))
+        error('tim:config:driver', 'The %s (%s.driver "%s") cannot be the %s.', d.displayName, sections{k}, name, roleText{k});
+    end
+    if any(strcmp(name, checked)), continue; end          % one driver for both roles
+    r = feval([d.class '.checkConfig'], cfg);
+    report = [report, reshape(r, 1, [])]; %#ok<AGROW>
+    checked{end+1} = name; %#ok<AGROW>
 end
 end

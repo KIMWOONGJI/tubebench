@@ -1,16 +1,19 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "mode": "simulation",
   "projectName": "tubebench",
   "ui": {
     "language": "en"
   },
   "generator": {
-    "host": "169.254.2.20",
-    "port": 5025,
-    "timeout": 5,
+    "driver": "keysight33220a",
     "maxVpp": 0.5,
-    "load": "INF"
+    "load": "INF",
+    "keysight33220a": {
+      "host": "169.254.2.20",
+      "port": 5025,
+      "timeout": 5
+    }
   },
   "amplifier": {
     "model": "virtual",
@@ -22,10 +25,13 @@
     ],
     "confirmBeforeExcitation": true
   },
-  "lanxi": {
-    "host": "169.254.64.156",
-    "timeout": 10,
-    "connector": "BNC"
+  "daq": {
+    "driver": "lanxi",
+    "lanxi": {
+      "host": "169.254.64.156",
+      "timeout": 10,
+      "connector": "BNC"
+    }
   },
   "acquisition": {
     "sampleRate": 16384,

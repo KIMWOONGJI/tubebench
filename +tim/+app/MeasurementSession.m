@@ -68,8 +68,12 @@ classdef MeasurementSession < handle
 
     methods
         function obj = MeasurementSession(cfg)
+            %MEASUREMENTSESSION Session on a configuration (tim.app.loadConfig or
+            %   built in code; the old instrument keys are read through
+            %   tim.app.migrateConfig). The drivers it selects must be registered.
             if nargin < 1, cfg = tim.app.defaultConfig(); end
-            tim.app.validateConfig(cfg);
+            cfg = tim.app.migrateConfig(cfg);
+            tim.app.validateConfig(cfg, 'instruments');
             obj.Cfg = cfg;
             obj.Mics = tim.app.MeasurementSession.micsByChannel(cfg.mics);
             if ~isempty(cfg.calibration.file)
@@ -110,14 +114,9 @@ classdef MeasurementSession < handle
         function d = driverInfo(obj, role)
             %DRIVERINFO Class-level description of the driver of a role
             %   ('source' | 'acquisition'; tim.instr.driverInfo).
-            if strcmp(role, 'source')
-                name = 'keysight33220a';
-                if isfield(obj.Cfg.generator, 'driver'), name = obj.Cfg.generator.driver; end
-            else
-                name = 'lanxi';
-                if isfield(obj.Cfg, 'daq') && isfield(obj.Cfg.daq, 'driver'), name = obj.Cfg.daq.driver; end
+            if strcmp(role, 'source'), d = tim.instr.driverInfo(obj.Cfg.generator.driver);
+            else, d = tim.instr.driverInfo(obj.Cfg.daq.driver);
             end
-            d = tim.instr.driverInfo(name);
         end
 
         function prepareAcquisition(obj)
@@ -447,7 +446,7 @@ classdef MeasurementSession < handle
             if ~isempty(a.gainSetting) && ~strcmp(a.gainSetting, '-'), note = sprintf(' (setting "%s")', a.gainSetting); end
             mdl = a.model; if isempty(mdl), mdl = '(model not specified)'; end
             if d.direct
-                line = tim.app.msg(lang, 'ampDirect', d.Z, d.Vspk_pk, 1e3 * d.Ipk, 1e3 * d.P_W, 1e3 * d.limit_W);
+                line = tim.app.msg(lang, 'ampDirect', d.Rs, d.Z, d.Vspk_pk, 1e3 * d.Ipk, 1e3 * d.P_W, 1e3 * d.limit_W);
             elseif isfinite(d.gain)
                 line = tim.app.msg(lang, 'ampGain', mdl, d.gain, 20 * log10(d.gain), d.Z, d.Vspk_pk, ...
                     1e3 * d.P_W, 1e3 * d.limit_W, note);

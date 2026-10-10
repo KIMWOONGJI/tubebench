@@ -61,7 +61,8 @@ the selected input (open CCLD loop / cable fault)**. Possible causes, to be chec
 
 1. The microphones are not connected (yet).
 2. The microphones are connected to the **LEMO** inputs while the software selected **BNC**. Set
-   `"lanxi": {"connector": "LEMO"}` in `config/user_config.json`.
+   `"daq": {"lanxi": {"connector": "LEMO"}}` in `config/user_config.json` (in a file of the older
+   layout, as the lab file still is: `"lanxi": {"connector": "LEMO"}`).
 3. Cable or adaptor fault.
 
 No change was made to the instrument configuration beyond the temporary recorder session, which

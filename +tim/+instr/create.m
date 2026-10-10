@@ -33,9 +33,9 @@ function obj = create(role, cfg, ctx, other)
 %   sub-struct merged onto describe().defaults.settings) are filled in, and
 %   ctx.progress becomes the object's ProgressFcn.
 %
-%   Until the configuration has formatVersion 2 (WO-001 stage B) the legacy
-%   keys are read: generator.host / port / timeout for the 33220A, the
-%   top-level lanxi section, and a missing driver name = the role's default.
+%   A configuration with the old instrument keys (formatVersion 1:
+%   generator.host / port / timeout, a top-level lanxi section, no driver
+%   names) is read through tim.app.migrateConfig.
 
 if nargin < 3 || isempty(ctx), ctx = struct(); end
 if nargin < 4, other = []; end
@@ -48,7 +48,7 @@ r = find(strcmp(role, roles), 1);
 if isempty(r)
     error('tim:instr:role', 'Unknown instrument role "%s" (source or acquisition).', char(string(role)));
 end
-cfg = withDriverLayout(cfg);
+cfg = tim.app.migrateConfig(cfg);
 names = {char(cfg.generator.driver), char(cfg.daq.driver)};
 info = {tim.instr.driverInfo(names{1}), tim.instr.driverInfo(names{2})};      % 1
 same = strcmp(names{1}, names{2});
@@ -112,25 +112,6 @@ end
 ctx.settings = tim.instr.Instrument.settingsFrom(cfg, section, d.name, d.defaults.settings);
 obj = feval([cls '.fromConfig'], cfg, ctx);
 if ~isempty(ctx.progress), obj.ProgressFcn = ctx.progress; end
-end
-
-function cfg = withDriverLayout(cfg)
-% formatVersion 1 seen through the driver layout of formatVersion 2 (stage A
-% only; stage B: tim.app.migrateConfig). Legacy keys go only to the legacy
-% driver (docs/instrument_interface.md section 9.3).
-if ~isfield(cfg.generator, 'driver') || isempty(cfg.generator.driver), cfg.generator.driver = 'keysight33220a'; end
-if ~isfield(cfg, 'daq') || ~isstruct(cfg.daq), cfg.daq = struct(); end
-if ~isfield(cfg.daq, 'driver') || isempty(cfg.daq.driver), cfg.daq.driver = 'lanxi'; end
-if strcmp(cfg.generator.driver, 'keysight33220a') && ~isfield(cfg.generator, 'keysight33220a')
-    st = struct();
-    for k = {'host', 'port', 'timeout'}
-        if isfield(cfg.generator, k{1}), st.(k{1}) = cfg.generator.(k{1}); end
-    end
-    cfg.generator.keysight33220a = st;
-end
-if strcmp(cfg.daq.driver, 'lanxi') && ~isfield(cfg.daq, 'lanxi') && isfield(cfg, 'lanxi')
-    cfg.daq.lanxi = cfg.lanxi;
-end
 end
 
 function t = roleText(role)

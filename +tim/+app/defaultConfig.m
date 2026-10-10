@@ -7,19 +7,29 @@ function cfg = defaultConfig()
 %   All quantities in SI units. NaN = "not provided" (never invented).
 
 cfg = struct();
-cfg.formatVersion = 1;
+cfg.formatVersion = 2;                  % 2: instruments selected by driver (tim.app.migrateConfig reads 1)
 cfg.mode = 'simulation';                % 'simulation' | 'hardware'
 cfg.projectName = 'tubebench';
 cfg.ui = struct('language', 'en');      % operator prompts and confirmations (tim.app.msg): 'en' (default) | 'ko'
 
 % ---------------- instruments ----------------
-% The 33220A source impedance is always 50 ohm. OUTP:LOAD only rescales the
-% programmed amplitude: 'INF' -> VOLT is the open-circuit voltage; '50' ->
-% VOLT is the voltage across a 50-ohm load (open circuit = 2 x VOLT).
-% maxVpp limits the PROGRAMMED amplitude (VOLT).
-cfg.generator = struct('host', '169.254.2.20', 'port', 5025, 'timeout', 5, ...
+% generator.driver and daq.driver select the instrument drivers (registry
+% tim.instr.drivers; docs/instrument_interface.md). Each driver keeps its own
+% settings in a sub-struct named after it, with the driver's defaults
+% (describe().defaults.settings): generator.keysight33220a (host, port,
+% timeout), daq.lanxi (host, timeout, connector). A driver that takes both
+% roles is named in both sections and reads daq.<driver>.
+% maxVpp and load are the same for every generator; their allowed values
+% come from the driver (capabilities().source). maxVpp limits the PROGRAMMED
+% amplitude. 33220A: the source impedance is always 50 ohm and OUTP:LOAD only
+% rescales the programmed amplitude: 'INF' -> VOLT is the open-circuit
+% voltage; '50' -> VOLT is the voltage across a 50-ohm load (open circuit =
+% 2 x VOLT).
+gen = tim.instr.driverInfo('keysight33220a');
+cfg.generator = struct('driver', gen.name, ...
     'maxVpp', 0.5, ...                  % SAFETY LIMIT for amplifier/loudspeaker [Vpp, programmed]
-    'load', 'INF');                     % 'INF' (high-Z amplifier input, direct drive) | '50' (50-ohm amplifier input)
+    'load', 'INF', ...                  % 'INF' (high-Z amplifier input, direct drive) | '50' (50-ohm amplifier input)
+    gen.name, gen.defaults.settings);
 % Power amplifier between 33220A and loudspeaker. Its gain is set BY HAND
 % on the amplifier (not remote controlled); record it here (or in the GUI /
 % s.setAmplifier) - it is stored with every measurement and confirmed by
@@ -35,21 +45,27 @@ cfg.amplifier = struct('model', '', ...
 % power) from generator amplitude x amplifier gain, and to REFUSE excitation
 % above maxPower_W (sine/sweep mean power, P = Vpk^2 / (2 Z)).
 cfg.loudspeaker = struct('impedance_ohm', 8, 'ratedPower_W', 25, 'maxPower_W', 1.0);
-cfg.lanxi = struct('host', '169.254.64.156', 'timeout', 10, ...
-    'connector', 'BNC');                % 'BNC' | 'LEMO' (3676 supports both; must match cabling)
+% LAN-XI: daq.lanxi.connector 'BNC' | 'LEMO' (the 3676 supports both; must match the cabling)
+daq = tim.instr.driverInfo('lanxi');
+cfg.daq = struct('driver', daq.name, daq.name, daq.defaults.settings);
 
 % ---------------- acquisition ----------------
-cfg.acquisition = struct('sampleRate', 16384, ...  % 4096|8192|16384|32768|65536 (3676)
-    'range', '10 Vpeak', ...            % '1 Vpeak' | '10 Vpeak'
-    'filter', '0.7 Hz', ...             % high-pass, see module supportedFilters
-    'ccld', true(1, 4), ...
+% Generic settings of the DAQ inputs. sampleRate, range, filter and ccld:
+% empty (JSON null or '') = the default of the DAQ driver; the allowed values
+% come from the driver (capabilities().acquisition). Defaults below: lanxi
+% (3676: 4096|8192|16384|32768|65536 S/s, '1 Vpeak'|'10 Vpeak', module filters).
+a = daq.defaults.acquisition;
+cfg.acquisition = struct('sampleRate', a.sampleRate, ...  % S/s
+    'range', a.range, ...               % input range
+    'filter', a.filter, ...             % high-pass / coupling
+    'ccld', a.ccld, ...                 % CCLD (IEPE) supply per input
     'detectTeds', true, ...
     'settleTime', 3, ...                % s after configuration (CCLD + high-pass settling)
     'maxPeakFraction', 0.8, ...         % warn above this fraction of the input range
     'sensitivityPolicy', 'certificate>teds>nominal');
 
 % ---------------- microphones ----------------
-% channel  = LAN-XI input; position = tube port (1..4 = M1..M4, M1 nearest the loudspeaker)
+% channel  = DAQ input; position = tube port (1..4 = M1..M4, M1 nearest the loudspeaker)
 m = struct('channel', {1, 2, 3, 4}, 'position', {1, 2, 3, 4}, 'model', 'B&K 4957', ...
     'serial', '', 'nominalSensitivity_VperPa', 11.2e-3, ...
     'certificateSensitivity_VperPa', NaN, 'certificateDate', '');

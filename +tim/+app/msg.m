@@ -36,9 +36,9 @@ switch key
             t.en = ['The loudspeaker will be driven (%s).\n  Generator: %.3g Vpk (%.3g Vpp, open circuit); amplitude limit %.3g Vpk\n  %s\n' ...
                 'Is everything set as shown, including the amplifier gain, and is it safe to start the excitation?'];
         end
-    case 'ampDirect'           % Z, Vpk at loudspeaker, mA peak, mW, limit mW
-        t.ko = '직결 (앰프 없음), 발생기 50 Ω 출력 경유: 스피커 %g Ω, 약 %.3g Vpk, %.3g mA peak, %.3g mW (스피커 전력 상한 %.4g mW)';
-        t.en = 'Direct drive (no amplifier) via the 50 Ω generator output: loudspeaker %g Ω, approx. %.3g Vpk, %.3g mA peak, %.3g mW (loudspeaker power limit %.4g mW)';
+    case 'ampDirect'           % source impedance Ω (driver), Z, Vpk at loudspeaker, mA peak, mW, limit mW
+        t.ko = '직결 (앰프 없음), 발생기 %g Ω 출력 경유: 스피커 %g Ω, 약 %.3g Vpk, %.3g mA peak, %.3g mW (스피커 전력 상한 %.4g mW)';
+        t.en = 'Direct drive (no amplifier) via the %g Ω generator output: loudspeaker %g Ω, approx. %.3g Vpk, %.3g mA peak, %.3g mW (loudspeaker power limit %.4g mW)';
     case 'ampGain'             % model, gain factor, gain dB, Z, Vpk at loudspeaker, mW, limit mW, setting note
         t.ko = '앰프 %s, 게인 ×%.3g (%.1f dB) → 스피커 %g Ω, 약 %.3g Vpk, %.3g mW (스피커 전력 상한 %.4g mW)%s';
         t.en = 'Amplifier %s, gain ×%.3g (%.1f dB) → loudspeaker %g Ω, approx. %.3g Vpk, %.3g mW (loudspeaker power limit %.4g mW)%s';

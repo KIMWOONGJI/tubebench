@@ -183,6 +183,11 @@ source forms a voltage divider, `V_spk = V_oc·Z/(Z + 50 Ω)`:
 * Choose "none (direct drive)" in the Amplifier list (gain fixed at ×1) and keep
   `generator.load = "INF"`; "50" with direct drive is rejected. Raise `generator.maxVpp`
   deliberately (the lab file uses 2 Vpp = 1 Vpk).
+* The drive estimate and the loudspeaker power limit take the source impedance from the generator
+  driver (50 Ω for the 33220A). Another generator with an output of about 0 Ω (e.g. a DAQ analog
+  output) drives an 8 Ω loudspeaker with about (58/8)² ≈ 50 times the power of the same voltage
+  from the 33220A; the estimate and the excitation confirmation ("via the 0 Ω generator output")
+  account for it. A driver name the program does not know counts as 0 Ω (the worst case).
 
 ## 4. The control panel
 
@@ -600,13 +605,31 @@ before measuring if the code was edited. Without a `.git` folder (copied project
 missing in the file keeps its default. Lengths in metres, amplitudes in Vpp (the window shows Vpk
 = Vpp/2), NaN / `null` = not provided (the program never guesses a value).
 
+**Instruments (`formatVersion` 2).** `generator.driver` and `daq.driver` choose the instrument
+drivers; the instruments are chosen only here, not in the window. Each driver keeps its own
+settings in a sub-struct named after it (`generator.keysight33220a`, `daq.lanxi`); a file may
+hold the settings of several drivers and switch with `driver`. The generic settings
+(`generator.maxVpp`, `generator.load`, the `acquisition` section) mean the same for every driver,
+but their allowed values come from the selected driver, which checks them when the file is loaded
+(sample rates, input ranges, filters, loads, the amplitude range and the sweep times of the
+instrument). `acquisition.sampleRate`, `range`, `filter` and `ccld` left out, `null` or `""` take
+the driver's default. A driver that takes both roles (one device with output and inputs) is named
+in both sections and reads `daq.<driver>`. Registered drivers: `tim.instr.drivers` (today
+`keysight33220a`, `lanxi`; the contract is `docs/instrument_interface.md`). A file of the older
+layout (`formatVersion` 1: `generator.host` / `port` / `timeout` and a `lanxi` section, as
+`config/user_config.json` still is) loads with the same settings; File > Save configuration…
+writes the new layout. A driver name this installation does not know (a measurement folder from
+another set-up) loads with a warning, so the data can still be opened and reprocessed; Connect
+then reports the error.
+
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | `"simulation"` | `"simulation"` or `"hardware"` (lab file: hardware) |
 | `ui.language` | `"en"` | `"en"` or `"ko"`: operator prompts, dialog titles and buttons of the calibration steps (including the step header and the diagram hint), the excitation confirmation (also its drive line in the log line "Excitation confirmed") and the channel identification, and the command-window prompts of scripts. The calibration prompts are also written to the log in the selected language, and the errors "estimated loudspeaker power exceeds the limit" and "Amplifier gain not entered" are raised in it. All other log lines and errors, the window labels and the documents stay in English. |
-| `generator.host`, `port` | 169.254.2.20, 5025 | 33220A (SCPI over TCP) |
-| `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit** of the programmed amplitude in Vpp, at most 20 Vpp |
-| `generator.load` | `"INF"` | 33220A output load setting, exactly `"INF"` or `"50"`, see below |
+| `generator.driver` | `"keysight33220a"` | generator driver |
+| `generator.keysight33220a.host`, `port`, `timeout` | 169.254.2.20, 5025, 5 s | 33220A (SCPI over TCP); old layout: `generator.host`, `port`, `timeout` |
+| `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit** of the programmed amplitude in Vpp, at most the driver's maximum (33220A: 20 Vpp at `"INF"`, 10 Vpp at `"50"`) |
+| `generator.load` | `"INF"` | output load setting, one of the driver's values (33220A: exactly `"INF"` or `"50"`, see below) |
 | `amplifier.model` | `""` | `"none (direct drive)"` (must start with "none"), `"power amplifier"` or a model name |
 | `amplifier.gainFactor` | NaN | voltage gain as a factor (×10 = 10 = 20 dB); 1 for direct drive; `gain_dB` is derived |
 | `amplifier.gainSetting` | `""` | free text, e.g. the knob position (scripts) |
@@ -616,18 +639,19 @@ missing in the file keeps its default. Lengths in metres, amplitudes in Vpp (the
 | `loudspeaker.impedance_ohm` | 8 | nominal impedance (field Loudspeaker [Ω]) |
 | `loudspeaker.maxPower_W` | 1.0 | loudspeaker power limit (field Power limit [W]) |
 | `loudspeaker.ratedPower_W` | 25 | rated power: a power limit above it is flagged |
-| `lanxi.host`, `connector` | 169.254.64.156, `"BNC"` | LAN-XI module; `"BNC"` or `"LEMO"`, whichever the microphones use |
-| `acquisition.sampleRate` | 16384 | 4096, 8192, 16384, 32768 or 65536 Hz |
-| `acquisition.range`, `filter` | `"10 Vpeak"`, `"0.7 Hz"` | input range and high-pass filter |
+| `daq.driver` | `"lanxi"` | acquisition (DAQ) driver |
+| `daq.lanxi.host`, `timeout`, `connector` | 169.254.64.156, 10 s, `"BNC"` | LAN-XI module; `"BNC"` or `"LEMO"`, whichever the microphones use; old layout: `lanxi.host`, `timeout`, `connector` |
+| `acquisition.sampleRate` | 16384 (driver default) | a rate of the DAQ driver; LAN-XI 3676: 4096, 8192, 16384, 32768 or 65536 S/s |
+| `acquisition.range`, `filter` | `"10 Vpeak"`, `"0.7 Hz"` (driver defaults) | input range and high-pass filter, values of the DAQ driver |
 | `acquisition.settleTime` | 3 | seconds of CCLD / high-pass settling after the channel setup (hardware) |
 | `acquisition.sensitivityPolicy` | `"certificate>teds>nominal"` | order of the sensitivity sources |
-| `mics(i)` | ch1–ch4 in M1–M4 | `channel` (LAN-XI input), `position` (port 1–4 = M1–M4, M1 nearest the loudspeaker), `model`, `serial`, `nominalSensitivity_VperPa` (11.2 mV/Pa), `certificateSensitivity_VperPa`, `certificateDate` |
+| `mics(i)` | ch1–ch4 in M1–M4 | `channel` (DAQ input), `position` (port 1–4 = M1–M4, M1 nearest the loudspeaker), `model`, `serial`, `nominalSensitivity_VperPa` (11.2 mV/Pa), `certificateSensitivity_VperPa`, `certificateDate` |
 | `geometry` | D 29 mm, positions NaN | `diameter` (D), `micPositions` (x of M1–M4), `spacingUp`/`spacingDown` (s1, s2), `xFront`, `xRear`; written by the IMPEDANCE TUBE fields |
 | `tubeDrawing` | lab CAD | part sizes for the drawings only |
 | `environment` | 20 °C, 101325 Pa | `temperature_C`, `pressure_Pa`; `c_override`, `rho_override` replace the computed values; `relativeHumidity` is recorded only |
 | `excitation` | section 8 | `mode` and the settings of `sweep`, `stepped`, `noise` |
 | `analysis.refChannel` | 1 | reference channel of the transfer functions |
-| `analysis.fMin`, `fMax`, `df` | 120, 4500, 2 Hz | analysis band and frequency-line spacing (`fMax` ≤ 0.45 × sample rate) |
+| `analysis.fMin`, `fMax`, `df` | 120, 4500, 2 Hz | analysis band and frequency-line spacing (`fMax` ≤ the usable band of the DAQ driver, LAN-XI: 0.45 × sample rate) |
 | `analysis.lossModel` | `"kirchhoff"` | tube-loss model: `"kirchhoff"` (visco-thermal wall losses, attenuation and phase-velocity reduction, matching characteristic impedance), `"iso10534"` (ISO 10534-2 attenuation only, for ISO-conformant work) or `"none"`. The same model is used by the analysis, Tests D/E and the virtual tube (`theory.md` section 1). `"iso10534"` and `"none"` bias a thin-element Z_t (up to about 47 % and about two thirds of Z_t at \|Z_t\|/(ρc) = 0.05 in the lab tube) and give a "CHECK: …" warning. A configuration saved before `"kirchhoff"` became the default (2026-10-09), and the `config.json` of an older measurement folder, still name `"iso10534"`. |
 | `analysis.velocityRef` | `"mean"` | velocity in Z_t: `"mean"`, `"upstream"` or `"downstream"` |
 | `analysis.coherenceMin`, `snrMin_dB` | 0.98, 20 dB | quality limits of the validity masks |

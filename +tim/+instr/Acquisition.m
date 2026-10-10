@@ -99,14 +99,18 @@ classdef (Abstract) Acquisition < tim.instr.Instrument
                 error('tim:config:fs', 'Sample rate %g S/s (acquisition.sampleRate) is not supported by the %s (supported: %s).', ...
                     fs, d.displayName, supported);
             end
-            fNy = q.bandFraction * fs;
+            fNy = q.bandFraction * fs;                % usable band of the anti-alias filter
             if cfg.analysis.fMax > fNy
                 error('tim:config:fmax', ['Upper limit of the analysis band (analysis.fMax) %g Hz is above %.2g × sample rate ' ...
                     '= %.0f Hz (sample rate %g S/s, %s).'], cfg.analysis.fMax, q.bandFraction, fNy, fs, d.displayName);
             end
-            if cfg.excitation.sweep.fStop > fNy || cfg.excitation.stepped.fStop > fNy
-                error('tim:config:sweep', 'Excitation stop frequency above %.2g × sample rate = %.0f Hz (%s).', ...
-                    q.bandFraction, fNy, d.displayName);
+            if cfg.excitation.sweep.fStop > fNy
+                error('tim:config:sweep', ['Swept sine: stop frequency %g Hz is above %.2g × sample rate = %.0f Hz ' ...
+                    '(sample rate %g S/s, %s).'], cfg.excitation.sweep.fStop, q.bandFraction, fNy, fs, d.displayName);
+            end
+            if cfg.excitation.stepped.fStop > fNy
+                error('tim:config:stepped', ['Stepped sine: stop frequency %g Hz is above %.2g × sample rate = %.0f Hz ' ...
+                    '(sample rate %g S/s, %s).'], cfg.excitation.stepped.fStop, q.bandFraction, fNy, fs, d.displayName);
             end
             inRange = valueOr(a.range, def.range);
             if ~any(strcmp(inRange, q.ranges))

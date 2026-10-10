@@ -552,8 +552,9 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
         end
 
         function legacyConfigurationKeysUsed(tc)
-            % until formatVersion 2 the registry reads generator.host/port/timeout
-            % and the lanxi section (docs/instrument_interface.md D38)
+            % a script that sets the old keys (generator.host / port, the lanxi
+            % section) on the default configuration: the registry reads them
+            % through tim.app.migrateConfig (docs/instrument_interface.md 9.3)
             cfg = tim.app.defaultConfig();
             cfg.generator.host = '10.0.0.7'; cfg.generator.port = 5026; cfg.lanxi.connector = 'LEMO';
             ctx = struct('mode', 'simulation', 'rig', tim.sim.SimulatedRig(cfg), 'progress', []);
@@ -565,7 +566,7 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyEqual(ms.host, '10.0.0.7');
             tc.verifyEqual(ms.port, 5026);
             tc.verifyEqual(ma.connector, 'LEMO');
-            tc.verifyEqual(ms.settings.timeout, cfg.generator.timeout);
+            tc.verifyEqual(ms.settings.timeout, cfg.generator.keysight33220a.timeout, 'not set: the driver default');
         end
     end
 end
