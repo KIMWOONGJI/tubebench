@@ -29,7 +29,7 @@ if nargin >= 1
 end
 
 list = struct( ...
-    'name',  {'keysight33220a',           'lanxi'}, ...
-    'class', {'tim.instr.Keysight33220A', 'tim.instr.LanXi'});
+    'name',  {'keysight33220a',           'lanxi',           'simcombined'}, ...
+    'class', {'tim.instr.Keysight33220A', 'tim.instr.LanXi', 'tim.sim.SimulatedCombined'});
 list = [list, extra(~ismember({extra.name}, {list.name}))];
 end

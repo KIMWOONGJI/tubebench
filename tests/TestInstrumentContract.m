@@ -7,27 +7,45 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
     %   are observed through the driver's static testHooks (the instrument
     %   as the mock sees it), so no duty is tested for one driver only.
     %   Parameters: driver = every registered driver; source / acquisition =
-    %   the drivers with that role. A combined driver is created for both
-    %   roles. The planning-pass cases of a combined block device and the
-    %   checks on the rig's OutputLog come with the simulated combined
-    %   driver (stage B).
+    %   the drivers with that role; instrumentSource, separateAcquisition and
+    %   blockDevice the drivers of the cases that apply only to them (see
+    %   registered). A combined driver is created for both roles. A source
+    %   that plays a planned output (combined block device, section 8.3) is
+    %   switched on inside the planning pass of an acquisition (whilePlaying);
+    %   the block cases check what was really played with the rig's
+    %   OutputLog and the driver's playedSignal hook.
 
     properties (TestParameter)
         driver = TestInstrumentContract.registered('')
         source = TestInstrumentContract.registered('source')
         acquisition = TestInstrumentContract.registered('acquisition')
+        instrumentSource = TestInstrumentContract.registered('instrumentReadback')
+        separateAcquisition = TestInstrumentContract.registered('separateAcquisition')
+        blockDevice = TestInstrumentContract.registered('blockDevice')
     end
 
     methods (Static)
-        function p = registered(role)
-            %REGISTERED Registered driver names with the role ('' = all), as a struct.
+        function p = registered(kind)
+            %REGISTERED Registered driver names of a kind, as a struct: '' all,
+            %   'source' / 'acquisition' the drivers with that role,
+            %   'instrumentReadback' sources whose output state is read back
+            %   from the instrument, 'separateAcquisition' acquisitions that work
+            %   with a separate source, 'blockDevice' combined drivers that play
+            %   a planned output (section 8.3).
             list = tim.instr.drivers();
             p = struct();
             for i = 1:numel(list)
                 c = feval([list(i).class '.capabilities']);
-                if isempty(role) || any(strcmp(role, c.roles))
-                    p.(list(i).name) = list(i).name;
+                isSource = any(strcmp('source', c.roles));
+                isAcq = any(strcmp('acquisition', c.roles));
+                switch kind
+                    case '', take = true;
+                    case {'source', 'acquisition'}, take = any(strcmp(kind, c.roles));
+                    case 'instrumentReadback', take = isSource && strcmp(c.source.readback, 'instrument');
+                    case 'separateAcquisition', take = isAcq && ~c.rolesTogether;
+                    case 'blockDevice', take = isAcq && c.rolesTogether && strcmp(c.acquisition.mode, 'block');
                 end
+                if take, p.(list(i).name) = list(i).name; end
             end
         end
     end
@@ -67,6 +85,67 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
         function [acq, h, cfg, rig] = preparedAcquisition(tc, name)
             [acq, h, cfg, rig] = tc.make('acquisition', name);
             acq.prepare(tc.channelSetup(cfg));
+        end
+
+        function err = whilePlaying(tc, src, h, cfg, action)
+            % switch the configured output on and run action while it plays:
+            % an instrument at once; a planned (block) output inside the
+            % execution pass of an acquisition (on from sample B, action at 3B).
+            % Returns the error that ended the acquisition ([] = none).
+            err = [];
+            if ~isBlockSource(src)
+                src.armOutput(true); src.outputOn();
+                tc.verifyTrue(h.outputOn(), 'the output plays');
+                action();
+                return
+            end
+            src.prepare(tc.channelSetup(cfg));
+            src.armOutput(true);
+            B = 2048; done = false;
+            function onBlock(n)
+                if src.isPlanning()
+                    if n == B, src.outputOn(); end
+                elseif ~done && n >= 3 * B
+                    done = true;
+                    tc.verifyTrue(h.outputOn(), 'the output plays');
+                    action();
+                end
+            end
+            try
+                src.acquire(8 * B, @onBlock);
+            catch err
+            end
+            tc.verifyTrue(done, 'the action ran while the output played');
+        end
+
+        function [p, on] = playSweep(tc, src, h, cfg, s)
+            % a configured sweep played by a block source with the session's
+            % schedule: on and triggered at the pre-roll, off after waitComplete;
+            % p = the played output samples, on = the planned trigger sample
+            src.prepare(tc.channelSetup(cfg));
+            fs = src.SampleRate; B = 2048;
+            nPre = 4 * B; nSweep = round(s.duration * fs);
+            on = NaN; off = NaN; early = false;
+            function onBlock(n)
+                if ~src.isPlanning(), return; end
+                if isnan(on) && n >= nPre
+                    src.outputOn(); src.triggerSweep(); on = n;
+                elseif ~isnan(on) && isnan(off)
+                    if n < on + nSweep
+                        early = early || src.waitComplete(0);
+                    else
+                        tc.verifyTrue(src.waitComplete(5), 'the sweep has ended on the device timeline');
+                        src.outputOff(); off = n;
+                    end
+                end
+            end
+            src.armOutput(true);
+            src.acquire(nPre + nSweep + 4 * B, @onBlock);
+            src.armOutput(false);
+            tc.verifyFalse(early, 'waitComplete is never true before the sweep has ended');
+            tc.verifyFalse(isnan(off), 'the sweep was switched off inside the record');
+            tc.verifyFalse(h.outputOn());
+            p = h.playedSignal();
         end
     end
 
@@ -219,22 +298,29 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
         end
 
         function outputOffAfterClose(tc, source)
-            [src, h] = tc.make('source', source);
+            [src, h, cfg] = tc.make('source', source);
             src.configureSine(1000, 0.2);
-            src.armOutput(true); src.outputOn();
-            tc.assertTrue(h.outputOn());
-            src.close();
+            err = tc.whilePlaying(src, h, cfg, @() src.close());
             tc.verifyFalse(h.outputOn(), 'close switches the output off');
             tc.verifyFalse(src.OutputArmed, 'close disarms');
+            if isBlockSource(src)
+                tc.verifyEqual(err.identifier, 'tim:instr:closed', 'close ends the running acquisition');
+                log = h.outputLog();
+                tc.verifyEqual(log(end, 4), 0, 'the last output value is 0 V');
+            end
         end
 
         function outputOffAfterDriverError(tc, source)
-            [src, h] = tc.make('source', source);
+            [src, h, cfg] = tc.make('source', source);
             src.configureSine(1000, 0.2);
-            src.armOutput(true); src.outputOn();
-            tc.assertTrue(h.outputOn());
-            h.injectError();
-            tc.verifyError(@() src.setFrequency(500), ?MException);
+            if isBlockSource(src)
+                % the device reports an error while it plays: the acquisition ends with it
+                err = tc.whilePlaying(src, h, cfg, @() h.injectError());
+                tc.verifyNotEmpty(err, 'the device error ends the acquisition');
+            else
+                tc.whilePlaying(src, h, cfg, @() h.injectError());
+                tc.verifyError(@() src.setFrequency(500), ?MException);
+            end
             tc.verifyFalse(h.outputOn(), 'an instrument error leaves the output off');
         end
 
@@ -269,7 +355,7 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
         end
 
         function outputOnOnlyArmedAndConfigured(tc, source)
-            [src, h] = tc.make('source', source);
+            [src, h, cfg] = tc.make('source', source);
             tc.verifyError(@() src.outputOn(), 'tim:gen:notArmed');
             src.armOutput(true);
             tc.verifyError(@() src.outputOn(), 'tim:gen:mode', 'not configured');
@@ -277,6 +363,18 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             src.configureSine(1000, 0.2);
             tc.verifyError(@() src.outputOn(), 'tim:gen:notArmed');
             tc.verifyFalse(h.outputOn());
+            if isBlockSource(src)
+                % a planned output is switched on only inside an acquisition (section 3.5)
+                src.armOutput(true);
+                tc.verifyError(@() src.outputOn(), 'tim:gen:schedule');
+                tc.verifyFalse(src.isOutputOn(), 'false outside acquire');
+                tc.verifyFalse(h.outputOn());
+                err = tc.whilePlaying(src, h, cfg, @() src.configureSine(500, 0.2));
+                tc.verifyEqual(err.identifier, 'tim:gen:schedule', 'no level change while the plan plays');
+                tc.verifyFalse(h.outputOn(), 'the output stops with the acquisition');
+                src.armOutput(false);
+                return
+            end
             src.armOutput(true); src.outputOn();
             tc.verifyTrue(h.outputOn());
             src.configureSine(500, 0.2);
@@ -289,13 +387,18 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
         end
 
         function sweepConfigurationRoundTrip(tc, source)
-            [src, h] = tc.make('source', source);
+            [src, h, cfg] = tc.make('source', source);
             c = capabilitiesOf(src); c = c.source;
             for sp = c.sweepSpacing
                 s = struct('fStart', 80, 'fStop', 5500, 'duration', 1, 'spacing', sp{1}, 'amplitudeVpp', 0.2);
                 src.configureSweep(s);                           % read back by the driver
                 tc.verifyFalse(h.outputOn(), 'configureSweep leaves the output off');
                 tc.verifyError(@() src.setFrequency(500), 'tim:gen:mode');
+                if isBlockSource(src)
+                    tc.verifyError(@() src.triggerSweep(), 'tim:gen:schedule', 'the sweep starts on the device clock');
+                    tc.playSweep(src, h, cfg, s);
+                    continue
+                end
                 src.armOutput(true); src.outputOn();
                 src.triggerSweep();
                 tc.verifyTrue(src.waitComplete(5), 'the sweep completes');
@@ -314,10 +417,9 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyFalse(h.outputOn());
         end
 
-        function readBackFromTheInstrument(tc, source)
-            [src, h] = tc.make('source', source);
-            c = capabilitiesOf(src); c = c.source;
-            tc.assumeEqual(c.readback, 'instrument', 'only an instrument read-back can be proved this way');
+        function readBackFromTheInstrument(tc, instrumentSource)
+            % read-back kind 'instrument' (the other kinds cannot be proved this way)
+            [src, h] = tc.make('source', instrumentSource);
             h.forceOutputOn();                                   % front panel / another program
             tc.verifyTrue(src.isOutputOn(), 'isOutputOn asks the instrument, not a cached flag');
             tc.verifyTrue(src.isOutputOn(1), 'with a time-out');
@@ -373,8 +475,10 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
         end
 
         function stopDuringAcquire(tc, acquisition)
+            % Stop while recording (a block device: in its execution pass)
             [acq, h] = tc.preparedAcquisition(acquisition);
             function onBlock(n)
+                if acq.isPlanning(), return; end
                 if n >= 4096, error('tim:session:stopped', 'Measurement stopped by user.'); end
             end
             tc.verifyError(@() acq.acquire(32768, @onBlock), 'tim:session:stopped', 'the error passes unchanged');
@@ -425,8 +529,10 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
         end
 
         function closeInsideAcquire(tc, acquisition)
+            % close() while recording (a block device: in its execution pass)
             [acq, h] = tc.preparedAcquisition(acquisition);
             function onBlock(n)
+                if acq.isPlanning(), return; end
                 if n >= 4096, acq.close(); end
             end
             tc.verifyError(@() acq.acquire(32768, @onBlock), 'tim:instr:closed');
@@ -440,12 +546,10 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyEqual(numel(h.traffic()), n, 'nothing is sent after close()');
         end
 
-        function excitationRecordedWithSeparateSource(tc, acquisition)
+        function excitationRecordedWithSeparateSource(tc, separateAcquisition)
             % data-driven timing (section 8.2): a separate source switched on
             % and off from onBlock lies inside the record
-            cfg = tc.config('acquisition', acquisition);
-            caps = capabilitiesOf(acquisition);
-            tc.assumeFalse(caps.rolesTogether, 'a combined driver is its own source (planned timing)');
+            cfg = tc.config('acquisition', separateAcquisition);
             list = tim.instr.drivers();
             srcName = '';
             for i = 1:numel(list)
@@ -487,10 +591,127 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyGreaterThan(ex.duration_s, 0.8 * s.duration);
         end
 
+        %% ---------------- combined block device (planned output, section 8.3) ----------------
+        function plannedActionsPlayedSampleExactly(tc, blockDevice)
+            % every source call of the planning pass takes effect at its sample
+            [dev, h, cfg] = tc.make('acquisition', blockDevice);
+            dev.configureSine(1000, 0.2);
+            dev.prepare(tc.channelSetup(cfg));
+            fs = dev.SampleRate; B = 2048; fadeN = round(5e-3 * fs);
+            function onBlock(n)
+                if ~dev.isPlanning(), return; end
+                switch n
+                    case B, dev.outputOn();
+                    case 3 * B, dev.configureSine(500, 0.2);          % output off at 3B, new frequency
+                    case 4 * B, dev.outputOn();
+                    case 6 * B, dev.armOutput(false);                 % off at 6B
+                end
+            end
+            dev.armOutput(true);
+            x = dev.acquire(8 * B, @onBlock);
+            tc.verifySize(x, [8 * B 4]);
+            p = h.playedSignal();
+            tc.verifyEqual(p(1:B), zeros(B, 1), 'nothing before outputOn');
+            tc.verifyGreaterThan(max(abs(p(B + 1:B + 20))), 0.05, 'on from sample B');
+            tc.verifyLessThan(max(abs(p(3 * B + 1:3 * B + fadeN))), 0.1 + 1e-12, 'fade at 3B');
+            tc.verifyEqual(p(3 * B + fadeN + 1:4 * B), zeros(B - fadeN, 1), 'off (0 V) from 3B + 5 ms');
+            seg = p(4 * B + 1:6 * B);
+            f = nnz(diff(sign(seg)) ~= 0) / 2 / (numel(seg) / fs);
+            tc.verifyEqual(f, 500, 'RelTol', 0.02, 'the frequency planned at 3B');
+            tc.verifyEqual(p(6 * B + fadeN + 1:end), zeros(2 * B - fadeN, 1), 'off at 6B (5 ms fade)');
+            log = h.outputLog();
+            tc.verifyEqual(log(end, 4), 0, 'the last output value is 0 V');
+            tc.verifyFalse(h.outputOn());
+        end
+
+        function stopDuringPlanningPlaysNothing(tc, blockDevice)
+            [dev, h, cfg, rig] = tc.make('acquisition', blockDevice);
+            dev.configureSine(1000, 0.2);
+            dev.prepare(tc.channelSetup(cfg));
+            rows = size(rig.OutputLog, 1);
+            function onBlock(n)
+                if ~dev.isPlanning(), return; end
+                if n == 2048, dev.outputOn(); end
+                if n >= 4 * 2048
+                    dev.outputOff();                                  % the window's Stop ...
+                    error('tim:session:stopped', 'Measurement stopped by user.');   % ... and the session's check
+                end
+            end
+            dev.armOutput(true);
+            tc.verifyError(@() dev.acquire(8 * 2048, @onBlock), 'tim:session:stopped');
+            log = rig.OutputLog(rows + 1:end, :);
+            tc.verifyTrue(all(log(:, 3) == 0), 'nothing was played');
+            tc.verifyEqual(log(end, 4), 0);
+            tc.verifyFalse(h.outputOn());
+            tc.verifyFalse(h.isRecording());
+            tc.verifyEmpty(dev.collect(), 'nothing recorded');
+            dev.armOutput(false);
+            tc.verifySize(dev.acquire(4096), [4096 4], 'the next acquisition works');
+        end
+
+        function stopDuringExecutionEndsOutputWithinOneBlock(tc, blockDevice)
+            [dev, h, cfg, rig] = tc.make('acquisition', blockDevice);
+            dev.configureSine(1000, 0.2);
+            dev.prepare(tc.channelSetup(cfg));
+            B = dev.metadata().settings.blockSamples;
+            s0 = rig.SampleCounter; stopAt = NaN;
+            function onBlock(n)
+                if dev.isPlanning()
+                    if n == B, dev.outputOn(); end
+                elseif n >= 4 * B
+                    stopAt = n;
+                    dev.outputOff();                                  % the window's Stop ...
+                    error('tim:session:stopped', 'Measurement stopped by user.');   % ... and the session's check
+                end
+            end
+            dev.armOutput(true);
+            tc.verifyError(@() dev.acquire(16 * B, @onBlock), 'tim:session:stopped');
+            dev.armOutput(false);
+            log = rig.OutputLog;
+            k = find(log(:, 3) > 0, 1, 'last');
+            tc.verifyLessThanOrEqual(log(k, 1) + log(k, 2), s0 + stopAt + B, 'output ended within one block');
+            tc.verifyEqual(log(end, 4), 0, 'the last output value is 0 V');
+            tc.verifyFalse(h.outputOn());
+            tc.verifyGreaterThanOrEqual(size(dev.collect(), 1), stopAt, 'partial data kept');
+        end
+
+        function onBlockErrorLeavesOutputAtZero(tc, blockDevice)
+            [dev, h, cfg, rig] = tc.make('acquisition', blockDevice);
+            dev.configureNoise(0.2);
+            dev.prepare(tc.channelSetup(cfg));
+            function onBlock(n)
+                if dev.isPlanning()
+                    if n == 2048, dev.outputOn(); end
+                elseif n >= 5 * 2048
+                    error('test:onBlock', 'failure in onBlock');
+                end
+            end
+            dev.armOutput(true);
+            tc.verifyError(@() dev.acquire(12 * 2048, @onBlock), 'test:onBlock', 'the error passes unchanged');
+            dev.armOutput(false);
+            tc.verifyFalse(h.outputOn());
+            tc.verifyEqual(rig.OutputLog(end, 4), 0, 'the last output value is 0 V');
+        end
+
+        function plannedSweepFollowsItsLaw(tc, blockDevice)
+            % the played sweep: exponential law, duration within 0.5 % (section 3.3),
+            % started at the planned sample; waitComplete never true before its end
+            [dev, h, cfg] = tc.make('acquisition', blockDevice);
+            s = struct('fStart', 80, 'fStop', 5500, 'duration', 2, 'spacing', 'LOG', 'amplitudeVpp', 0.2);
+            dev.configureSweep(s);
+            [p, on] = tc.playSweep(dev, h, cfg, s);
+            fs = dev.SampleRate;
+            law = tim.dsp.estimateSweepLaw(p, fs, s.fStart, s.fStop, 'LOG', s.duration);
+            tc.verifyEqual(law.duration_s, s.duration, 'RelTol', 0.005);
+            tc.verifyEqual(law.startTime_s, on / fs, 'AbsTol', 2 * 256 / fs);
+            log = h.outputLog();
+            tc.verifyEqual(log(end, 4), 0, 'the last output value is 0 V');
+        end
+
         %% ---------------- one object in both roles ----------------
         function combinedRoleClassMechanics(tc)
             % the contract classes accept one object in both roles (unregistered
-            % stub in tests/support; the registered case is 'simcombined', stage B)
+            % stub in tests/support; the registered case: 'simcombined')
             tc.applyFixture(matlab.unittest.fixtures.PathFixture( ...
                 fullfile(fileparts(mfilename('fullpath')), 'support')));
             obj = CombinedStub.fromConfig([], struct('roles', {{'source', 'acquisition'}}));
@@ -536,6 +757,59 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyError(@() tim.instr.create('source', bad, ctx), 'tim:config:load', 'checkConfig before any I/O');
             tc.verifyError(@() tim.instr.create('output', cfg, ctx), 'tim:instr:role');
             tc.verifyError(@() tim.instr.driverInfo('nosuchdriver'), 'tim:instr:unknownDriver');
+            % pairings (section 9.1): a driver that works only for both roles, or
+            % delivers its data only in blocks, is not combined with another one;
+            % a simulation-only driver is refused in hardware mode - all before any I/O
+            hardware = struct('mode', 'hardware', 'rig', [], 'progress', []);
+            list = tim.instr.drivers();
+            for i = 1:numel(list)
+                d = tim.instr.driverInfo(list(i).name);
+                c = d.capabilities;
+                if c.rolesTogether || (isfield(c, 'acquisition') && c.acquisition.needsOwnSource)
+                    bad = cfg; bad.daq.driver = d.name;
+                    tc.verifyError(@() tim.instr.create('acquisition', bad, ctx), 'tim:instr:role', [d.name ' with a separate source']);
+                end
+                if c.rolesTogether
+                    bad = cfg; bad.generator.driver = d.name;
+                    tc.verifyError(@() tim.instr.create('source', bad, ctx), 'tim:instr:role', [d.name ' with a separate DAQ']);
+                end
+                if strcmp(d.simulation, 'only')
+                    sel = cfg;
+                    if any(strcmp('source', c.roles)), sel.generator.driver = d.name; end
+                    if any(strcmp('acquisition', c.roles)), sel.daq.driver = d.name; end
+                    tc.verifyError(@() tim.instr.create(c.roles{1}, sel, hardware), 'tim:instr:simulationOnly', d.name);
+                end
+            end
+        end
+
+        function missingProductOfSelectedDriver(tc)
+            % a selected driver that needs a MATLAB product which is not
+            % installed: in hardware mode the registry names the product and the
+            % driver before any I/O; in simulation the driver runs on its mock
+            % without the product (test driver tests/support/FakeProductDaq)
+            tc.applyFixture(matlab.unittest.fixtures.PathFixture( ...
+                fullfile(fileparts(mfilename('fullpath')), 'support')));
+            tim.instr.drivers('add', struct('name', 'fakeproductdaq', 'class', 'FakeProductDaq'));
+            tc.addTeardown(@() tim.instr.drivers('remove', 'fakeproductdaq'));
+            d = tim.instr.driverInfo('fakeproductdaq');
+            cfg = tim.app.defaultConfig();
+            cfg.daq.driver = 'fakeproductdaq';
+            cfg.generator.keysight33220a.host = '127.0.0.1';     % never an instrument address
+            cfg.daq.fakeproductdaq = struct('host', '127.0.0.1');
+            hardware = struct('mode', 'hardware', 'rig', [], 'progress', []);
+            try
+                tim.instr.create('acquisition', cfg, hardware);
+                tc.verifyFail('the missing product must be reported');
+            catch err
+                tc.verifyEqual(err.identifier, 'tim:instr:missingProduct');
+                tc.verifySubstring(err.message, 'Fake Acquisition Toolbox');
+                tc.verifySubstring(err.message, d.displayName);
+            end
+            sim = struct('mode', 'simulation', 'rig', tim.sim.SimulatedRig(cfg), 'progress', []);
+            acq = tim.instr.create('acquisition', cfg, sim);
+            tc.addTeardown(@() acq.close());
+            quiet(acq);
+            tc.verifyNotEmpty(acq.identity().model, 'runs on its mock without the product');
         end
 
         function productCheck(tc)
@@ -588,6 +862,12 @@ end
 function setArmed(obj)
 % a write of a protected role property from outside the driver (must fail)
 obj.OutputArmed = true;
+end
+
+function tf = isBlockSource(obj)
+% a source that plays a planned output inside acquire (combined block device)
+c = capabilitiesOf(obj);
+tf = any(strcmp('source', c.roles)) && isfield(c, 'acquisition') && strcmp(c.acquisition.mode, 'block');
 end
 
 function quiet(obj)

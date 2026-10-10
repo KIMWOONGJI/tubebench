@@ -125,6 +125,75 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function combinedDeviceThroughTheSession(tc)
+            % WO-001 section 0 change B: one simulated device takes both roles
+            % (shared clock, planned block acquisition, no TEDS, 0 ohm output) -
+            % connection, switching calibration with the empty-tube check, swept
+            % and stepped sine and noise through the session, which has no code
+            % for this driver
+            c = tc.cfg;
+            c.generator.driver = 'simcombined'; c.daq.driver = 'simcombined';
+            sens = [11.2 11.5 10.9 11.3] * 1e-3;      % the virtual microphones; no TEDS: certificate values
+            for i = 1:4, c.mics(i).certificateSensitivity_VperPa = sens(c.mics(i).channel); end
+            c.excitation.stepped.nPoints = 8; c.excitation.stepped.fStart = 200; c.excitation.stepped.fStop = 4000;
+            c.excitation.noise.duration = 5;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            ev = cell(0, 3);
+            function record(k, st, d)
+                ev(end + 1, :) = {k, st, d};
+            end
+            s.ProgressCallback = @record;
+            s.connect(); s.prepareAcquisition();
+            chk = s.signalCheck(0.5);
+            tc.verifyTrue(s.isCombined(), 'one object in both roles');
+            tc.verifySameHandle(s.Gen, s.Daq);
+            [keys, first] = unique(ev(:, 1), 'stable');
+            tc.verifyEqual(keys.', {'device', 'setup', 'sens', 'settle', 'signal'}, 'steps of the driver, then the session''s');
+            final = cellfun(@(k) ev{find(strcmp(ev(:, 1), k), 1, 'last'), 2}, keys, 'UniformOutput', false);
+            tc.verifyTrue(all(ismember(final, {'ok', 'skip'})), strjoin(final, ' '));
+            tc.verifyEqual(ev{first(1), 2}, 'run');
+            tc.verifyTrue(all(strcmp({chk.state}, 'ok')));
+            tc.verifyEqual(s.Daq.Teds, {}, 'no TEDS');
+            tc.verifyEqual({s.Mics.sensitivitySource}, repmat({'certificate'}, 1, 4));
+            cal = tim.app.runCalibration(s);
+            tc.verifyTrue(cal.meta.emptyCheck.passed, cal.meta.emptyCheck.text);
+            tc.verifyEqual(cal.meta.acquisition.driver, 'simcombined');
+            Ct = s.Rig.chainResponse(cal.f); Ct = Ct ./ Ct(:, 1);
+            ok = all(cal.valid, 2);
+            tc.verifyGreaterThan(nnz(ok), 0.9 * numel(ok));
+            tc.verifyLessThan(prctile(abs(cal.C(ok, :) ./ Ct(ok, :) - 1), 95, 'all'), 5e-3);
+            % swept sine: actions sample-exact on the shared clock
+            meas = s.measure('sweep');
+            tc.verifyTrue(meas.integrityOk);
+            tc.verifyFalse(s.Gen.isOutputOn(), 'output off after the measurement');
+            nPre = round(c.excitation.sweep.preRoll * c.acquisition.sampleRate);
+            tc.verifyEqual(cellfun(@(e) e.triggerSample, meas.events), repmat(nPre, 1, c.excitation.sweep.repetitions));
+            tc.verifyEqual(meas.metadata.generator.driver, 'simcombined');
+            tc.verifyEqual(meas.metadata.daq.roles, {'source', 'acquisition'});
+            tc.verifyEqual(meas.metadata.daq.identity, s.Daq.identity());
+            res = tim.app.processMeasurement(meas, c, cal);
+            tc.verifyTrue(res.calibration.context.acquisitionMatch);
+            a = res.analysis; v = a.valid.valid;
+            tc.verifyGreaterThan(nnz(v), 0.5 * numel(v));
+            truth = s.Rig.trueResponse(a.f).model;
+            hi = v & a.f > 1000;
+            tc.verifyLessThan(max(abs(a.R(hi) - truth.R(hi))), 0.03);
+            tc.verifyLessThan(median(abs(a.R(v) - truth.R(v))), 0.01);
+            % stepped sine and noise
+            rs = tim.app.processMeasurement(s.measure('stepped'), c, cal);
+            fq = rs.analysis.f; t2 = s.Rig.trueResponse(fq).model;
+            tc.verifyLessThan(max(abs(rs.analysis.R - t2.R)), 0.03);
+            mn = s.measure('noise');
+            tc.verifyTrue(mn.integrityOk);
+            rn = tim.app.processMeasurement(mn, c, cal);
+            hn = rn.analysis.valid.valid & rn.analysis.f > 500;
+            tc.verifyGreaterThan(nnz(hn), 100);
+            tc.verifyFalse(s.Gen.isOutputOn());
+            tc.verifyEqual(s.Rig.OutputLog(end, 4), 0, 'the output ends at 0 V');
+            clear cleanup
+        end
+
         function steppedSineAndCrossMethod(tc)
             c = tc.cfg;
             c.excitation.stepped.nPoints = 8;
@@ -767,6 +836,6 @@ end
 function connectSession(cfg)
 % a session on cfg, connected and closed again (errors propagate)
 s = tim.app.MeasurementSession(cfg);
-cleanup = onCleanup(@() s.close()); %#ok<NASGU>
+cleanup = onCleanup(@() s.close());
 s.connect();
 end

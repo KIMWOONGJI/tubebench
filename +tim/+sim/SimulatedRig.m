@@ -4,10 +4,15 @@ classdef SimulatedRig < handle
     %   rig = tim.sim.SimulatedRig(cfg)        (cfg from tim.app.defaultConfig)
     %
     %   Signal chain per DAQ channel c (all on the DAQ sample clock):
-    %     generator volts x(t)  (33220A state from MockScpiTransport; own clock
-    %                            with GenClockPpm offset; log sweep emulated as
-    %                            a STEPPED sweep, not an ideal chirp; random
-    %                            BUS-trigger latency)
+    %     generator volts x(t)  two ways in (docs/instrument_interface.md section 10):
+    %                           - v = generate(n): the 33220A state from
+    %                             MockScpiTransport (setGeneratorState); own clock
+    %                             with GenClockPpm offset; log sweep emulated as a
+    %                             STEPPED sweep, not an ideal chirp; random
+    %                             BUS-trigger latency;
+    %                           - v = respond(x): any other source gives its
+    %                             output samples x (n x 1 volts) directly, e.g. the
+    %                             simulated combined device (shared clock)
     %     -> loudspeaker (2nd-order high-pass, SourceGain Pa/V incident at xFront)
     %     -> analytic tube field at position MicPosOfChannel(c) (tim.sim.tubeModel)
     %     -> microphone/channel chain: Sens(c) * Gain(c) * exp(-j w Tau(c)) * HP(fhp(c))
@@ -18,6 +23,11 @@ classdef SimulatedRig < handle
     %   The "truth" used in tests is obtained with trueResponse(f), which
     %   evaluates the realised FIR responses (and the analytic model) so that
     %   test tolerances are not polluted by FIR design error.
+    %
+    %   OutputLog records what every source really played, block by block
+    %   (rows [firstSample nSamples peak_V last_V]; a row with nSamples 0 and
+    %   last_V 0: the output was set to 0 V), so the contract tests can check
+    %   the output generically (tests/TestInstrumentContract).
 
     properties
         Fs double = 16384
@@ -51,6 +61,7 @@ classdef SimulatedRig < handle
             'FREQ_STAR', 100, 'FREQ_STOP', 1e3, 'SWE_SPAC', 'LIN', 'SWE_TIME', 1, 'SWE_STAT', 0, 'TRIG_SOUR', 'IMM')
         SweepStartSample double = NaN
         TriggerLog double = zeros(0, 1)    % DAQ sample index of every sweep start
+        OutputLog double = zeros(0, 4)     % [firstSample nSamples peak_V last_V] of every output block
         H double                           % FIR taps (FirTaps x 4)
         Dirty logical = true
     end
@@ -95,12 +106,32 @@ classdef SimulatedRig < handle
             obj.SweepStartSample = obj.SampleCounter + round(lat * obj.Fs);
             obj.TriggerLog(end+1, 1) = obj.SweepStartSample;
         end
+        function markTrigger(obj, sample)
+            %MARKTRIGGER Record a sweep start at DAQ sample index sample (a
+            %   source on the shared clock that starts its sweep itself).
+            obj.TriggerLog(end+1, 1) = sample;
+        end
 
         %% ---- signal generation ------------------------------------------
         function v = generate(obj, n)
-            %GENERATE Next n samples (n x 4) of microphone output voltage.
+            %GENERATE Next n samples (n x 4) of microphone output voltage, the
+            %   source being the 33220A state (setGeneratorState).
+            v = obj.respond(obj.sourceSignal(n));
+        end
+
+        function v = respond(obj, x)
+            %RESPOND Microphone output voltage (n x 4) for the source output x
+            %   (n x 1 volts, on the DAQ sample clock): loudspeaker, tube,
+            %   microphone chains and noise as for generate. x empty: records
+            %   "output at 0 V" in OutputLog and returns no samples.
+            x = x(:);
+            n = numel(x);
+            if n == 0
+                obj.OutputLog(end+1, :) = [obj.SampleCounter, 0, 0, 0];
+                v = zeros(0, 4);
+                return
+            end
             if obj.Dirty, obj.design(); end
-            x = obj.sourceSignal(n);
             L = size(obj.H, 1);
             nfft = 2^nextpow2(n + L - 1);
             Y = ifft(fft(x, nfft) .* fft(obj.H, nfft), 'symmetric');
@@ -110,12 +141,13 @@ classdef SimulatedRig < handle
             obj.Tail = acc(n+1:end, :);
             noise = obj.NoisePa * obj.Rng.randn(n, 4) .* obj.Sens + obj.NoiseV * obj.Rng.randn(n, 4);
             v = v + noise;
+            obj.OutputLog(end+1, :) = [obj.SampleCounter, n, max(abs(x)), x(end)];
             obj.SampleCounter = obj.SampleCounter + n;
         end
 
         function reset(obj)
             obj.SampleCounter = 0; obj.Phase = 0; obj.SweepStartSample = NaN;
-            obj.TriggerLog = zeros(0, 1); obj.Dirty = true;
+            obj.TriggerLog = zeros(0, 1); obj.OutputLog = zeros(0, 4); obj.Dirty = true;
             obj.Rng = RandStream('mt19937ar', 'Seed', obj.Seed);
         end
 

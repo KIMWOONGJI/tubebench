@@ -7,6 +7,10 @@ function r = testA_acquisition(session, duration)
 %   DataQuality flags (cable fault / CCLD), dead channels, background level.
 %   Criteria: integrity.ok must be true. Background level is reported in dB SPL
 %   (using the sensitivity layer) for the operator to judge.
+%   The checks are those of the acquisition driver's integrity report
+%   (info.integrity); r.unit, r.scaleFactor and r.stats are the stream fields
+%   of the LAN-XI driver (per signal), for another driver its data unit
+%   (info.dataUnit, one per channel), [] and an empty struct.
 
 if nargin < 2, duration = 2; end
 m = session.measureBackground(duration);
@@ -16,9 +20,13 @@ p = tim.acq.voltsToPascal(x - mean(x, 1), tim.app.MeasurementSession.micsByChann
 [P, f] = pwelch(p, hann(4096, 'periodic'), 2048, 4096, m.fs);
 band = f >= 100 & f <= 5000;
 lvl = 10 * log10(sum(P(band, :), 1) * (f(2) - f(1)) / (2e-5)^2);
+unit = repmat({m.unit}, 1, size(x, 2)); scale = []; stats = struct();
+if isfield(info, 'unit'), unit = info.unit; end
+if isfield(info, 'scaleFactor'), scale = info.scaleFactor; end
+if isfield(info, 'stats'), stats = info.stats; end
 r = struct('name', 'Test A - acquisition/electrical', 'passed', info.integrity.ok, ...
     'fatal', {info.integrity.fatal}, 'warnings', {info.integrity.warnings}, ...
-    'fs', info.fs, 'unit', {info.unit}, 'scaleFactor', info.scaleFactor, ...
-    'stats', info.stats, 'backgroundLevel_dB_100_5000Hz', lvl, 'meas', m);
+    'fs', info.fs, 'unit', {unit}, 'scaleFactor', scale, ...
+    'stats', stats, 'backgroundLevel_dB_100_5000Hz', lvl, 'meas', m);
 r.criteria = 'stream integrity OK (no corrupt/missing data, no overload/INVALID/OVERRUN flags, unit V, fs as configured)';
 end
