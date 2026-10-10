@@ -45,6 +45,7 @@ LAN-XI capabilities reported by `/rest/rec/module/info`:
 | Switching calibration on hardware (Test C) | **PENDING** | |
 | Rigid termination (Test D), empty tube (Test E), stepped vs sweep (Test G) | **PENDING** | geometry must be measured first |
 | GUI | SW-VERIFIED | simulation only |
+| Instrument interface of 1.2.0 (WO-001, branch `wo-001`: drivers through the registry, configuration by driver name, identity display in the window) | SW-VERIFIED | simulation only (contract tests, bus-traffic fixtures, hidden-window tests). **PENDING** the owner's hardware check (WO-001 §0.3): connect and identify with the output off, a short measurement at an approved level (≤ 0.2 Vpp), Stop and output-off checks |
 
 ## Observation from the first hardware acquisition (IMPORTANT)
 

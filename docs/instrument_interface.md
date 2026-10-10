@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Work order | WO-001 Part 1 (`docs/workorder_instrument_interface.md`; its §0 decides over older text) |
-| Status | **design, 2026-10-11** (stage 1), **revised after the design review** (stage 2: 24 issues, resolutions in section 13.2). **Stages A and B implemented** on `wo-001` (contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`); the window still names the 33220A and the LAN-XI in texts, labels and tooltips until stage C (its checklist, lamps, output read-back and live view already follow the drivers, section 14). |
+| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). **Software-verified in simulation only**; the owner's hardware check (WO §0.3) is pending, and `AbortFcn` is not yet set by the session (D24, awaits the owner's approval). Part 2 (guide, templates, skill) follows. |
 | Applies to | `tim.app.MeasurementSession`, `tim.gui.Tubebench`, `+tim/+app`, `+tim/+cal`, `+tim/+val`, the drivers in `+tim/+instr` and `+tim/+sim` |
 
 This document is the contract between the measurement program and an instrument driver. A
@@ -50,7 +50,7 @@ Life cycle, as the session uses it:
 ```
 src = tim.instr.create('source', cfg, ctx)            % connect, identify, output OFF
 acq = tim.instr.create('acquisition', cfg, ctx, src)  % connect, identify, idle (src itself if combined)
-acq.AbortFcn = @() src.outputOff()                    % abnormal end of acquire: output off first (8.1)
+acq.AbortFcn = @() src.outputOff()                    % abnormal end of acquire: output off first (8.1; D24)
 acq.prepare(c)                                        % channels, range, CCLD, TEDS -> ready
 src.configureSweep(s) ... src.armOutput(true)
 [data, info] = acq.acquire(n, @onBlock)               % onBlock switches the output on / off
@@ -74,7 +74,7 @@ are static and must not do any I/O.
 
 | Member | Returns / does |
 |---|---|
-| `d = describe()` | `name` (registry name, lower case, = `generator.driver` / `daq.driver`); `displayName` (e.g. `'Keysight/Agilent 33220A function generator'`, shown in the window and stored in the metadata); `labels` (struct, one short lamp label per role, e.g. `source: 'Generator'`, `acquisition: 'LAN-XI'`); `defaults.settings` (default driver settings = the sub-struct `generator.<name>` / `daq.<name>`); `defaults.acquisition` (acquisition drivers: the values `acquisition.sampleRate`, `range`, `filter` and `ccld` take when the configuration leaves them empty, section 9.2); `texts.settle` (what the settling step after `prepare` waits for, `sprintf` format with the filter, e.g. `'CCLD + %s high-pass'`; `''` = no settling needed); `simulation` (`'protocol'`: real driver that runs on its protocol mock in simulation mode; `'only'`: contract-level simulated driver, simulation mode only) |
+| `d = describe()` | `name` (registry name, lower case, = `generator.driver` / `daq.driver`); `displayName` (e.g. `'Keysight/Agilent 33220A function generator'`, shown in the window and stored in the metadata); `labels` (struct, one short lamp label per role, e.g. `source: 'Generator'`, `acquisition: 'LAN-XI'`); `defaults.settings` (default driver settings = the sub-struct `generator.<name>` / `daq.<name>`); `defaults.acquisition` (acquisition drivers: the values `acquisition.sampleRate`, `range`, `filter` and `ccld` take when the configuration leaves them empty, section 9.2); `texts.settle` (what the settling step after `prepare` waits for, `sprintf` format with the filter, e.g. `'CCLD + %s high-pass'`; `''` = no settling needed); `texts.noun` (the instrument in a sentence of the window, lower case unless a name: `'generator'`, `'LAN-XI module'`, `'simulated device'`); `texts.closed` (the state `close()` leaves it in, read after the noun: `'output off'`, `'back to Idle'`, `'stopped, output at 0 V'`) - section 7.1; `simulation` (`'protocol'`: real driver that runs on its protocol mock in simulation mode; `'only'`: contract-level simulated driver, simulation mode only) |
 | `c = capabilities()` | section 5 (roles, shared clock, pairing, products, source and acquisition limits) |
 | `s = connectionSteps()` | struct array `key`, `label`, `role` (`'source'`, `'acquisition'` or `'both'`), `phase` (`'connect'`: reported by `fromConfig`; `'prepare'`: reported by `prepare`) - section 6 |
 | `report = checkConfig(cfg)` | validates the driver's part of the configuration (its sub-struct and the role settings it constrains, section 9.2); errors `tim:config:*`, returns warnings (cellstr) |
@@ -140,7 +140,8 @@ on the voice coil. Such a driver therefore
 
 A waveform the source cannot produce raises `tim:gen:unsupported`.
 
-The window words the state after a Stop or an error by the read-back kind (stage C):
+The window words the state after a Stop, an error or closing by the read-back kind (it calls
+`isOutputOn(1)`):
 `'instrument'` - "output off (confirmed by the instrument)"; `'device'` - "output stopped (device
 idle, 0 V)"; `'none'` - "output switched off - this generator cannot report its state; check it at
 the instrument" (an information, not a red fault after every Stop). The registry refuses `'none'`
@@ -281,7 +282,7 @@ because the LAN-XI `info.unit` already is a per-signal cell stored in saved meas
 
 The static values describe what the driver supports; a driver may still refuse a value the
 connected device reports as unsupported (LAN-XI: `tim:lanxi:rate` from `module/info`). The
-simcombined values are those of `tim.sim.SimulatedCombined` (stage B, as designed); its settings
+simcombined values are those of `tim.sim.SimulatedCombined` (as implemented in stage B); its settings
 (`daq.simcombined`) are `blockSamples` (2048), `serial` and `seed` (noise output), its lamp labels
 "Output" and "Inputs".
 
@@ -309,17 +310,22 @@ Rules:
   and lets the error propagate. In `prepare` a driver may swallow callback errors (LAN-XI does);
   the session honours the Stop at its next own step.
 * The lamp of a role follows that role's steps (INSTRUMENTS section); a `'both'` step drives both
-  lamps. A lamp's label is `describe().labels.<role>` and its tooltip the display name and
-  identity. The channel cards (TEDS) are refreshed after every `'prepare'` step that ends (today
-  only after the key `teds`).
+  lamps; a failing session step (`sens`, `settle`, `signal`) turns the acquisition lamp red. A
+  lamp's label is `describe().labels.<role>` and its tooltip the display name and identity
+  (section 7.1). The channel cards (TEDS) are refreshed after every `'prepare'` step that ends
+  (before 1.2.0 only after the key `teds`).
+* While not connected the checklist lists the steps of the configured drivers; it is rebuilt
+  when a configuration with other drivers is loaded, and at Connect when they differ from the
+  last list.
 
 ## 7. Identity and metadata
 
-* `identity()` feeds the window (INSTRUMENTS lamps and Setup > Connection: display name, model,
-  serial number, firmware - owner decision §0.2; no selection controls) and the log line after
-  connecting.
+* `identity()` feeds the window (INSTRUMENTS lamps and "In use", Setup > Connection: display
+  name, vendor, model, serial number, firmware - owner decision §0.2; no selection controls,
+  section 7.1) and the log line after connecting (`Signal source: <display name> – <raw>`,
+  `Acquisition: ...`; one line `Signal source and acquisition: ...` for a combined device).
 * `collectMetadata` stores `md.generator = s.Gen.metadata()` and `md.daq = s.Daq.metadata()`. Both
-  are **supersets of today's fields**, so saved data and scripts keep working:
+  are **supersets of the fields before 1.2.0**, so saved data and scripts keep working:
   `md.generator.identity`, `host`, `port`, `maxVpp`, `load` (33220A); `md.daq.host`, `connector`,
   `model`, `serial`, `firmware`, `setup`, `teds` (LAN-XI). A combined device appears in both with
   `roles` naming both. Readers of the new fields (`md.*.identity`, `md.*.driver`,
@@ -345,6 +351,38 @@ Rules:
   e8fb4fb code in a temporary worktree (`tests/fixtures/saved_e8fb4fb`), never with files from
   `data/`.
 
+### 7.1 What the window takes from the drivers (stage C, as built)
+
+`tim.gui.Tubebench` names no instrument (`grep -i "lanxi\|lan-xi\|33220"` finds nothing in it or
+in `MeasurementSession.m`; `TestGui/noInstrumentNamesInWindowOrSession`). It has **no instrument
+selector** (owner decision §0.2): the configuration selects the drivers, the window shows them.
+Everything it says about the instruments comes from `tim.instr.driverInfo` (class-level, before
+connecting) and from the connected objects:
+
+| Window element | Driver member |
+|---|---|
+| INSTRUMENTS lamps 1 and 2: label | `describe().labels.source` / `.acquisition` (the lamp column widens for a longer label) |
+| Lamp tooltips | `'<label>: <displayName>'`, after Connect `' – <vendor> <model>, s/n <serial>, firmware <firmware>'` from `identity()` |
+| INSTRUMENTS "In use" (one line per instrument) | before Connect (and after Disconnect) the `displayName` of each configured driver; after Connect `'<label>: <model> s/n <serial>'` from `identity()`, followed by "(simulated)" in simulation mode (the protocol mocks report realistic identities, the LAN-XI mock the lab module's) |
+| Setup > Connection, Instruments table | one row per role, one row "Output + Inputs (both roles)" for a combined device: role (lamp label and role), `displayName`, driver name, vendor, model, serial number, firmware (`identity()`, "–" before Connect) and the configured settings (`generator.maxVpp`, `load`; sample rate, range, filter, CCLD) |
+| Instruments table tooltip | the values the drivers allow (`capabilities()`: loads with `minVpp`–`maxVpp`, `sweepTime`, `waveforms`; `sampleRates` or `sampleRateRange`, `ranges`, `filters`, `ccld`, `teds`). The window has no sample-rate or range control: these are set in the configuration and checked by `checkConfig` (section 9.2) |
+| Connection checklist, lamp of each step, card refresh | `connectionSteps()` (`key`, `label`, `role`, `phase`), then the session's steps; the settling label from `texts.settle` (section 6) |
+| Operating-mode, Connect and Disconnect tooltips, the log line of Disconnect, the closing dialog | `texts.noun` and `texts.closed`, e.g. "Connect the generator and the LAN-XI module (generator output off), read TEDS and check every channel" ("read TEDS" only when `capabilities.acquisition.teds`), "Generator output off, LAN-XI module back to Idle, connections closed." - the texts of before for the two lab drivers |
+| Output state after Stop, an error or closing | `isOutputOn(1)` worded by `capabilities.source.readback` (section 3.2) |
+| Live view, background work | `recent()`; the background build waits while `isAcquiring()` |
+| Frequency fields (EXCITATION) | at most `acquisition.bandFraction` × `acquisition.sampleRate`, `source.frequencyRange(2)` and, for a shared clock, `source.bandFraction` × sample rate; at least `max(1 Hz, source.frequencyRange(1))` |
+| Amplitude field | from `source.minVpp` at `generator.load` (33220A at `INF`: 0.01 Vpk; before 1.2.0 the field allowed 0.005 Vpk, which the 33220A refuses) up to `generator.maxVpp` / 2 |
+| Sweep duration field | `source.sweepTime` |
+| Drive estimate | `source.outputImpedance_ohm` (`tim.app.driveEstimate`, D12) |
+
+A driver that is not registered (an opened measurement folder of another set-up) is shown as
+`unknown driver "<name>"` with the lamp labels "Generator" / "DAQ" and the limits of before;
+Connect then reports `tim:config:driver`. Tests: `TestGui/instrumentsShownFromTheDrivers` (the
+lab drivers on their mocks: display names, identity, texts of before, limits, Disconnect) and
+`TestGui/combinedDeviceShownFromItsDriver` (`simcombined`: one row, labels, the checklist before
+connecting, texts, limits, identity); the layout was checked on screen captures of a visible
+window in simulation mode with both driver selections.
+
 ## 8. Timing, callbacks and the shared clock
 
 **The session schedules the excitation on the received-sample count** (unchanged): in
@@ -364,9 +402,12 @@ The window's Stop and close callbacks also call `s.Gen.outputOff()` directly.
 4. **Abort first**: on every abnormal exit of `acquire` - its own error (stalled stream,
    time-out, transport fault), an error thrown by `onBlock`, an interrupt (via `onCleanup`) - the
    driver calls `AbortFcn` **before any stop or drain I/O**, once, ignoring any error it raises.
-   The session sets `AbortFcn = @() s.Gen.outputOff()`, so the loudspeaker is not driven while
-   the driver stops its device (with an unreachable LAN-XI module: one HTTP time-out for the
-   stop request and one for the first status poll, about 20 s with the default settings).
+   The session is to set `AbortFcn = @() s.Gen.outputOff()`, so the loudspeaker is not driven
+   while the driver stops its device (with an unreachable LAN-XI module: one HTTP time-out for
+   the stop request and one for the first status poll, about 20 s with the default settings).
+   **As built, the session does not set it yet** (D24: it changes the order on the bus and
+   waits for the owner's approval); until then the session switches the output off in its
+   error path, after `acquire` has returned.
 5. `onBlock` may call SignalSource methods of the same or another object, and `close` of its own
    object (re-entrancy, section 2.2); the driver holds no lock while calling it.
 6. `onBlock` takes **one** input (the session's nested functions take one; a second argument
@@ -501,8 +542,9 @@ session only (tests; trying a driver before its line is added).
   `validateConfig(cfg, 'instruments')`, which `MeasurementSession` calls (the window shows such
   errors as "Check the settings").
 * `tim.app.driveEstimate` takes the source impedance from `capabilities().source.outputImpedance_ohm`
-  of `generator.driver` (today a fixed 50 Ω: a DAQ output of about 0 Ω driving an 8 Ω loudspeaker
-  directly would be estimated (58/8)² ≈ 50 times too low - a safety defect for any new source).
+  of `generator.driver` (before 1.2.0 a fixed 50 Ω: a DAQ output of about 0 Ω driving an 8 Ω
+  loudspeaker directly would have been estimated (58/8)² ≈ 50 times too low - a safety defect for
+  any new source; an unknown driver counts as 0 Ω, the worst case).
   The operator text `ampDirect` ("via the 50 Ω generator output", `tim.app.msg`) is composed from
   the same value.
 
@@ -711,6 +753,9 @@ value is 0 after a normal plan, a Stop in either pass, an `onBlock` error and `c
 | D36 | Block source outside `acquire` specified (section 3.5) | planning and execution only | the session and the contract tests call the source outside `acquire` |
 | D37 | `tim.app.outputGuard` in stage B | stage A | stage A does not change the session (stage plan); the guard is the first change of stage B |
 | D38 | Stage A: the registry reads the legacy keys itself | `migrateConfig` in stage A | the configuration code changes in stage B; the registry must already work with every configuration of today |
+| D39 | Window texts from two short driver texts, `texts.noun` and `texts.closed` (stage C) | compose the sentences from the display names (stage plan); from the lamp labels | the display names are long and name the protocol ("HBK LAN-XI module (Open API)"), the lamp labels are capitalised or plural ("Inputs"); with a noun and a closed state the operating-mode, Connect and Disconnect tooltips read exactly as before for the two lab drivers (the closing dialog and the Disconnect log line nearly so: "Closing the connections: generator output off, LAN-XI module back to Idle …") and correctly for a combined device |
+| D40 | Identity display: an "In use" row in INSTRUMENTS (one line per instrument) and an Instruments table in Setup > Connection, plus the lamp tooltips; "(simulated)" in simulation mode | tooltips only; an identity panel in place of the checklist | visible at a glance without hovering, the table has room for vendor, firmware and the settings; the LAN-XI mock reports the lab module's real serial number, which must not look like a connected instrument. The control panel still fits the 1920 × 1080 lab screen (about 900 px of content, limit 930) |
+| D41 | GUI limits of the EXCITATION fields from `capabilities()`; no sample-rate or range control in the window | keep 0.45 × sample rate and 0.005 Vpk; add selectors for sample rate and range | one rule for the window and `checkConfig`, so the window no longer accepts a level the source refuses only at measure time (33220A: 0.02 Vpp at `INF`); the input settings stay in the configuration (the window shows them and the allowed values, section 7.1) |
 
 ### 13.2 Design review of 2026-10-11 (stage 2)
 
@@ -723,7 +768,7 @@ the decision named.
 | 2 | Planning pass contradicts the session schedule | `outputOff` scheduled; only an `onBlock` error discards; rule 1 per pass; `isPlanning()`; one `onBlock` input | 8.1, 8.3, D17 | B |
 | 3 | Block acquisition belongs to the pair | plan only for one object in both roles; `needsOwnSource`, `rolesTogether`; registry refuses pairings | 1, 5, 8.2, 9.1, D16 | A (registry), B (test) |
 | 4 | Output off undefined for analog outputs | off = 0 V or disconnected; 0 V writes, fade | 3.1, 11.1 (1, 12), D18 | B (simcombined), Part 2 |
-| 5 | Read-back excludes DAQ / audio outputs | kinds `instrument` / `device` / `none`; window wording; `allowUnconfirmedOff`; WO §3 reworded | 3.2, 5, 9.1, D19 | A (registry), C (window) |
+| 5 | Read-back excludes DAQ / audio outputs | kinds `instrument` / `device` / `none`; window wording; `allowUnconfirmedOff`; WO §3 reworded | 3.2, 5, 9.1, D19 | A (registry), B (window) |
 | 6 | Amplitude limit meaningless for full-scale outputs | `levelKnown`, `vppAtFullScale` | 3.4, 5, 9.2, D23 | A (capability), Part 2 |
 | 7 | Output off only after the driver's stop sequence | `AbortFcn` called first; session wiring after owner approval | 4, 8.1 (4), 11.1 (8), D24 | A (driver), B (session, approval) |
 | 8 | MATLAB class mechanics | `fromConfig`; protected base properties; no base `delete`; second `close` sends nothing | 2, D20 | A |
@@ -742,7 +787,7 @@ the decision named.
 | 21 | Calibration requires a sweep | Must in WO §3 and `checkConfig` | 5, 9.2, D33 | B |
 | 22 | Migration edge cases | one `migrateConfig`; legacy keys only to the legacy driver | 9.3, D34 | B |
 | 23 | Inventory gaps; D8 undecided | `ampDirect` and the `driveEstimate` help added to Appendix A; D8 recorded as owner decision | A.3, D8, D12 | B |
-| 24 | Minimality | `shutdown`, `Mode`, `MaxVpp`, `Load` out; `minVpp`, `sweepTime`, step role `'both'`, card refresh after `'prepare'` steps | 3, 4, 5, 6, D21 | A (contract), C (window) |
+| 24 | Minimality | `shutdown`, `Mode`, `MaxVpp`, `Load` out; `minVpp`, `sweepTime`, step role `'both'`, card refresh after `'prepare'` steps | 3, 4, 5, 6, D21 | A (contract), B (cards), C (GUI limits) |
 
 ## 14. Implementation plan
 
@@ -829,7 +874,34 @@ warning against them.
 6. `tim.val.testA_acquisition` without LAN-XI parser fields; `channelIdentification` countdown
    idle while `isPlanning()`; examples use `identity()` / `metadata()` instead of `s.Daq.Info`.
 
-**Stage C - window from the drivers, documentation (WO tasks 5, 9).**
+**Stage C - window from the drivers, documentation (WO tasks 5, 9).** Done on `wo-001` (stage 5
+of the work order), with these differences from the plan:
+
+* Items 1 and 3 were done in stage B except the texts, lamp labels, tooltips and the GUI limits,
+  which stage C added (section 7.1).
+* The texts are composed from two new `describe()` fields, `texts.noun` and `texts.closed`
+  (D39), not from the display names; the contract test checks them for every registered driver.
+* The identity display is an "In use" row in INSTRUMENTS and an Instruments table in
+  Setup > Connection besides the lamp tooltips (D40); the table also shows the configured
+  settings and, in its tooltip, the values the drivers allow - the window has no sample-rate or
+  range control (D41).
+* Also changed: the Formula view and the calibration prompt `calPrepare` (en / ko) say "DAQ
+  input(s)"; `examples/hardware_commissioning.m` stores `metadata()` of both instruments in its
+  H0 report (it runs with any driver; not run here, it needs the instruments); comments in
+  `start_here.m`, `bench_test_no_tube.m`, `switchingCorrection`, `resolveSensitivities`.
+* Not changed: `examples/bench_test_no_tube.m` keeps its notes on the 33220A's 50 Ω output (it is
+  the lab's bench test); `docs/theory.md` and `docs/calibration_procedure.md` keep describing the
+  lab's chain (LAN-XI input), except the prompt text quoted in the procedure.
+
+Verified at the end of stage C (simulation only): full suite 270 / 270 in batch MATLAB (19 test
+classes; the three new `TestGui` tests and the `texts` check of the contract test included); the
+grep acceptance for `Tubebench.m` and `MeasurementSession.m` as a test; both bus-traffic fixtures
+unchanged in stage C; the layout on screen captures of a visible window (separate MATLAB process,
+simulation configuration, both driver selections) before and after Connect: the control panel
+fits without scrolling, the Instruments table shows two rows (one for `simcombined`) without
+cut-off text on the 1920 × 1080 screen.
+
+The plan of stage C:
 
 1. Checklist keys and labels from `connectionSteps` (+ the session's steps); lamp labels,
    tooltips and the lamps of each step from the driver (`'both'` drives both); channel cards
@@ -847,9 +919,11 @@ warning against them.
 Part 2 (guide with the full-scale and 0 V rules, templates, skill, dry run) and the owner's
 hardware check (§0.3) follow stage C.
 
-## Appendix A - Inventory of today's instrument-specific code (commit 8ff47f3)
+## Appendix A - Inventory of the instrument-specific code before WO-001 (commit 8ff47f3)
 
-Line numbers as of 8ff47f3. "→" names the stage that changes it.
+Line numbers as of 8ff47f3. "→" names the stage that changed it; every item is done (stage C
+completed the window texts, `msg` and the examples; the 33220A / LAN-XI texts left in `examples/`
+and in the driver-specific help of `+tim/+app` and `+tim/+acq` describe those drivers).
 
 ### A.1 `tim.app.MeasurementSession`
 

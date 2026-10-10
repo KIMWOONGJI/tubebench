@@ -6,7 +6,8 @@ function mics = resolveSensitivities(mics, teds, policy)
 %   mics   : struct array from the configuration (fields channel, position,
 %            model, serial, nominalSensitivity_VperPa, certificateSensitivity_VperPa,
 %            certificateDate)
-%   teds   : 1xN cell from tim.instr.LanXi.detectTransducers ([] if absent)
+%   teds   : 1xN cell, the Teds property of the acquisition after prepare
+%            ([] for an input without TEDS; {} when the device reads none)
 %   policy : 'certificate>teds>nominal' (default) | 'teds>certificate>nominal'
 %
 %   Adds fields: sensitivity_VperPa (used), sensitivitySource, tedsSensitivity_VperPa,

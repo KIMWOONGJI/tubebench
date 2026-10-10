@@ -45,22 +45,32 @@ $p.ExitCode; Get-Content $log -Encoding UTF8
 
 ## Architecture
 
-**Session layer.** `tim.app.MeasurementSession` owns the instruments and runs every acquisition.
-`cfg.mode` chooses between two kinds of transport:
+**Session layer.** `tim.app.MeasurementSession` owns the instruments (`s.Gen` signal source,
+`s.Daq` acquisition; one object when a device takes both roles) and runs every acquisition. The
+configuration names a driver per role (`generator.driver`, `daq.driver`: `keysight33220a`,
+`lanxi`, or `simcombined` for both); `connect` builds them through the registry
+`tim.instr.create` (list in `+tim/+instr/drivers.m`). Drivers implement the contract
+`tim.instr.SignalSource` / `tim.instr.Acquisition` (`docs/instrument_interface.md`), so the
+session and the window name no instrument (a test greps for it). `cfg.mode` chooses what each
+driver talks to:
 
-- `'hardware'`: `ScpiTcpTransport` and `LanXiHttp`, with `LanXiTcpStream` → `LanXiStreamParser`.
-- `'simulation'`: `MockScpiTransport` and `MockLanXiHttp`/`MockLanXiStream`. A
-  `tim.sim.SimulatedRig` couples the two mocks: it reads the generator state from the SCPI mock
-  and synthesises the four channels from an analytic tube model (`tim.sim.tubeModel`) plus a
-  per-channel chain, noise and a clock offset.
+- `'hardware'`: its transport - `ScpiTcpTransport` (33220A); `LanXiHttp`, `LanXiTcpStream` →
+  `LanXiStreamParser` (LAN-XI).
+- `'simulation'`: its protocol mock (`MockScpiTransport`, `MockLanXiHttp`/`MockLanXiStream`) on
+  one `tim.sim.SimulatedRig`, which reads the generator state from the SCPI mock and synthesises
+  the four channels from an analytic tube model (`tim.sim.tubeModel`) plus a per-channel chain,
+  noise and a clock offset. `tim.sim.SimulatedCombined` (`simcombined`) implements the contract
+  directly on the rig (`respond(x)`): shared clock, planned block acquisition.
 
-Everything above the transports is the same in both modes. That is why the test suite exercises
+Everything above the drivers is the same in both modes. That is why the test suite exercises
 the whole workflow, including the GUI, without hardware. The tests also replay real recorded
-LAN-XI responses from `tests/fixtures`.
+LAN-XI responses from `tests/fixtures`, and `TestBusTraffic` compares every SCPI / REST message of
+a simulated session with recorded fixtures (regenerated only for an owner-approved change).
 
 **No shared clock.** The generator and the LAN-XI are not synchronised. Every action is scheduled
-on the number of samples received so far: output on, trigger, frequency step, output off. Only
-afterwards is it verified that the excitation lies inside the recording:
+on the number of samples received so far: output on, trigger, frequency step, output off (a
+device that takes both roles runs the same schedule first as a planning pass on its own clock).
+Only afterwards is it verified that the excitation lies inside the recording:
 
 - `tim.dsp.detectExcitation`;
 - for sweeps, the matched-filter "sweep gate" in `tim.dsp.sweepResponse`, which also excludes
@@ -101,6 +111,10 @@ action is also available from scripts (`start_here.m`).
 - Background steps never run while `Busy` is set, while a session operation or stream is active,
   or while the window closes, because that would stall the LAN-XI stream.
 - Code that touches a view must call `app.ensureBuilt(part)` first.
+- No instrument selector (owner decision): the window shows the instruments in use from the
+  drivers (`tim.instr.driverInfo`, `identity()`): lamp labels and tooltips, "In use", the
+  Instruments table and checklist of Setup > Connection, texts (`describe().texts`) and the
+  limits of the EXCITATION fields (`capabilities()`).
 - A hidden window (`'Visible','off'`, as used by the tests) builds everything synchronously, and
   its prompts (`ask`, `askBar`) return the default answer.
 
@@ -113,8 +127,13 @@ window, and in simulation the virtual rig moves them. The sequence ends with an 
 
 - JSON `null` or a missing field keeps the default.
 - Unknown fields raise a warning.
-- `tim.app.validateConfig` checks the result.
-- A new setting must be added to `defaultConfig` and, where relevant, to `validateConfig`.
+- Files of the old layout (`formatVersion` 1: `generator.host`, a `lanxi` section) and old
+  scripts are read through `tim.app.migrateConfig`.
+- `tim.app.validateConfig` checks the result; the selected drivers check their part
+  (`checkConfig`).
+- A new setting must be added to `defaultConfig` and, where relevant, to `validateConfig`; a
+  driver's own setting goes into its `describe().defaults.settings` (sub-struct
+  `generator.<driver>` / `daq.<driver>`).
 
 The configuration files:
 

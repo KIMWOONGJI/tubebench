@@ -29,7 +29,7 @@ fprintf('  - %s\n', warn{:});
 % tubebench        % real instruments (config/user_config.json)
 % tubebench sim    % virtual tube (practice)
 
-%% 2) Self-test of the software (simulation only, ~3 min)
+%% 2) Self-test of the software (simulation only, ~15-20 min; run_tests('fast') is quicker)
 % results = run_tests();
 
 %% 3) Connect instruments (generator output stays OFF) and prepare acquisition

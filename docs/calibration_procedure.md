@@ -103,7 +103,7 @@ the step list of the Calibration view has one row per step.
 
 | Step | What the operator does | Microphones (channel → port) | Button |
 |---|---|---|---|
-| 1 | Prepare: mount the empty specimen section and the absorbing termination, seal every port, move only the microphones (never the cables or LAN-XI inputs), keep the temperature constant | ch1 → M1, ch2 → M2, ch3 → M3, ch4 → M4 | Continue |
+| 1 | Prepare: mount the empty specimen section and the absorbing termination, seal every port, move only the microphones (never the cables or DAQ inputs), keep the temperature constant | ch1 → M1, ch2 → M2, ch3 → M3, ch4 → M4 | Continue |
 | 2 | ch2, configuration I | ch1 → M1 (a), ch2 → M2 (b), ch3 → M3, ch4 → M4 | Measure |
 | 3 | ch2, configuration I repeated: remove both microphones and reinsert them in the same ports | as step 2 | Measure |
 | 4 | ch2, configuration II: interchange the two microphones | ch2 → M1 (a), ch1 → M2 (b), ch3 → M3, ch4 → M4 | Measure |
