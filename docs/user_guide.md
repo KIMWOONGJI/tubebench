@@ -23,10 +23,31 @@ the **Formula** tab of the window.
 
 ## 2. The window
 
-Starting takes about 25 s. Meanwhile a small start window shows the logo, the program name, the version, a
-progress bar and the current step (control panel, views, 3D tube model, graphs); its turning icon
-keeps moving while MATLAB is busy. It closes by itself when the main window appears; closing it
-earlier does not stop the start.
+The main window appears about 16 s after a double-click on `start_tubebench.bat` (about 11 s
+after MATLAB has started; in a MATLAB that is already running about 6–9 s). Meanwhile a small
+start window shows the logo, the program name, the version, a progress bar and the current step
+(control panel, Connection view, settings); its turning icon keeps moving while MATLAB is busy.
+It closes by itself when the main window appears; closing it earlier does not stop the start.
+
+The main window can be used at once: the menus, the control panel, the Messages pane, every tab
+and the view Setup > Connection are ready. The other views are prepared in the background, one
+after the other (Tube setup, Calibration, Time signals, Spectrum, Transfer functions, the four
+Results views, Formula). The Messages pane shows "Preparing the views in the background…" and,
+about 20–25 s later, "All views ready (… s after the start)".
+
+* A view that is not prepared yet shows "Preparing the view…". Opening it prepares it at once
+  (1–3 s; the 3D models wait until the window has given the view its size).
+* While a view is being prepared, a click is answered after a moment (at most about 3 s).
+* Nothing is prepared in the background while an action runs (connection, measurement,
+  background noise, calibration, saving, loading): a step of 1–3 s would interrupt the data
+  stream of the LAN-XI module. Every action prepares the views it uses **before** it starts, e.g.
+  Start measurement the Time signals view, the calibration the Calibration view. A view opened
+  during an action says "This view is prepared when the running action has finished" and is
+  prepared first afterwards.
+* A view prepared later shows the data of then (last measurement, results, calibration,
+  IMPEDANCE TUBE fields).
+* Scripts that use the window (`app = tubebench(...)`) can wait for every view with
+  `app.ensureBuilt('all')`.
 
 The window title is "tubebench". It opens as a normal window as large as the screen without the taskbar (it can be moved and resized) and has four parts:
 
@@ -791,3 +812,4 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed or other mode: check the set-up and recalibrate |
 | Few valid frequency lines | Results > Validity: "no valid calibration" (load or run a calibration), low coherence / low SNR (amplitude, repetitions), termination not anechoic (τ, TL), velocity mismatch (thick specimen: thin-element Z_t not applicable) |
 | Transfer impedance view empty, "Thin-element model not applicable" | the specimen is thick (k·d > 1): use Reflection and transmission and Transmission loss |
+| A view shows "Preparing the view…" | the views are prepared in the background during the first half minute after the start (section 2); after a running action it is prepared first. "This view could not be prepared" names the cause in Messages: close and start the program again |

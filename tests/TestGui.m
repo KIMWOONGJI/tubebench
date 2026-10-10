@@ -189,12 +189,19 @@ classdef TestGui < matlab.unittest.TestCase
             app = tim.gui.TubeApp('', 'Visible', 'on');
             tc.addTeardown(@() delete(app));
             % start window (user request 2026-10-10): steps shown while the main
-            % window was built hidden, closed when the main window appeared
+            % window was built hidden, closed when the main window appeared.
+            % Progressive start-up (user choice 2026-10-10): only the control panel,
+            % the tabs and Setup > Connection before the window appears; the other
+            % views in the background (this test closes the window meanwhile)
             s = app.StartSteps;
-            tc.verifyGreaterThanOrEqual(numel(s), 10);
+            tc.verifyEqual({s.text}, {'Starting…', 'Building the control panel…', 'Building the Connection view…', ...
+                'Filling in the settings…', 'Opening the main window…', 'Ready'});
             tc.verifyTrue(issorted([s.value]), 'the bar only moves forward');
             tc.verifyEqual(s(end).value, 1);
             tc.verifyTrue(strcmp(app.Fig.Visible, 'on'));
+            tc.verifyTrue(app.Deferred, 'visible window: views prepared in the background');
+            tc.verifyGreaterThan(app.ShownTime, 0);
+            tc.verifyEqual(app.BuildTimer.Name, 'tubebench-build');
             tc.verifyEmpty(app.StartWin);
             tc.verifyEqual(numel(findall(groot, 'Type', 'figure')), n0 + 1, 'start window closed');
             tick = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.1, 'UserData', 0, ...
@@ -620,7 +627,173 @@ classdef TestGui < matlab.unittest.TestCase
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
             tc.verifyNumElements(findall(groot, 'Type', 'figure', 'Name', 'About tubebench'), 1, 'one About window');
         end
+
+        function deferredViewsBuiltWhenOpened(tc)
+            % user choice 2026-10-10 (progressive start-up, "A"): the window appears
+            % with the control panel, the message pane, every tab and Setup >
+            % Connection; a view opened before the background has prepared it is
+            % prepared at once (major tab: its selected sub tab)
+            n0 = numel(timerfindall);
+            app = tim.gui.TubeApp(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 600);
+            tc.addTeardown(@() delete(app));      % (600 s: the background queue does not start here)
+            tc.verifyTrue(app.Deferred);
+            for p = app.Parts
+                tc.verifyEqual(app.PartState.(p{1}), 'none', p{1});
+                tc.verifyFalse(app.isBuilt(p{1}), p{1});
+            end
+            tc.verifyFalse(isfield(app.H, 'axW') || isfield(app.H, 'axTube3D') || isfield(app.H, 'axCalSetup'));
+            tc.verifyFalse(isfield(app.Pages, 'refl'));
+            tc.verifyTrue(isvalid(app.H.chanTable) && isvalid(app.H.card(4).state), 'Connection view built');
+            tc.verifyNumElements(app.ConnList.States, 9);
+            tc.verifyEqual({app.H.tabs.Children.Title}, {'Setup', 'Calibration', 'Measurement', 'Results', 'Formula'});
+            tc.verifyEqual({app.H.resTabs.Children.Title}, {'Reflection and transmission', 'Transmission loss', ...
+                'Transfer impedance', 'Validity'});
+            ph = app.H.placeholder;
+            tc.verifyEqual(sort(fieldnames(ph)).', sort(app.Parts));
+            tc.verifyEqual(ph.zt.Text, 'Preparing the view…');
+            tc.verifyEqual(app.BuildTimer.Running, 'on');
+            tc.verifyEqual(numel(timerfindall), n0 + 1, 'one timer: the background queue');
+            % major tab Results -> its selected sub tab (Reflection and transmission)
+            feval(app.H.tabs.SelectionChangedFcn, app.H.tabs, struct('NewValue', app.H.resTab, 'OldValue', app.H.setupTab));
+            tc.verifyEqual(app.PartState.refl, 'ready');
+            tc.verifyFalse(app.isBuilt('zt'), 'only the view that was opened');
+            tc.verifyFalse(isvalid(ph.refl), 'placeholder removed');
+            tc.verifyNotEmpty(findobj(app.H.axR(1), 'Tag', 'timEmptyState'), 'first drawing: empty state');
+            feval(app.H.resTabs.SelectionChangedFcn, app.H.resTabs, struct('NewValue', app.H.ztTab, 'OldValue', app.H.reflTab));
+            tc.verifyEqual(app.PartState.zt, 'ready');
+            tc.verifyNumElements(app.H.axZ, 2);
+            % Calibration: built, laid out, then its 3D model drawn (first opening)
+            feval(app.H.tabs.SelectionChangedFcn, app.H.tabs, struct('NewValue', app.H.calTab, 'OldValue', app.H.resTab));
+            tc.verifyEqual(app.PartState.cal, 'ready');
+            tc.verifyEqual(app.CalDrawCount, 1, '3D calibration model drawn when the view is opened');
+            tc.verifyEqual(app.H.calTg.RowHeight{1}, 116, 'bar height from the laid-out model width');
+            tc.verifyNumElements(app.CalList.States, 1 + 3 * 3 + 2, 'operator steps listed');
+            L = app.BuildLog;
+            tc.verifyEqual(unique({L.part}), sort({'cal', 'refl', 'zt'}));
+            tc.verifyTrue(all(strcmp({L.how}, 'tab')));
+            % a method that needs a view prepares it (Tube setup: 3D model of the fields)
+            app.ensureBuilt('tube');
+            tc.verifyNotEmpty(findobj(app.H.axTube3D, 'Tag', 'specimen'), 'tube model drawn');
+            tc.verifyError(@() app.ensureBuilt('nonsense'), 'tim:gui:part');
+            delete(app);
+            tc.verifyEqual(numel(timerfindall), n0, 'timer deleted with the window');
+        end
+
+        function deferredQueuePreparesEveryView(tc)
+            % the background queue prepares every view, one step per timer tick,
+            % with its first drawing; afterwards no timer is left
+            n0 = numel(timerfindall);
+            app = tim.gui.TubeApp(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
+            tc.addTeardown(@() delete(app));
+            t0 = tic;
+            while isnan(app.ReadyTime) && toc(t0) < 240, pause(0.1); end
+            tc.assertFalse(isnan(app.ReadyTime), 'queue finished');
+            for p = app.Parts, tc.verifyEqual(app.PartState.(p{1}), 'ready', p{1}); end
+            tc.verifyEmpty(app.BuildQueue);
+            tc.verifyEmpty(app.BuildTimer);
+            tc.verifyEqual(numel(timerfindall), n0, 'timer deleted when the queue is done');
+            tc.verifyEmpty(fieldnames(app.H.placeholder), 'every placeholder removed');
+            h = app.H;
+            tc.verifyNumElements(h.axW, 4); tc.verifyNumElements(h.axH, 3); tc.verifyNumElements(h.axR, 2);
+            tc.verifyNumElements(h.axCal, 2);
+            for f = {'axSpec', 'axTL', 'axV', 'axCalSetup', 'axTube3D', 'calText', 'secChk'}
+                tc.verifyTrue(isvalid(h.(f{1})), f{1});
+            end
+            tc.verifyNotEmpty(findobj(h.axTube3D, 'Tag', 'specimen'), 'Tube setup: 3D model of the fields');
+            tc.verifyNotEmpty(findobj(h.axW(1), 'Tag', 'timEmptyState'), 'Time signals: empty state');
+            tc.verifyNotEmpty(findall(h.formulaTab, 'Type', 'uilabel', 'Interpreter', 'latex'), 'Formula built');
+            tc.verifyEqual(h.calTg.RowHeight{1}, 116);
+            L = app.BuildLog;
+            tc.verifyTrue(all(strcmp({L.how}, 'background')));
+            tc.verifyFalse(any([L.busy]), 'no background step during an action');
+            tc.verifyEqual(sort(unique({L.part})), sort(app.Parts));
+            c = {L(strcmp({L.stage}, 'construct')).part};
+            tc.verifyEqual(c, app.Parts, 'order: Tube setup, Calibration, Measurement, Results, Formula');
+            tc.verifySubstring(strjoin(cellstr(h.log.Value), newline), 'All views ready');
+        end
+
+        function measurementBeforeViewsAreReady(tc)
+            % SAFETY: no background step while an action runs - a 1-3 s step would
+            % stall the LAN-XI data stream. The measurement prepares the Time
+            % signals view BEFORE it acquires; a tab opened during the measurement
+            % is prepared only afterwards; views prepared later show the result.
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 2; c.excitation.sweep.repetitions = 2;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.TubeApp(file, 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0.2);
+            tc.addTeardown(@() delete(app));
+            h = app.H;
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertTrue(app.Session.Prepared);
+            % a tab opened during the measurement (timer callback = like a click
+            % processed inside the acquisition loop)
+            seen = struct('busy', false, 'built', true, 'text', '');
+            function openTab()
+                seen.busy = app.Busy;
+                feval(h.resTabs.SelectionChangedFcn, h.resTabs, struct('NewValue', h.validTab, 'OldValue', h.reflTab));
+                seen.built = app.isBuilt('valid');
+                if isfield(app.H.placeholder, 'valid'), seen.text = app.H.placeholder.valid.Text; end
+            end
+            opener = timer('StartDelay', 1.5, 'TimerFcn', @(~, ~) openTab());
+            tc.addTeardown(@() delete(opener));
+            start(opener);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.assertNotEmpty(app.LastRes, 'measurement completed');
+            L = app.BuildLog;
+            w = L(strcmp({L.part}, 'wave') & strcmp({L.stage}, 'construct'));
+            tc.verifyEqual(w.how, 'action', 'Time signals prepared by the measurement itself');
+            tc.verifyEqual(w.busyWhat, 'measurement');
+            tc.verifyEqual(app.H.axW(1).YLabel.String, 'ch1 (M1) [Pa]', 'live view used');
+            tc.verifyTrue(seen.busy, 'the tab was opened during the measurement');
+            tc.verifyFalse(seen.built, 'not prepared during the measurement');
+            tc.verifyEqual(seen.text, 'This view is prepared when the running action has finished.');
+            tc.verifyGreaterThan(app.BuildSkips, 0, 'background ticks came during the actions and waited');
+            t0 = tic;
+            while isnan(app.ReadyTime) && toc(t0) < 240, pause(0.1); end
+            tc.assertFalse(isnan(app.ReadyTime), 'queue finished');
+            L = app.BuildLog;
+            bg = L(strcmp({L.how}, 'background'));
+            tc.verifyFalse(any([bg.busy]), 'no background step while an action ran');
+            v = L(strcmp({L.part}, 'valid') & strcmp({L.stage}, 'construct'));
+            tc.verifyEqual(v.how, 'background');
+            % views prepared after the measurement show its result (data of then)
+            tc.verifyNotEmpty(findobj(app.H.axR, 'Type', 'line'), 'Reflection view: result drawn');
+            tc.verifyNotEmpty(findobj(app.H.axSpec, 'Type', 'line'), 'Spectrum view: measurement drawn');
+            tc.verifyEmpty(findobj(app.H.axR, 'Tag', 'timEmptyState'));
+        end
+
+        function closeWhileViewsArePrepared(tc)
+            % closing the window during the background preparation: no error, no
+            % timer left (the timer belongs to the window)
+            n0 = numel(timerfindall);
+            app = tim.gui.TubeApp('', 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
+            fig = app.Fig;
+            tc.addTeardown(@() delete(fig(isvalid(fig))));
+            t0 = tic;
+            while numel(app.BuildLog) < 3 && toc(t0) < 60, pause(0.05); end
+            tc.assertTrue(isnan(app.ReadyTime), 'still preparing');
+            tc.verifyWarningFree(@() closeAndWait(fig, app));
+            tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
+            tc.verifyEmpty(timerfindall('Name', 'tubebench-build'));
+            tc.verifyEqual(numel(timerfindall), n0, 'no timer left');
+        end
     end
+
+    methods
+        function file = labConfig(tc)
+            % lab geometry (L1, d, L2 entered): the 3D model has a specimen
+            c = tim.app.defaultConfig();
+            c.geometry.xFront = 0; c.geometry.xRear = 0.075;
+            c.geometry.micPositions = [-0.070 -0.041 0.116 0.145];
+            file = fullfile(tc.tmp, 'lab.json'); tim.app.saveConfig(c, file);
+        end
+    end
+end
+
+function closeAndWait(fig, app)
+tim.gui.closeApp(fig, app);
+pause(0.5);                     % a pending timer tick would run here
 end
 
 function L = labels(ax)

@@ -4,11 +4,23 @@ classdef TubeApp < handle
     %   app = tim.gui.TubeApp();                      % default / example config
     %   app = tim.gui.TubeApp('config/user_config.json');
     %   app = tim.gui.TubeApp(file, 'Visible', 'off')  % hidden window (automated tests)
+    %   app = tim.gui.TubeApp(file, 'Deferred', false) % visible, every view built before it appears
     %   app.openMeasurement('data/20261009_111602_sweep_foam')  % show a saved measurement
+    %   app.ensureBuilt('all')                         % wait until every view is prepared
     %
-    %   While a visible window is built (about 25 s), a small start window
-    %   (tim.gui.StartWindow) shows the steps and a progress bar; the main
-    %   window appears complete. A hidden window has no start window.
+    %   Progressive start-up (visible window): a small start window
+    %   (tim.gui.StartWindow) shows the steps while the menus, the control
+    %   panel, the message pane, all tabs and the start view Setup >
+    %   Connection are built; then the main window appears and can be used.
+    %   The other views are prepared one at a time in the background by a
+    %   timer (order: Tube setup, Calibration, Time signals, Spectrum,
+    %   Transfer functions, the four Results views, Formula); each first
+    %   shows "Preparing the view…". A view opened before it is ready is
+    %   prepared at once, and every action prepares the views it uses before
+    %   it starts. A background step NEVER runs while an action runs (Busy),
+    %   a session operation or a data stream is active, or the window closes:
+    %   it would stall the LAN-XI data stream. A hidden window builds every
+    %   view at once (as before, no timer) unless 'Deferred' is true.
     %
     %   Layout: menu bar (File, Help); control panel on the left in workflow
     %   order (INSTRUMENTS, IMPEDANCE TUBE, EXCITATION, CALIBRATION,
@@ -63,6 +75,27 @@ classdef TubeApp < handle
         StartWin = []           % start window while the main window is built (tim.gui.StartWindow)
         StartSteps = []         % steps of the start window with their times (diagnostics / tests)
         LastPrompt struct = struct('text', '', 'options', {{}})   % last question of the bar (tests)
+        % ---- progressive start-up: views prepared after the window is shown
+        Deferred logical = false   % views built in the background (default: visible window)
+        PartState struct = struct()% per view (TubeApp.Parts): 'none' | 'built' (controls exist) | 'ready' (drawn)
+        BuildQueue cell = {}       % views still to prepare in the background, in this order
+        BuildTimer = []            % timer that prepares the queue, one step per tick
+        Building char = ''         % view being prepared now (background steps wait)
+        Constructing char = ''     % view whose controls are being created now (no action starts meanwhile)
+        BuildLog = struct('part', {}, 'stage', {}, 'how', {}, 'start', {}, 'time', {}, 'busy', {}, 'busyWhat', {})
+        BuildSkips double = 0      % background ticks skipped: action / session operation / stream running
+        ShownTime double = NaN     % s after the start of the constructor: main window shown
+        ReadyTime double = NaN     % s after the start of the constructor: every view prepared
+    end
+    properties (Constant)
+        % views prepared after the main window is shown, in this order (the
+        % control panel, the message pane, the tabs and Setup > Connection are
+        % built before)
+        Parts = {'tube', 'cal', 'wave', 'spec', 'tf', 'refl', 'tl', 'zt', 'valid', 'formula'}
+    end
+    properties (Access = private)
+        T0                         % tic of the constructor
+        Probe struct = struct()    % per view: object + pixel position before the layout (layout check)
     end
     properties
         ConfirmUnsaved logical = true   % ask before an unsaved measurement is replaced or lost
@@ -74,13 +107,20 @@ classdef TubeApp < handle
             arguments
                 cfgFile = ''
                 opts.Visible (1,:) char = 'on'
+                opts.Deferred = []             % views in the background; [] = when visible
+                opts.BuildDelay (1,1) double {mustBeNonnegative} = 0.5   % s before the first background step
             end
             % visible: a small start window shows the steps while the main window
             % is built hidden; it disappears when the main window appears, also
-            % when the start-up fails. Every step is drawn at the next step (the
-            % window drawn in parts: about 25 s instead of 30 s with one first
-            % drawing of all ~1300 controls). Hidden (tests): no start window.
+            % when the start-up fails. Every step is drawn at the next step.
+            % Deferred (default when visible): only the control panel, the tabs and
+            % Setup > Connection before the window appears; the other views
+            % afterwards in the background (startBuild). Hidden (tests): no start
+            % window, every view built here as before.
+            app.T0 = tic;
             show = strcmp(opts.Visible, 'on');
+            deferred = opts.Deferred; if isempty(deferred), deferred = show; end
+            app.Deferred = logical(deferred);
             if show
                 sw = tim.gui.StartWindow('Area', workArea());
                 closeStart = onCleanup(@() delete(sw));     % also on an error
@@ -91,26 +131,35 @@ classdef TubeApp < handle
             else
                 app.Cfg = tim.app.defaultConfig();
             end
-            app.startStep('Building the control panel…', 0.04);
-            app.build();                      % further steps: the views
-            app.refreshFromCfg();             % step: 3D tube model
-            app.startStep('Drawing the graphs of the views…', 0.78);
-            app.refreshViews();
+            app.startStep('Building the control panel…', 0.06);
+            app.buildCore();                  % step: Connection view
+            app.startStep('Filling in the settings…', 0.62);
+            app.refreshFromCfg();
+            if ~app.Deferred
+                for p = app.Parts, app.ensureBuilt(p{1}, 'sync'); end   % every view now (hidden: tests)
+            end
             app.updateEnable();
             app.log(['Ready (%s mode). Not connected - "Connect" switches the generator output OFF; it is ' ...
                 'switched on only during a measurement or a calibration.'], app.Cfg.mode);
-            app.fitCalBar();                  % bar height from the laid-out width of the model
             if show
-                app.startStep('Opening the main window…', 0.98);
+                app.startStep('Opening the main window…', 0.86);
                 app.Fig.Visible = 'on';
                 drawnow;
+                app.ShownTime = toc(app.T0);
                 app.startStep('Ready', 1);
                 app.StartSteps = sw.Steps;
             end
             app.StartWin = [];
+            if app.Deferred
+                app.startBuild(opts.BuildDelay);
+            else
+                app.ReadyTime = toc(app.T0);
+            end
         end
 
         function delete(app)
+            app.Closing = true;               % background steps stop at once
+            app.stopBuild();
             try, app.stopPulse(); catch, end
             try, app.disconnect(true); catch, end
             if ~isempty(app.AboutFig) && isvalid(app.AboutFig), delete(app.AboutFig); end
@@ -236,6 +285,7 @@ classdef TubeApp < handle
                 sel = options{cancelIdx}; return
             end
             if ~strcmp(app.Fig.Visible, 'on'), sel = options{defaultIdx}; return; end
+            app.ensureBuilt('cal');
             h = app.H; old = h.calText.Text;
             if ~isempty(msg), h.calText.Text = strrep(htmlText(msg), newline, '<br>'); end
             app.LastPrompt.text = h.calText.Text;
@@ -267,12 +317,13 @@ classdef TubeApp < handle
             app.PromptAnswer = s;
         end
         function endPrompt(app, old, msg)
-            if ~isvalid(app) || ~isvalid(app.Fig), return; end
+            if ~isvalid(app) || ~isvalid(app.Fig) || ~app.isBuilt('cal'), return; end
             if ~isempty(msg), app.H.calText.Text = old; end
             app.promptBar(false);
         end
         function promptBar(app, on)
             % calibration bar: highlighted with the buttons while it waits for the operator
+            app.ensureBuilt('cal');
             P = tim.gui.palette(); h = app.H;
             if on
                 h.calBar.ColumnWidth = {'1x', max(170, 8 * max(numel(h.calOk.Text), numel(h.calCancel.Text)) + 30)};
@@ -288,7 +339,9 @@ classdef TubeApp < handle
         function fitCalBar(app)
             % the bar keeps its height (116 px: the model does not change size from
             % step to step); only a text longer than that makes it taller
-            % (about 6.4 px per character at 12 pt, measured; the HTML tags not counted)
+            % (about 6.4 px per character at 12 pt, measured; the HTML tags not counted).
+            % Calibration view not built yet: its first drawing calls this again.
+            if ~app.isBuilt('cal'), return; end
             h = app.H;
             w = max(300, h.axCalSetup.Position(3) - h.calBar.ColumnWidth{2} - 50);
             t = regexp(regexprep(char(h.calText.Text), '<br>', newline), newline, 'split');
@@ -323,6 +376,7 @@ classdef TubeApp < handle
             % microphones (animateCalMics). With fromMapping the microphones are
             % shown where they were before this step.
             if nargin < 5 || isempty(fromMapping), fromMapping = mapping; end
+            app.ensureBuilt('cal');
             shown = fromMapping; if isempty(shown), shown = app.homeMapping(); end
             M = app.H.cal3D;
             if app.CalDirty || isempty(M) || ~all(isgraphics(M.micGroup(shown > 0))) || ~isequal(app.CalDrawn, shown)
@@ -332,20 +386,127 @@ classdef TubeApp < handle
         end
 
         function showCal(app, cal)
-            % calibration curves C_k + summary of the calibration view, label
-            info = tim.plots.calibration(app.H.axCal, cal, setfield(app.plotOpts(cal), 'sideBySide', true));
-            app.Pages.cal.show(info);
+            % calibration curves C_k + summary of the calibration view, label.
+            % Calibration view not prepared yet: it shows the active calibration
+            % when it is prepared (refreshPart).
+            if app.isBuilt('cal')
+                info = tim.plots.calibration(app.H.axCal, cal, setfield(app.plotOpts(cal), 'sideBySide', true));
+                app.Pages.cal.show(info);
+            end
             app.refreshCalLabel();
+        end
+
+        %% ------------------------------------------- progressive start-up
+        function tf = isBuilt(app, part)
+            %ISBUILT The controls of a view exist (TubeApp.Parts; its first
+            %   drawing may still be pending in the background).
+            tf = isfield(app.PartState, part) && ~strcmp(app.PartState.(part), 'none');
+        end
+
+        function ensureBuilt(app, parts, how)
+            %ENSUREBUILT Prepare views now (controls + first drawing with the data
+            %   of now), unless they are ready: a name of TubeApp.Parts, a cell
+            %   array of names or 'all'. Every code path that uses the controls of
+            %   a view calls it first; every action calls it BEFORE it acquires
+            %   data, so nothing is built while the data stream runs.
+            %   how (diagnostics): 'action' | 'tab' | 'demand' | 'sync' | 'background'.
+            if nargin < 3, how = ''; end
+            if ischar(parts) && strcmp(parts, 'all'), parts = app.Parts; end
+            parts = cellstr(parts);
+            for i = 1:numel(parts)
+                p = parts{i};
+                if ~isvalid(app), return; end
+                if ~isfield(app.PartState, p)
+                    error('tim:gui:part', 'Unknown view "%s" (TubeApp.Parts).', p);
+                end
+                if strcmp(app.PartState.(p), 'ready'), continue; end
+                if strcmp(app.Constructing, p)
+                    % only reachable from a timer that interrupted the creation of this view
+                    error('tim:gui:notReady', 'The %s view is being prepared - try again in a moment.', app.partLabel(p));
+                end
+                if isempty(how)
+                    w = 'demand'; if app.Busy, w = 'action'; end
+                else
+                    w = how;
+                end
+                prev = app.Building; app.Building = p;       % background steps wait meanwhile
+                restore = onCleanup(@() restoreBuilding(app, prev));
+                if strcmp(app.PartState.(p), 'none')
+                    if ~isempty(app.StartWin)            % visible window built before it appears
+                        k = find(strcmp(app.Parts, p), 1);
+                        app.startStep(sprintf('Building the %s view…', app.partLabel(p)), ...
+                            0.62 + 0.24 * (k - 1) / numel(app.Parts));
+                    end
+                    app.constructPart(p, w);
+                    if ~isvalid(app), return; end
+                end
+                % the first drawing needs the laid-out size of the new controls
+                % (3D labels, calibration bar, legends): wait for the layout (usually 1-2 s)
+                if ~strcmp(w, 'sync'), app.waitLayout(p); end
+                if ~isvalid(app), return; end
+                if ~strcmp(app.PartState.(p), 'ready'), app.refreshPart(p, w); end
+                clear restore
+            end
+        end
+    end
+
+    methods (Hidden)
+        function setBuildingFlag(app, p)
+            % (restoreBuilding: end of an on-demand preparation, also on an error)
+            app.Building = p;
+        end
+
+        function onBuildTick(app)
+            %ONBUILDTICK One background step of the progressive start-up (timer):
+            %   the controls of the next view, or (next tick, once laid out) its
+            %   first drawing. Returns at once - and retries at the next tick -
+            %   while an action runs (Busy), a session operation or a data stream
+            %   is active, a view is being prepared or the window closes: a step
+            %   takes 0.5-3 s and would stall the LAN-XI data stream.
+            if app.Closing || isempty(app.Fig) || ~isvalid(app.Fig)
+                app.stopBuild(); return
+            end
+            if app.Busy || ~isempty(app.Building) || app.sessionActive()
+                app.BuildSkips = app.BuildSkips + 1; return
+            end
+            q = app.BuildQueue;
+            q(cellfun(@(p) strcmp(app.PartState.(p), 'ready'), q)) = [];
+            app.BuildQueue = q;
+            if isempty(q)
+                app.finishBuild(); return
+            end
+            % the first drawing of a built view as soon as it is laid out; while a
+            % view waits for its layout, the controls of the next view
+            st = cellfun(@(p) app.PartState.(p), q, 'UniformOutput', false);
+            waiting = find(strcmp(st, 'built'));
+            k = waiting(arrayfun(@(i) app.layoutDone(q{i}), waiting));
+            if isempty(k), k = find(strcmp(st, 'none'), 1); end
+            if isempty(k), return; end                  % only layouts to wait for
+            p = q{k(1)};
+            try
+                if strcmp(app.PartState.(p), 'none')
+                    app.constructPart(p, 'background');
+                else
+                    app.refreshPart(p, 'background');
+                end
+            catch err
+                if ~isvalid(app), return; end
+                app.BuildQueue(strcmp(app.BuildQueue, p)) = [];
+                app.log('Preparing the %s view failed: %s', app.partLabel(p), err.message);
+                app.setPlaceholder(p, sprintf('This view could not be prepared: %s', err.message));
+            end
         end
     end
 
     methods (Access = private)
         %% ----------------------------------------------------------- layout
-        function build(app)
-            % normal window (not maximised) as large as the work area of the screen
-            % (the screen without the taskbar), so it fills the laptop screen and can
-            % still be moved and resized. Built hidden: the constructor shows it when
-            % it is complete.
+        function buildCore(app)
+            % first part of the start-up, before the window appears: menus, control
+            % panel, message pane, every major and sub tab and the start view
+            % Setup > Connection (the other views: constructPart). Normal window (not
+            % maximised) as large as the work area of the screen (the screen without
+            % the taskbar), so it fills the laptop screen and can still be moved and
+            % resized. Built hidden: the constructor shows it.
             P = tim.gui.palette();
             op = workArea();
             % Position is the inside of the window; a uifigure cannot set OuterPosition
@@ -561,7 +722,9 @@ classdef TubeApp < handle
             uilabel(mp, 'Text', 'Messages', 'FontWeight', 'bold', 'FontSize', 11, 'FontColor', P.ui.text);
             h.log = uitextarea(mp, 'Editable', 'off', 'FontName', 'Consolas', 'FontSize', 11);
 
-            app.startStep('Building the Setup views (connection, tube setup)…', 0.10);   % start window (start-up only)
+            app.startStep('Building the Connection view…', 0.40);   % start window (start-up only)
+            % ---------------- every major and sub tab (titles; the content of the
+            % views other than Connection: constructPart, after the window appears)
             % Setup > Connection | Tube setup
             t = uitab(tabs, 'Title', 'Setup'); h.setupTab = t;
             h.setupTabs = app.subTabs(t);
@@ -600,41 +763,81 @@ classdef TubeApp < handle
                 'Source', 'TEDS s/n', 'Level [dB SPL]', 'Signal check'}, 'RowName', {}, 'FontSize', 11, ...
                 'Data', cell(0, 8));
             h.tubeTab = uitab(h.setupTabs, 'Title', 'Tube setup');
-            pg = tim.gui.ViewPage(h.tubeTab, 'Tube setup', ['3D model of the tube as entered in IMPEDANCE TUBE ' ...
+            % Calibration: operator instruction, 3D diagram, step list, C_k curves
+            h.calTab = uitab(tabs, 'Title', 'Calibration');
+            % Measurement > Time signals | Spectrum | Transfer functions
+            % (titles and descriptions: tim.plots.viewText, shared with the saved figures)
+            h.measTab = uitab(tabs, 'Title', 'Measurement');
+            h.measTabs = app.subTabs(h.measTab);
+            h.waveTab = uitab(h.measTabs, 'Title', tim.plots.viewText('waveforms'));
+            h.specTab = uitab(h.measTabs, 'Title', tim.plots.viewText('spectrum'));
+            h.tfTab = uitab(h.measTabs, 'Title', tim.plots.viewText('transfer'));
+            % Results > Reflection and transmission | Transmission loss | Transfer impedance | Validity
+            h.resTab = uitab(tabs, 'Title', 'Results');
+            h.resTabs = app.subTabs(h.resTab);
+            h.reflTab = uitab(h.resTabs, 'Title', tim.plots.viewText('reflection'));
+            h.tlTab = uitab(h.resTabs, 'Title', tim.plots.viewText('transmissionLoss'));
+            h.ztTab = uitab(h.resTabs, 'Title', tim.plots.viewText('impedance'));
+            h.validTab = uitab(h.resTabs, 'Title', tim.plots.viewText('validity'));
+            % Formula: every equation used by the software
+            h.formulaTab = uitab(tabs, 'Title', 'Formula');
+            % a view is prepared when its tab is opened (major or sub tab)
+            for tgp = [tabs, h.setupTabs, h.measTabs, h.resTabs]
+                tgp.SelectionChangedFcn = @(~, ev) app.onTabChanged(ev);
+            end
+            h.cal3D = []; h.calPaths = gobjects(0); h.calHi = gobjects(0);
+            h.placeholder = struct();
+            app.H = h;
+            for p = app.Parts
+                app.PartState.(p{1}) = 'none';
+                if app.Deferred      % "Preparing the view…" until the view is built
+                    app.H.placeholder.(p{1}) = app.makePlaceholder(app.partTab(p{1}));
+                end
+            end
+        end
+
+        %% ------------------------------- views prepared after the window appears
+        function [h, page, probe] = constructTube(app, tab)
+            % Setup > Tube setup: 3D model of the tube as entered, geometry table
+            P = tim.gui.palette(); h = struct();
+            page = tim.gui.ViewPage(tab, 'Tube setup', ['3D model of the tube as entered in IMPEDANCE TUBE ' ...
                 '(distances between port centres and specimen faces); microphones coloured by the channel in the port.'], ...
                 'SummaryTitle', 'Geometry', 'ToolWidths', {72, 52, 92, 48, 14, 104, 96});
-            app.Pages.tube = pg;
             views = {'Default', 'default'; 'Side', 'side'; 'Perspective', 'perspective'; 'Top', 'top'};
             for i = 1:4
-                uibutton(pg.Tools, 'Text', views{i, 1}, 'ButtonPushedFcn', @(~, ~) app.tubeView(views{i, 2}), ...
+                uibutton(page.Tools, 'Text', views{i, 1}, 'ButtonPushedFcn', @(~, ~) app.tubeView(views{i, 2}), ...
                     'Tooltip', 'viewpoint (rotate / zoom freely with the toolbar of the drawing)');
             end
-            uilabel(pg.Tools, 'Text', '');
-            h.secChk = uicheckbox(pg.Tools, 'Text', 'Section view', 'Value', true, ...
+            uilabel(page.Tools, 'Text', '');
+            h.secChk = uicheckbox(page.Tools, 'Text', 'Section view', 'Value', true, ...
                 'Tooltip', 'remove the half towards the viewer: bore, specimen and microphone tips visible', ...
                 'ValueChangedFcn', @(~, ~) app.onTubeChanged());
-            h.dimChk = uicheckbox(pg.Tools, 'Text', 'Dimensions', 'Value', true, ...
+            h.dimChk = uicheckbox(page.Tools, 'Text', 'Dimensions', 'Value', true, ...
                 'ValueChangedFcn', @(~, ~) app.onTubeChanged());
-            tg = uigridlayout(pg.Body, [2 1], 'RowHeight', {'1x', 0}, 'RowSpacing', 2, 'Padding', [0 0 0 0], ...
+            if app.Busy                % locked like the other inputs (a 3D redraw would stall the stream)
+                h.secChk.Enable = 'off'; h.dimChk.Enable = 'off';
+            end
+            tg = uigridlayout(page.Body, [2 1], 'RowHeight', {'1x', 0}, 'RowSpacing', 2, 'Padding', [0 0 0 0], ...
                 'BackgroundColor', 'w');
             h.axTube3D = uiaxes(tg);
             axtoolbar(h.axTube3D, {'rotate', 'zoomin', 'zoomout', 'pan', 'restoreview'});
             h.tubeInfo = uilabel(tg, 'Text', '', 'FontSize', 11, 'FontColor', P.ui.muted, 'WordWrap', 'on', ...
                 'VerticalAlignment', 'top');
+            probe = h.axTube3D;        % 3D labels are placed for the laid-out axes width
+        end
 
-            app.startStep('Building the Calibration view…', 0.19);
-            % Calibration: operator instruction, 3D diagram, step list, C_k curves
-            t = uitab(tabs, 'Title', 'Calibration'); h.calTab = t;
-            pg = tim.gui.ViewPage(t, 'Calibration', ['Switching calibration of the microphone channels with ' ...
+        function [h, page, probe] = constructCal(~, tab)
+            % Calibration: operator bar, 3D diagram, step list, C_k curves
+            P = tim.gui.palette(); h = struct();
+            page = tim.gui.ViewPage(tab, 'Calibration', ['Switching calibration of the microphone channels with ' ...
                 'the empty specimen section (ISO 10534-2): every microphone keeps its cable; only the microphones move.'], ...
                 'SummaryTitle', 'Calibration', 'SummaryWidth', 450);
-            app.Pages.cal = pg;
             % body: operator bar (instruction; during a step also the buttons - no
             % modal dialog, nothing covers the model), the 3D model as large as
             % possible, the C_k curves side by side; the step list in the right column
             % fixed bar height (fits the longest step text): the model keeps its size
             % from step to step
-            tg = uigridlayout(pg.Body, [3 1], 'RowHeight', {116, '1x', 190}, ...
+            tg = uigridlayout(page.Body, [3 1], 'RowHeight', {116, '1x', 190}, ...
                 'RowSpacing', 6, 'Padding', [0 0 0 0], 'BackgroundColor', 'w');
             h.calTg = tg;
             pb = uigridlayout(tg, [4 2], 'ColumnWidth', {'1x', 0}, 'RowHeight', {'1x', 36, 30, '1x'}, ...
@@ -651,12 +854,12 @@ classdef TubeApp < handle
             h.calCancel.Layout.Row = 3; h.calCancel.Layout.Column = 2;
             h.axCalSetup = uiaxes(tg); h.axCalSetup.Layout.Row = 2;
             axtoolbar(h.axCalSetup, {'rotate', 'zoomin', 'zoomout', 'pan', 'restoreview'});
-            sg = pg.SummaryPanel;                    % right column: C_k table, note, step list
+            sg = page.SummaryPanel;                  % right column: C_k table, note, step list
             sg.RowHeight = {22, 104, 66, '1x'};
             pcal = uipanel(sg, 'Title', 'Operator steps and quality of every measurement', 'FontWeight', 'bold', ...
                 'BackgroundColor', 'w');
             pcal.Layout.Row = 4;
-            app.CalList = tim.gui.Checklist(pcal, {}, {}, ...
+            h.CalList = tim.gui.Checklist(pcal, {}, {}, ...
                 struct('RowHeight', 20, 'FontSize', 11, 'Stacked', true));
             gk = uipanel(tg, 'BorderType', 'none', 'BackgroundColor', 'w');
             gk.Layout.Row = 3;
@@ -666,57 +869,198 @@ classdef TubeApp < handle
                 axtoolbar(ax, {'export', 'zoomin', 'zoomout', 'pan', 'restoreview'});
                 h.axCal(i) = ax;
             end
+            probe = h.axCalSetup;      % bar height (fitCalBar) and 3D labels need the laid-out width
+        end
 
-            app.startStep('Building the Measurement views…', 0.26);
-            % Measurement > Time signals | Spectrum | Transfer functions
+        function [h, page, probe] = constructView(~, p, tab)
+            % a measurement / result view: header, stacked axes, summary
             % (titles and descriptions: tim.plots.viewText, shared with the saved figures)
-            t = uitab(tabs, 'Title', 'Measurement'); h.measTab = t;
-            h.measTabs = app.subTabs(t);
-            [vt, vd] = tim.plots.viewText('waveforms');
-            h.waveTab = uitab(h.measTabs, 'Title', vt);
-            app.Pages.wave = tim.gui.ViewPage(h.waveTab, vt, vd, 'Axes', 4);
-            h.axW = app.Pages.wave.Axes;
-            [vt, vd] = tim.plots.viewText('spectrum');
-            h.specTab = uitab(h.measTabs, 'Title', vt);
-            app.Pages.spec = tim.gui.ViewPage(h.specTab, vt, vd, 'Axes', 1);
-            h.axSpec = app.Pages.spec.Axes;
-            [vt, vd] = tim.plots.viewText('transfer');
-            h.tfTab = uitab(h.measTabs, 'Title', vt);
-            app.Pages.tf = tim.gui.ViewPage(h.tfTab, vt, vd, 'Axes', 3);
-            h.axH = app.Pages.tf.Axes;
+            spec = struct( ...
+                'wave', {{'waveforms', 'axW', {'Axes', 4}}}, ...
+                'spec', {{'spectrum', 'axSpec', {'Axes', 1}}}, ...
+                'tf', {{'transfer', 'axH', {'Axes', 3}}}, ...
+                'refl', {{'reflection', 'axR', {'Axes', 2, 'AxesHeights', {'2x', '1x'}, 'SummaryTitle', 'Octave bands'}}}, ...
+                'tl', {{'transmissionLoss', 'axTL', {'Axes', 1, 'SummaryTitle', 'Octave bands'}}}, ...
+                'zt', {{'impedance', 'axZ', {'Axes', 2, 'SummaryTitle', 'Octave bands'}}}, ...
+                'valid', {{'validity', 'axV', {'Axes', 1, 'SummaryTitle', 'Criteria', 'SummaryWidth', 470}}});
+            s = spec.(p);
+            [vt, vd] = tim.plots.viewText(s{1});
+            page = tim.gui.ViewPage(tab, vt, vd, s{3}{:});
+            h = struct(s{2}, page.Axes);
+            probe = [];                % drawing independent of the laid-out size ...
+            if strcmp(p, 'tf'), probe = page.Axes(1); end   % ... except the legend rows (results)
+        end
 
-            app.startStep('Building the Results views…', 0.36);
-            % Results > Reflection and transmission | Transmission loss | Transfer impedance | Validity
-            t = uitab(tabs, 'Title', 'Results'); h.resTab = t;
-            h.resTabs = app.subTabs(t);
-            [vt, vd] = tim.plots.viewText('reflection');
-            h.reflTab = uitab(h.resTabs, 'Title', vt);
-            app.Pages.refl = tim.gui.ViewPage(h.reflTab, vt, vd, 'Axes', 2, 'AxesHeights', {'2x', '1x'}, ...
-                'SummaryTitle', 'Octave bands');
-            h.axR = app.Pages.refl.Axes;
-            [vt, vd] = tim.plots.viewText('transmissionLoss');
-            h.tlTab = uitab(h.resTabs, 'Title', vt);
-            app.Pages.tl = tim.gui.ViewPage(h.tlTab, vt, vd, 'Axes', 1, 'SummaryTitle', 'Octave bands');
-            h.axTL = app.Pages.tl.Axes;
-            [vt, vd] = tim.plots.viewText('impedance');
-            h.ztTab = uitab(h.resTabs, 'Title', vt);
-            app.Pages.zt = tim.gui.ViewPage(h.ztTab, vt, vd, 'Axes', 2, 'SummaryTitle', 'Octave bands');
-            h.axZ = app.Pages.zt.Axes;
-            [vt, vd] = tim.plots.viewText('validity');
-            h.validTab = uitab(h.resTabs, 'Title', vt);
-            app.Pages.valid = tim.gui.ViewPage(h.validTab, vt, vd, 'Axes', 1, 'SummaryTitle', 'Criteria', ...
-                'SummaryWidth', 470);
-            h.axV = app.Pages.valid.Axes;
+        function l = makePlaceholder(~, tab)
+            % "Preparing the view…" in the tab of a view that is not built yet
+            % (deleted when the view is built)
+            g = uigridlayout(tab, [3 1], 'RowHeight', {'1x', 30, '2x'}, 'BackgroundColor', 'w');
+            l = uilabel(g, 'Text', 'Preparing the view…', 'FontSize', 13, 'HorizontalAlignment', 'center', ...
+                'FontColor', tim.gui.palette().ui.muted);
+            l.Layout.Row = 2;
+        end
 
-            app.startStep('Building the Formula tab…', 0.46);
-            % Formula: every equation used by the software
-            t = uitab(tabs, 'Title', 'Formula'); h.formulaTab = t;
-            tim.gui.equationsPanel(t);
+        function setPlaceholder(app, p, txt)
+            if isfield(app.H, 'placeholder') && isfield(app.H.placeholder, p) && isvalid(app.H.placeholder.(p))
+                app.H.placeholder.(p).Text = txt;
+            end
+        end
 
-            tabs.SelectionChangedFcn = @(~, ev) app.onTabChanged(ev);
-            h.cal3D = []; h.calPaths = gobjects(0); h.calHi = gobjects(0);
-            app.H = h;
-            app.setCalText([], '', '');      % the 3D model is drawn when the tab is opened or at the first step
+        function tab = partTab(app, p)
+            % tab that holds a view
+            names = struct('tube', 'tubeTab', 'cal', 'calTab', 'wave', 'waveTab', 'spec', 'specTab', ...
+                'tf', 'tfTab', 'refl', 'reflTab', 'tl', 'tlTab', 'zt', 'ztTab', 'valid', 'validTab', ...
+                'formula', 'formulaTab');
+            tab = app.H.(names.(p));
+        end
+
+        function p = tabPart(app, tab)
+            % view shown by a (major or sub) tab; '' = Setup > Connection
+            h = app.H; p = '';
+            if tab == h.setupTab, tab = h.setupTabs.SelectedTab;
+            elseif tab == h.measTab, tab = h.measTabs.SelectedTab;
+            elseif tab == h.resTab, tab = h.resTabs.SelectedTab;
+            end
+            for i = 1:numel(app.Parts)
+                if tab == app.partTab(app.Parts{i}), p = app.Parts{i}; return; end
+            end
+        end
+
+        function t = partLabel(app, p)
+            t = app.partTab(p).Title;
+        end
+
+        function constructPart(app, p, how)
+            % create the controls of a view: one background step without drawnow
+            % (no other callback can run in between). Never half-built: on an error
+            % everything created is deleted again and the view stays 'none'.
+            tab = app.partTab(p);
+            keep = tab.Children;                       % placeholder ("Preparing the view…")
+            prevC = app.Constructing; prevB = app.Building;
+            app.Constructing = p; app.Building = p;
+            t0 = toc(app.T0); tt = tic; busy = app.Busy; bw = app.BusyWhat;
+            try
+                switch p
+                    case 'tube', [h, page, probe] = app.constructTube(tab);
+                    case 'cal', [h, page, probe] = app.constructCal(tab);
+                    case 'formula'
+                        tim.gui.equationsPanel(tab); h = struct(); page = []; probe = [];
+                    otherwise, [h, page, probe] = app.constructView(p, tab);
+                end
+            catch err
+                if isvalid(app)
+                    app.Constructing = prevC; app.Building = prevB;
+                    if isvalid(tab)
+                        made = tab.Children(~ismember(tab.Children, keep));
+                        delete(made);
+                    end
+                end
+                rethrow(err);
+            end
+            % commit in one go, after everything exists
+            if isfield(h, 'CalList'), app.CalList = h.CalList; h = rmfield(h, 'CalList'); end
+            for f = fieldnames(h).'
+                app.H.(f{1}) = h.(f{1});
+            end
+            if ~isempty(page), app.Pages.(p) = page; end
+            pos = []; if ~isempty(probe), pos = getpixelposition(probe); end
+            app.Probe.(p) = struct('obj', probe, 'pos', pos, 't', tic);
+            if isfield(app.H.placeholder, p)
+                if isvalid(app.H.placeholder.(p)), delete(app.H.placeholder.(p).Parent); end
+                app.H.placeholder = rmfield(app.H.placeholder, p);
+            end
+            app.PartState.(p) = 'built';
+            if strcmp(p, 'cal'), app.setCalText([], '', ''); end   % 3D model: when the tab is opened / first step
+            app.Constructing = prevC; app.Building = prevB;
+            app.logBuild(p, 'construct', how, t0, toc(tt), busy, bw);
+        end
+
+        function refreshPart(app, p, how)
+            % first drawing of a view with the data of now (measurement, results,
+            % calibration, IMPEDANCE TUBE fields); a failed drawing is reported in
+            % the messages and the view stays usable
+            prevB = app.Building; app.Building = p;
+            t0 = toc(app.T0); tt = tic; busy = app.Busy; bw = app.BusyWhat;
+            try
+                switch p
+                    case 'tube'
+                        app.refreshTube();
+                    case 'cal'
+                        app.refreshViews({'cal'});     % C_k of the active calibration
+                        app.buildCalSteps();
+                        app.fitCalBar();               % bar height from the laid-out width of the model
+                    case 'formula'
+                    otherwise
+                        app.refreshViews({p});
+                end
+            catch err
+                if ~isvalid(app), return; end
+                app.log('Display of the %s view failed: %s', app.partLabel(p), err.message);
+            end
+            if ~isvalid(app), return; end
+            app.Building = prevB;
+            app.PartState.(p) = 'ready';
+            app.logBuild(p, 'refresh', how, t0, toc(tt), busy, bw);
+        end
+
+        function logBuild(app, p, stage, how, t0, dt, busy, bw)
+            app.BuildLog(end + 1) = struct('part', p, 'stage', stage, 'how', how, 'start', t0, 'time', dt, ...
+                'busy', busy, 'busyWhat', bw);
+        end
+
+        function tf = layoutDone(app, p)
+            % the first drawing of a built view can be made: its controls have their
+            % laid-out size (it arrives from the window 0.3-2 s after they were
+            % created; hidden window under load: 4 s seen), or the drawing does not
+            % depend on it, or 10 s have passed. Size-dependent: 3D labels (Tube
+            % setup, Calibration), the calibration bar height (fitCalBar) and the
+            % legend rows of the transfer functions.
+            if ~isfield(app.Probe, p), tf = true; return; end
+            pr = app.Probe.(p);
+            tf = isempty(pr.obj) || ~isvalid(pr.obj) || (strcmp(p, 'tf') && isempty(app.LastRes)) || ...
+                toc(pr.t) > 10 || ~isequal(getpixelposition(pr.obj), pr.pos);
+        end
+
+        function waitLayout(app, p)
+            % wait for the layout of a view built on demand (at most 10 s; the
+            % window stays usable meanwhile)
+            while isvalid(app) && ~app.layoutDone(p)
+                pause(0.02);
+            end
+        end
+
+        function startBuild(app, delay)
+            % background preparation of the views not built yet (progressive
+            % start-up): one step per tick; the window stays usable in between
+            app.BuildQueue = app.Parts(~cellfun(@(p) strcmp(app.PartState.(p), 'ready'), app.Parts));
+            if isempty(app.BuildQueue), app.finishBuild(); return; end
+            app.log('Preparing the views in the background… A view opened before it is ready is prepared at once.');
+            app.BuildTimer = timer('Name', 'tubebench-build', 'ExecutionMode', 'fixedSpacing', 'Period', 0.1, ...
+                'BusyMode', 'drop', 'StartDelay', delay, 'TimerFcn', @(t, ~) buildTimerFcn(t, app));
+            start(app.BuildTimer);
+        end
+
+        function stopBuild(app)
+            t = app.BuildTimer; app.BuildTimer = [];
+            if ~isempty(t) && isvalid(t)
+                try, stop(t); delete(t); catch, end
+            end
+        end
+
+        function finishBuild(app)
+            app.stopBuild();
+            if isnan(app.ReadyTime)
+                app.ReadyTime = toc(app.T0);
+                app.log('All views ready (%.0f s after the start).', app.ReadyTime);
+            end
+        end
+
+        function tf = sessionActive(app)
+            % a session operation (e.g. a calibration from a script) or a LAN-XI
+            % data stream is running
+            s = app.Session; tf = false;
+            if isempty(s) || ~isvalid(s), return; end
+            tf = s.InOperation || (~isempty(s.Daq) && isvalid(s.Daq) && ~isempty(s.Daq.Stream));
         end
 
         function startStep(app, txt, value)
@@ -775,7 +1119,6 @@ classdef TubeApp < handle
             else
                 h.exMode.Value = 'sweep';     % 'noise' is script-only
             end
-            app.startStep('Drawing the 3D tube model…', 0.53);   % start window (start-up only)
             app.tubeToUi(c.geometry, c.environment);     % tube geometry [mm] and air
             ls = struct('impedance_ohm', 8, 'maxPower_W', 1);
             if isfield(c, 'loudspeaker'), ls = c.loudspeaker; end
@@ -945,20 +1288,30 @@ classdef TubeApp < handle
                 if ~isempty(msgs), txt = [txt '  CHECK: ' strjoin(msgs, '; ')]; end
                 app.H.fLimits.Text = txt;
                 if isempty(msgs), app.H.fLimits.FontColor = P.ui.muted; else, app.H.fLimits.FontColor = P.fail; end
-                if known
-                    app.Pages.tube.setNote('');
-                else
-                    app.Pages.tube.setNote(['Schematic: L1, d and L2 are not entered, so the specimen results ' ...
-                        '(R, τ, Z_t, TL) are disabled.'], 'warn');
-                end
-                app.H.tubeInfo.Text = '';
-                app.Pages.tube.setSummary(app.geometrySummary(geom, air, lim, known));
-                tim.gui.drawTube3D(app.H.axTube3D, geom, app.drawingDims(), app.homeMapping(), ...
-                    struct('section', app.H.secChk.Value, 'dimensions', app.H.dimChk.Value));
+                % Tube setup view (not built yet: its first drawing uses the fields of then)
+                if app.isBuilt('tube'), app.refreshTube(); end
             catch err
                 app.H.fLimits.Text = ['CHECK: ' err.message]; app.H.fLimits.FontColor = P.fail;
             end
             app.refreshCalLabel();
+        end
+
+        function refreshTube(app)
+            % Tube setup view: note, geometry table and 3D model from the IMPEDANCE TUBE fields
+            [geom, env] = app.readTube();
+            air = tim.acoustics.airProperties(env);
+            lim = tim.acoustics.frequencyLimits(geom.diameter, [geom.spacingUp geom.spacingDown], air);
+            known = all(isfinite(geom.micPositions)) && isfinite(geom.xFront) && isfinite(geom.xRear);
+            if known
+                app.Pages.tube.setNote('');
+            else
+                app.Pages.tube.setNote(['Schematic: L1, d and L2 are not entered, so the specimen results ' ...
+                    '(R, τ, Z_t, TL) are disabled.'], 'warn');
+            end
+            app.H.tubeInfo.Text = '';
+            app.Pages.tube.setSummary(app.geometrySummary(geom, air, lim, known));
+            tim.gui.drawTube3D(app.H.axTube3D, geom, app.drawingDims(), app.homeMapping(), ...
+                struct('section', app.H.secChk.Value, 'dimensions', app.H.dimChk.Value));
         end
 
         function s = geometrySummary(app, g, air, lim, known)
@@ -988,6 +1341,7 @@ classdef TubeApp < handle
         end
 
         function tubeView(app, name)
+            app.ensureBuilt('tube');
             tim.gui.drawTube3D(app.H.axTube3D, 'view', name);
         end
 
@@ -1133,6 +1487,13 @@ classdef TubeApp < handle
             if nargin < 3, busyWhat = ''; end
             if app.Busy || app.Closing
                 return      % an action is already running / the window closes (no re-entrance)
+            end
+            if ~isempty(app.Constructing)
+                % (only from a timer that interrupted the creation of a view: never
+                % start an action on half-created controls)
+                app.log('The %s view is being prepared - %s not started; try again in a moment.', ...
+                    app.partLabel(app.Constructing), busyWhat);
+                return
             end
             app.PendingStop = false;
             if ~isempty(busyWhat)
@@ -1293,8 +1654,10 @@ classdef TubeApp < handle
             % every field / selector of the control panel and the drawing options
             h = app.H;
             c = {h.mode, h.exMode, h.fStart, h.fStop, h.dur, h.amp, h.reps, h.ampModel, h.ampGain, h.spkZ, h.spkP, ...
-                h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen, ...
-                h.secChk, h.dimChk};   % 3D redraw (~1 s) would stall the data stream
+                h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen};
+            if app.isBuilt('tube')
+                c = [c, {h.secChk, h.dimChk}];   % 3D redraw (~1 s) would stall the data stream
+            end
         end
 
         function updateEnable(app)
@@ -1325,7 +1688,9 @@ classdef TubeApp < handle
             % 0.5 s (about 5 refreshes per second) and processing of STOP.
             persistent lastT
             if isempty(lastT), lastT = tic; end
-            if toc(lastT) < 0.2, drawnow('limitrate'); return; end
+            % (the actions prepare the Time signals view before the data stream starts;
+            % it is never built here, inside the stream)
+            if toc(lastT) < 0.2 || ~app.isBuilt('wave'), drawnow('limitrate'); return; end
             lastT = tic;
             try
                 daq = app.Session.Daq;
@@ -1363,6 +1728,7 @@ classdef TubeApp < handle
         function prepareLive(app)
             % time-signal view in its live state: labels and units of the
             % connected microphones; liveUpdate then only sets the line data
+            app.ensureBuilt('wave');
             o = app.plotOpts(); o.mics = app.Session.Mics;
             o.emptyText = 'Waiting for data ...';
             info = tim.plots.timeSignals(app.H.axW, [], o);
@@ -1696,7 +2062,8 @@ classdef TubeApp < handle
             app.syncSession();
             app.log('Start: %s measurement of "%s" (started by the operator).', ...
                 app.signalName(app.Cfg.excitation.mode), app.specimenName());
-            app.showTab(app.H.waveTab);                   % live view
+            app.ensureBuilt('wave');                     % live view: prepared BEFORE the data stream
+            app.showTab(app.H.waveTab);
             app.prepareLive();
             m = app.Session.measure(app.Cfg.excitation.mode);
             app.LastMeas = m; app.LastRes = []; app.Saved = false; app.SavedDir = ''; app.Opened = false;
@@ -1742,6 +2109,7 @@ classdef TubeApp < handle
             app.run(@() app.doBackground(), 'background recording');
         end
         function doBackground(app)
+            app.ensureBuilt({'wave', 'spec'});          % live view + result view, BEFORE the data stream
             app.showTab(app.H.waveTab);
             app.prepareLive();
             m = app.Session.measureBackground(2);
@@ -1840,7 +2208,9 @@ classdef TubeApp < handle
 
         function buildCalSteps(app)
             % operator steps of the calibration (same order as tim.app.runCalibration):
-            % shown as "pending" before the calibration starts
+            % shown as "pending" before the calibration starts (Calibration view not
+            % built yet: its first drawing calls this)
+            if ~app.isBuilt('cal'), return; end
             c = app.Cfg;
             if ~isempty(app.Session), c = app.Session.Cfg; end   % what runCalibration will use
             ref = c.analysis.refChannel; ab = c.calibration.positions;
@@ -1872,6 +2242,9 @@ classdef TubeApp < handle
         end
 
         function doRunCal(app)
+            % Calibration view (bar, 3D model, step list) and the live time signals
+            % BEFORE the first step / data stream (the model is drawn at the first step)
+            app.ensureBuilt({'cal', 'wave'});
             app.readCfgFromUi();
             app.requireGain();
             app.syncSession();
@@ -1911,6 +2284,7 @@ classdef TubeApp < handle
             % the microphones moving to their new ports, the calibration ports
             % pulse, then (hardware) the operator confirms or (simulation) the
             % virtual microphones are moved.
+            app.ensureBuilt('cal');                % (prepared by doRunCal before the first step)
             app.CalStep = app.CalStep + 1;
             key = app.CalKeys{min(app.CalStep, end)};
             stepText = tim.app.msg(app.Cfg.ui.language, 'calStepHeader', app.CalStep, app.CalSteps);
@@ -1951,6 +2325,7 @@ classdef TubeApp < handle
 
         function calReport(app, q)
             % quality of the measurement just made (tim.app.runCalibration opts.report)
+            app.ensureBuilt('cal');
             key = app.CalKeys{min(app.CalStep, end)};
             switch q.kind
                 case 'measurement'
@@ -2000,6 +2375,7 @@ classdef TubeApp < handle
         end
 
         function setCalText(app, mapping, msg, stepText)
+            if ~app.isBuilt('cal'), return; end   % (set when the Calibration view is built)
             ab = app.Cfg.calibration.positions;
             % (HTML label: step in bold, the explanation of the drawing small and grey)
             note = @(s) ['<br><span style="color:#5f6368;font-size:11px">' htmlText(s) '</span>'];
@@ -2050,14 +2426,39 @@ classdef TubeApp < handle
         end
 
         function onTabChanged(app, ev)
-            % the calibration model is drawn the first time the view is opened
-            if ev.NewValue == app.H.calTab && app.CalDirty && ~app.Busy
+            % (major or sub tab) a view opened before it is ready is prepared now -
+            % but never during a running action (1-3 s would stall the data
+            % stream): then it is prepared first when the action has finished.
+            % The calibration model is drawn the first time the view is opened.
+            p = app.tabPart(ev.NewValue);
+            if ~isempty(p) && ~strcmp(app.PartState.(p), 'ready')
+                if app.Busy || app.sessionActive() || ~isempty(app.Building)
+                    if isempty(app.BuildTimer), app.startBuild(0.1); end
+                    app.BuildQueue = [{p}, app.BuildQueue(~strcmp(app.BuildQueue, p))];   % next
+                    if app.Busy || app.sessionActive()
+                        app.setPlaceholder(p, 'This view is prepared when the running action has finished.');
+                    end
+                    return
+                end
+                try
+                    app.ensureBuilt(p, 'tab');
+                catch err
+                    if ~isvalid(app), return; end
+                    app.log('Preparing the %s view failed: %s', app.partLabel(p), err.message);
+                    return
+                end
+                if ~isvalid(app), return; end           % window closed meanwhile
+            end
+            if ev.NewValue == app.H.calTab && app.isBuilt('cal') && app.CalDirty && ~app.Busy
                 app.drawCalSetup([], '', '');
             end
         end
 
         function showTab(app, tab)
-            % select a view: its sub tab and the major tab that holds it
+            % select a view: its sub tab and the major tab that holds it (the view is
+            % prepared first if needed - the actions prepare theirs before they start)
+            p = app.tabPart(tab);
+            if ~isempty(p), app.ensureBuilt(p); end
             tg = tab.Parent; tg.SelectedTab = tab;
             p = tg.Parent;
             while ~isempty(p) && ~isa(p, 'matlab.ui.container.Tab') && ~isa(p, 'matlab.ui.Figure')
@@ -2250,9 +2651,14 @@ classdef TubeApp < handle
             end
         end
 
-        function refreshViews(app)
+        function refreshViews(app, pages)
             % every measurement / result view from LastMeas / LastRes (empty states
-            % show labels, units and default limits)
+            % show labels, units and default limits) and the calibration curves.
+            % pages: some of them ('cal' = calibration curves). Views not built
+            % yet are skipped - never built here: their first drawing shows the
+            % data of then (progressive start-up).
+            if nargin < 2, pages = {'wave', 'spec', 'tf', 'refl', 'tl', 'zt', 'valid', 'cal'}; end
+            pages = pages(cellfun(@(p) app.isBuilt(p), pages));
             m = app.LastMeas; r = app.LastRes;
             o = app.plotOpts(m);
             if isempty(m)
@@ -2262,10 +2668,10 @@ classdef TubeApp < handle
             elseif isempty(r)
                 o.emptyText = 'Not processed';
             end
-            pages = {'wave', 'spec', 'tf', 'refl', 'tl', 'zt', 'valid'};
-            for i = 1:numel(pages)
+            views = setdiff(pages, {'cal'}, 'stable');
+            for i = 1:numel(views)
                 try
-                    switch pages{i}
+                    switch views{i}
                         case 'wave'
                             ow = o; ow.gate = tim.plots.analysisGate(r);     % grey: not analysed (generator on/off)
                             info = tim.plots.timeSignals(app.H.axW, m, ow);
@@ -2278,12 +2684,13 @@ classdef TubeApp < handle
                         case 'valid', info = tim.plots.validity(app.H.axV, r, o);
                     end
                     % notes of the measurement views are information, of the result views warnings
-                    if ~isfield(info, 'status') && any(strcmp(pages{i}, {'wave', 'spec', 'tf'})), info.status = 'info'; end
-                    app.Pages.(pages{i}).show(info);
+                    if ~isfield(info, 'status') && any(strcmp(views{i}, {'wave', 'spec', 'tf'})), info.status = 'info'; end
+                    app.Pages.(views{i}).show(info);
                 catch err
-                    app.log('Display of the %s view failed: %s', pages{i}, err.message);
+                    app.log('Display of the %s view failed: %s', views{i}, err.message);
                 end
             end
+            if ~any(strcmp(pages, 'cal')), return; end
             if isempty(app.Session) || isempty(app.Session.Calibration)
                 [cal, ~] = app.currentCalibration();
             else
@@ -2562,6 +2969,24 @@ end
 function endOp(s)
 % end of an operation on a session that may have been closed / deleted meanwhile
 if ~isempty(s) && isvalid(s), s.endOperation(); end
+end
+
+function buildTimerFcn(t, app)
+% TimerFcn of the progressive start-up; the app may be gone (window closed)
+if ~isvalid(app)
+    try, stop(t); delete(t); catch, end
+    return
+end
+try
+    app.onBuildTick();
+catch err
+    warning('tim:gui:build', 'Preparing the views in the background: %s', err.message);
+end
+end
+
+function restoreBuilding(app, prev)
+% end of an on-demand preparation of a view (also on an error / closed window)
+if isvalid(app), app.setBuildingFlag(prev); end
 end
 
 function [x, y] = calPath(s, xa, xb, y0, yl)

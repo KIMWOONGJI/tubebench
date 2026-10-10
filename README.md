@@ -46,12 +46,14 @@ or configuration.
 
 ## Status (2026-10-10)
 
-* **Software**: complete. 196 automated tests in 16 test classes (simulation and recorded hardware
+* **Software**: complete. 200 automated tests in 16 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
   Results, Formula) and a message pane. Every view has a header, the graphs and a summary table;
-  the saved figures are drawn by the same views, with the same titles and descriptions.
+  the saved figures are drawn by the same views, with the same titles and descriptions. The
+  window appears after the control panel and Setup > Connection are built (about 16 s after the
+  double-click); the other views are prepared in the background, never during an action.
 * **Analysis**: tube losses by default with the visco-thermal (Kirchhoff) model, the ISO 10534-2
   attenuation as an option; air density from the ideal-gas law; R and its validity from the
   upstream microphone pair alone. See `docs/theory.md`.
