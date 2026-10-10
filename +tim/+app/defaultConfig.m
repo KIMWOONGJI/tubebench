@@ -29,6 +29,7 @@ gen = tim.instr.driverInfo('keysight33220a');
 cfg.generator = struct('driver', gen.name, ...
     'maxVpp', 0.5, ...                  % SAFETY LIMIT for amplifier/loudspeaker [Vpp, programmed]
     'load', 'INF', ...                  % 'INF' (high-Z amplifier input, direct drive) | '50' (50-ohm amplifier input)
+    'allowUnconfirmedOff', false, ...   % true: accept a generator that cannot report its output state (hardware)
     gen.name, gen.defaults.settings);
 % Power amplifier between 33220A and loudspeaker. Its gain is set BY HAND
 % on the amplifier (not remote controlled); record it here (or in the GUI /

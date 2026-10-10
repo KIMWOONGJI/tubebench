@@ -244,10 +244,16 @@ including the empty-tube sweep). `cal.convention` documents `C_k = g_k/g_ref` an
 operating mode, the software version and commit, the empty-tube check (`emptyCheck`) and the
 set-up (`tube`: specimen section "empty", its length, the geometry and the environment).
 
+The calibration also records the acquisition chain (`acquisition`: driver, module model, serial
+number and firmware, sample rate, range, filter, CCLD), because the calibration factors are ratios
+of chain gains that include the DAQ inputs.
+
 `tim.app.processMeasurement` compares this set-up with every measurement
 (`res.calibration.context`): port distances, temperature (more than 3 K → recalibrate), simulation
-vs hardware and the Test E result. Differences are logged as warnings ("CALIBRATION: …") and shown
-as "– check" in the CALIBRATION line of the window; nothing is invalidated.
+vs hardware, the Test E result and the acquisition chain recorded with the measurement (another
+module or other input settings → recalibrate; a calibration made before version 1.2.0 has no
+record of it and is not checked for it). Differences are logged as warnings ("CALIBRATION: …")
+and shown as "– check" in the CALIBRATION line of the window; nothing is invalidated.
 
 ### Acceptance criteria (suggested; enter your own in the lab book)
 

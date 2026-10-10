@@ -25,6 +25,10 @@ assert(any(strcmp(cfg.mode, {'simulation', 'hardware'})), 'tim:config:mode', ...
     'Operating mode (mode) must be "simulation" or "hardware".');
 assert(isscalar(cfg.generator.maxVpp) && cfg.generator.maxVpp > 0, 'tim:config:maxVpp', ...
     'Generator amplitude limit (generator.maxVpp) must be greater than 0.');
+if isfield(cfg.generator, 'allowUnconfirmedOff')
+    assert(isscalar(cfg.generator.allowUnconfirmedOff) && islogical(cfg.generator.allowUnconfirmedOff), ...
+        'tim:config:allowUnconfirmedOff', 'generator.allowUnconfirmedOff must be true or false.');
+end
 lim = cfg.generator.maxVpp;
 exName = {'sweep', 'swept sine'; 'stepped', 'stepped sine'; 'noise', 'random noise'};
 for i = 1:size(exName, 1)

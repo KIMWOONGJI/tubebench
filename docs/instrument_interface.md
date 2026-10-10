@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Work order | WO-001 Part 1 (`docs/workorder_instrument_interface.md`; its §0 decides over older text) |
-| Status | **design, 2026-10-11** (stage 1), **revised after the design review** (stage 2: 24 issues, resolutions in section 13.2). **Stage A implemented** on `wo-001` (contract classes, both drivers, registry, `tests/TestInstrumentContract.m`); the session, the window and the configuration still use the implicit interface of Appendix A until stages B and C. |
+| Status | **design, 2026-10-11** (stage 1), **revised after the design review** (stage 2: 24 issues, resolutions in section 13.2). **Stages A and B implemented** on `wo-001` (contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`); the window still names the 33220A and the LAN-XI in texts, labels and tooltips until stage C (its checklist, lamps, output read-back and live view already follow the drivers, section 14). |
 | Applies to | `tim.app.MeasurementSession`, `tim.gui.Tubebench`, `+tim/+app`, `+tim/+cal`, `+tim/+val`, the drivers in `+tim/+instr` and `+tim/+sim` |
 
 This document is the contract between the measurement program and an instrument driver. A
@@ -281,7 +281,9 @@ because the LAN-XI `info.unit` already is a per-signal cell stored in saved meas
 
 The static values describe what the driver supports; a driver may still refuse a value the
 connected device reports as unsupported (LAN-XI: `tim:lanxi:rate` from `module/info`). The
-simcombined values are design values, confirmed when it is written (stage B).
+simcombined values are those of `tim.sim.SimulatedCombined` (stage B, as designed); its settings
+(`daq.simcombined`) are `blockSamples` (2048), `serial` and `seed` (noise output), its lamp labels
+"Output" and "Inputs".
 
 ## 6. Connection steps (checklist of Setup > Connection)
 
@@ -323,20 +325,25 @@ Rules:
   `roles` naming both. Readers of the new fields (`md.*.identity`, `md.*.driver`,
   `integrity.channelFaults`) guard with `isfield`: measurements saved before 1.2.0 lack them.
 * The switching calibration records the acquisition chain: `cal.meta.acquisition` = driver,
-  display name, identity (model, serial, firmware), sample rate, range, filter, CCLD.
+  display name, identity (model, serial, firmware), sample rate, range, filter, CCLD
+  (`tim.cal.acquisitionChain`, from `session.acquisitionChain()`; flat text fields `model`,
+  `serial`, `firmware`).
 * `tim.cal.calibrationContext(cal, cfg, meas)` warns when a measurement uses another driver or
   module (model / serial) or other input settings (range, filter, CCLD, sample rate): `C_k` is a
   ratio of chain gains that include the DAQ input. The third input is optional (`TestCalibration`
-  and the window's calibration label call it with two): a measurement, of which
-  `meas.metadata.daq` gives the module and `meas.metadata.acquisition` and `meas.fs` give the
-  input settings (not the window's current `cfg`, which for an opened folder holds today's
-  settings). Without it the session's current set-up is compared. Unknown means no warning, in
-  both directions: a calibration without `meta.acquisition` (made before 1.2.0; the existing test
-  `calibrationContextChecks` expects none) and measurement metadata without a `driver` field
-  (every folder saved before 1.2.0 has `md.daq.model`, a numeric `serial`, `firmware`, `host`,
-  `connector`, but no `driver` or `identity`). Identities are compared as text (`num2str` for
-  numeric serials). Tested with a measurement saved by the e8fb4fb code in a temporary worktree,
-  never with files from `data/`.
+  calls it with two): a measurement, of which `meas.metadata.daq` gives the module and
+  `meas.metadata.acquisition` and `meas.fs` give the input settings (not the window's current
+  `cfg`, which for an opened folder holds today's settings), or a chain struct (the window's
+  calibration label passes the connected module, `session.acquisitionChain()`). Without it the
+  configured driver and input settings are compared (module unknown). Unknown means no warning,
+  item by item, in both directions: a calibration without `meta.acquisition` (made before 1.2.0;
+  the existing test `calibrationContextChecks` expects none) gives no DAQ warning at all, and
+  measurement metadata without a `driver` field (every folder saved before 1.2.0 has
+  `md.daq.model`, a numeric `serial`, `firmware`, `host`, `connector`, but no `driver` or
+  `identity`) is not compared by driver - its model and serial number are. Identities are compared
+  as text (`num2str` for numeric serials). Tested with a measurement and a calibration saved by the
+  e8fb4fb code in a temporary worktree (`tests/fixtures/saved_e8fb4fb`), never with files from
+  `data/`.
 
 ## 8. Timing, callbacks and the shared clock
 
@@ -439,9 +446,12 @@ toolboxes are therefore needed only by the driver that uses them; the base requi
 MATLAB + Signal Processing Toolbox. A driver file must not call product functions outside
 `fromConfig` and its instance methods (class loading must work without the product).
 
-Until the configuration has `formatVersion` 2 (stage B), the registry reads the driver settings
-from the legacy keys (`generator.host` / `port` / `timeout`, the top-level `lanxi` section) and
-takes the default driver of a role when `driver` is missing (D38).
+The registry reads every configuration through `tim.app.migrateConfig` (section 9.3), so a
+configuration with the legacy keys (`generator.host` / `port` / `timeout`, the top-level `lanxi`
+section, no `driver`) still connects (stage A read the legacy keys itself, D38). Checks 4-7 run
+for the drivers of both roles before the first instrument is opened.
+`tim.instr.drivers('add', entry)` / `('remove', name)` register a driver for the running MATLAB
+session only (tests; trying a driver before its line is added).
 
 ### 9.2 Configuration layout (`formatVersion` 2)
 
@@ -511,6 +521,9 @@ and by `validateConfig` for configurations built in code (old scripts set `cfg.l
    not silently get the new driver's default address.
 3. A missing `driver` key → the default driver of the role (`keysight33220a`, `lanxi`).
 4. Both layouts in one file → the new keys win; `tim:config:legacyField` names the ignored old keys.
+   A configuration built in code starts from `defaultConfig`, which already holds the new keys with
+   the driver defaults: there a new key that still holds its driver default yields to the old key
+   the script set (otherwise the new key wins, with the warning).
 5. The result has `formatVersion` 2; `saveConfig` writes the new layout.
 
 `config/user_config.json` (formatVersion 1) is **not rewritten**: it loads with the same effective
@@ -537,10 +550,12 @@ The rig couples a source to the microphones in one of two ways:
   `simcombined` does too. `generate(n)` becomes `respond(sourceSignal(n))` internally, so the
   33220A path, its random-number order and its bus traffic stay unchanged.
 
-The rig keeps an `OutputLog` (sample index, on / off, peak volts) filled by both paths, so the
-contract tests can check generically what was really played (section 11.3). A new real driver
-brings its own protocol mock (WO-001 Part 2) and runs in simulation mode like the two existing
-ones.
+The rig keeps an `OutputLog` filled by both paths, one row per output block
+`[firstSample nSamples peak_V last_V]` (sample index on the rig's timeline; `respond(zeros(0, 1))`
+adds a row `[n 0 0 0]`: the output was set to 0 V), so the contract tests can check generically
+what was really played (section 11.3); `markTrigger(n)` records a sweep start of a shared-clock
+source in `TriggerLog`. A new real driver brings its own protocol mock (WO-001 Part 2) and runs in
+simulation mode like the two existing ones.
 
 ## 11. Safety duties (checked by `tests/TestInstrumentContract.m`)
 
@@ -762,7 +777,36 @@ until stage B switches the session to the registry.
    The session, the window and the configuration are not touched in stage A.
 
 **Stage B - configuration, session, metadata, calibration, contract-level simulation (WO tasks
-3, 4, 6, 7).**
+3, 4, 6, 7).** Done on `wo-001` (stage 4 of the work order), with these differences from the plan:
+
+* Step 1: the output guard is in place; `AbortFcn = @() Gen.outputOff()` is **not** set by the
+  session yet - it still awaits the owner's approval (D24), and the fault fixture keeps today's
+  order after a stalled stream.
+* Step 3: closing the session uses the contract `close()` of each instrument, so closing the
+  window inside a sweep ends the measurement with `tim:instr:closed` as planned in Appendix B. The
+  fault fixture was edited by hand in that one scenario (the outcome line, and the status request
+  the old code sent after the error to the module that was already Idle); every SCPI command and
+  the REST return-to-Idle sequence are unchanged. The normal-path fixture is unchanged.
+* `tim.instr.create` checks 4-7 for both roles before the first instrument is opened.
+* The window parts the combined device needs (checklist and lamps from `connectionSteps`, step
+  `role`, channel cards without TEDS, `isAcquiring`, `recent`, `isOutputOn(1)` worded by the
+  read-back kind) moved from stage C to here; its texts, lamp labels and tooltips stay for stage C.
+* `examples/hardware_commissioning.m` still reads `s.Gen.Identity` and `s.Daq.Info` (members of the
+  two lab drivers; it runs only on them): moved to stage C with its texts.
+* Configurations built in code: a new key that still holds the driver default yields to an old
+  key set by the script (section 9.3, rule 4), so old scripts keep working on `defaultConfig`.
+* `tim.cal.calibrationContext`: for measurement metadata without a `driver` (before 1.2.0) the
+  driver is not compared, the module model and serial number are (as text), as are the input
+  settings; a calibration without `meta.acquisition` gives no DAQ warning at all.
+* `generator.allowUnconfirmedOff` is in `defaultConfig` (false) and checked by `validateConfig`.
+
+Verified at the end of stage B (simulation only): full suite 267 / 267; the normal-path bus
+fixture unchanged; `config/user_config.json`, `example_config.json`, `sim_thin_screen.json` and
+`e8fb4fb:config/user_config.json` load to the same effective settings as with the e8fb4fb code
+(compared in a temporary worktree; the new layout only adds the driver keys and
+`allowUnconfirmedOff`); the six saved measurement folders under `data/` open and reprocess in a
+hidden window without an error and stay unchanged, and the lab calibration files give no DAQ
+warning against them.
 
 1. Session safety first: `tim.app.outputGuard` in `guardedAcquire` with a unit test (destroying
    the guard before it is dismissed switches the mock output off and disarms it); after the
@@ -915,8 +959,10 @@ differing character.
   sweep; operator Stop in the middle of a sweep; the operator cancels the excitation
   confirmation; the loudspeaker power limit refuses the drive; the window is closed twice inside a
   sweep (output off + `close(true)` from inside the acquisition). Today's order is recorded as it
-  is, e.g. after a stalled stream `OUTP OFF` follows the REST stop (D24), and the fast close ends
-  with `MATLAB:structRefFromNonStruct` from the next stream read (stage B: `tim:instr:closed`).
+  is, e.g. after a stalled stream `OUTP OFF` follows the REST stop (D24). The fast close ended
+  with `MATLAB:structRefFromNonStruct` from the next stream read; since stage B it ends with
+  `tim:instr:closed` and without the status request that followed (fixture edited by hand in that
+  scenario, 228 entries; see section 14).
 
 Deterministic: `rng(1, 'twister')`, `SimulatedRig` seed 1, mock stream seed 7; the mocks change
 state at once (one status poll per wait) and deliver a fixed block per read, so every scheduled

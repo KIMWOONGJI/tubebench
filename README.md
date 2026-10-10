@@ -37,14 +37,16 @@ the window under Help > User guide).
 
 Configuration: `config/user_config.json` holds the lab settings (instrument addresses, limits,
 microphones, lab-tube geometry) and is **tracked in Git**, so a clone has them; commit it after
-changing it (File > Save configuration… in the window). `config/example_config.json` is a neutral
+changing it (File > Save configuration… in the window). The instruments are chosen there by driver
+name (`generator.driver`, `daq.driver`; user guide section 9); a file of the older layout loads
+unchanged. `config/example_config.json` is a neutral
 template (simulation mode, no geometry) - never copy it over `user_config.json`. The stored
 software commit does not see uncommitted local changes - commit before measuring with edited code
 or configuration.
 
 ## Status (2026-10-10)
 
-* **Software**: complete. 230 automated tests in 18 test classes (simulation and recorded hardware
+* **Software**: complete. 267 automated tests in 19 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -79,17 +81,18 @@ config/                 user_config.json (lab settings), example_config.json (te
                         drivers, driverInfo, create, checkProducts; drivers Keysight33220A,
                         ScpiTcpTransport, LanXi, LanXiHttp, LanXiTcpStream, LanXiStreamParser,
                         RecordingStream; Mock* (simulation), mockBusLog
-+tim/+acq               checkIntegrity, voltsToPascal
++tim/+acq               checkIntegrity, basicIntegrity, voltsToPascal
 +tim/+dsp               sweepResponse, sineResponse, welchResponse, detectExcitation, estimateSweepLaw
 +tim/+cal               switchingCorrection, buildCalibration, interpolateCalibration,
-                        applyCalibration, resolveSensitivities, calibrationContext
+                        applyCalibration, resolveSensitivities, calibrationContext, acquisitionChain
 +tim/+acoustics         airProperties, wavenumber, decomposeWaves, fieldAt, analyzeFourMic,
                         validityMasks, transferMatrix, frequencyLimits
-+tim/+sim               SimulatedRig, tubeModel, lanxiEncode
++tim/+sim               SimulatedRig, tubeModel, lanxiEncode; SimulatedCombined (driver
+                        'simcombined': one output + four inputs on one clock, simulation only)
 +tim/+app               MeasurementSession, runCalibration, processMeasurement, driveEstimate,
                         plotResults (saved figures), plotCalibration, save* / export*,
-                        loadConfig / saveConfig / defaultConfig / validateConfig, msg (prompts
-                        en / ko), softwareVersion
+                        loadConfig / saveConfig / defaultConfig / validateConfig / migrateConfig,
+                        outputGuard, msg (prompts en / ko), softwareVersion
 +tim/+plots             the views, shared by the window and the saved figures: timeSignals,
                         spectrum, transferFunctions, reflection, transmissionLoss,
                         transferImpedance, validity, calibration; house style and helpers:
@@ -104,7 +107,8 @@ resources/icons         status and button icons
 resources/logo          the tubebench mark: SVG (light, reverse) and PNG 16/32/48/256 px (window icon)
 tests/                  matlab.unittest suites + fixtures (real LAN-XI responses and stream,
                         bus traffic of simulated sessions, normal and fault paths:
-                        TestBusTraffic); TestInstrumentContract (every registered driver)
+                        TestBusTraffic); TestInstrumentContract (every registered driver);
+                        TestConfiguration (layout and migration)
 examples/               demo_simulation.m, hardware_commissioning.m, bench_test_no_tube.m,
                         output/ (example plots)
 docs/                   see below
@@ -123,7 +127,7 @@ data/, calibration/     measurement and calibration output (never overwritten)
 | `docs/hardware_status.md` | verified vs pending, observations from the hardware sessions |
 | `docs/assumptions_and_limitations.md` | assumptions, limitations, future work |
 | `docs/ref_33220A_scpi.md`, `docs/ref_lanxi_openapi.md` | verified instrument protocol references |
-| `docs/instrument_interface.md` | contract for instrument drivers (WO-001 for 1.2.0; stage A implemented: contract classes, drivers, registry, contract tests) |
+| `docs/instrument_interface.md` | contract for instrument drivers (WO-001 for 1.2.0; stages A and B implemented: contract classes, drivers, registry, contract tests, configuration by driver name, session through the registry, simulated combined device) |
 
 ## References
 

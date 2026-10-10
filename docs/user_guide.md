@@ -277,8 +277,11 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
     "✗ Test E failed" (orange); no mark when the check was not performed. The tooltip gives the
     result text of the check;
   * "– check" (orange) is appended when the calibration does not fit the set-up in the fields:
-    temperature more than 3 K different, port distances changed, other operating mode, or Test E
-    failed. The tooltip lists the reasons;
+    temperature more than 3 K different, port distances changed, other operating mode, Test E
+    failed, or another acquisition module or other input settings (driver, model, serial number,
+    sample rate, range, filter, CCLD) than when it was made - the calibration factors include the
+    DAQ inputs. A calibration made before version 1.2.0 does not record them and is not checked
+    for them. The tooltip lists the reasons;
   * "… (used at Connect)" (grey): a calibration file chosen while not connected; it is loaded at
     the next Connect. "… not found" (red): the configured file does not exist.
 * **Load calibration…** loads a `CAL-*.mat` file from the calibration folder. The file name is
@@ -615,7 +618,11 @@ but their allowed values come from the selected driver, which checks them when t
 instrument). `acquisition.sampleRate`, `range`, `filter` and `ccld` left out, `null` or `""` take
 the driver's default. A driver that takes both roles (one device with output and inputs) is named
 in both sections and reads `daq.<driver>`. Registered drivers: `tim.instr.drivers` (today
-`keysight33220a`, `lanxi`; the contract is `docs/instrument_interface.md`). A file of the older
+`keysight33220a`, `lanxi`, and `simcombined` - a simulated device with one output and four inputs
+on one sample clock, simulation mode only, selected for both roles; the contract is
+`docs/instrument_interface.md`). The window has no instrument selector: Setup > Connection lists
+the steps of the configured drivers, and every measurement stores the drivers, their settings and
+the identity the instruments reported. A file of the older
 layout (`formatVersion` 1: `generator.host` / `port` / `timeout` and a `lanxi` section, as
 `config/user_config.json` still is) loads with the same settings; File > Save configuration…
 writes the new layout. A driver name this installation does not know (a measurement folder from
@@ -630,6 +637,7 @@ then reports the error.
 | `generator.keysight33220a.host`, `port`, `timeout` | 169.254.2.20, 5025, 5 s | 33220A (SCPI over TCP); old layout: `generator.host`, `port`, `timeout` |
 | `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit** of the programmed amplitude in Vpp, at most the driver's maximum (33220A: 20 Vpp at `"INF"`, 10 Vpp at `"50"`) |
 | `generator.load` | `"INF"` | output load setting, one of the driver's values (33220A: exactly `"INF"` or `"50"`, see below) |
+| `generator.allowUnconfirmedOff` | false | only for a generator that cannot report whether its output is off (none of today's drivers): true accepts it in hardware mode |
 | `amplifier.model` | `""` | `"none (direct drive)"` (must start with "none"), `"power amplifier"` or a model name |
 | `amplifier.gainFactor` | NaN | voltage gain as a factor (×10 = 10 = 20 dB); 1 for direct drive; `gain_dB` is derived |
 | `amplifier.gainSetting` | `""` | free text, e.g. the knob position (scripts) |
@@ -834,7 +842,7 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | `tim:gen:amplitude` | requested amplitude above `generator.maxVpp`, or changed at the front panel |
 | `tim:gen:scpiError` | the 33220A reported an error (message included); output switched off |
 | "Excitation not detected" | amplifier off or muted, loudspeaker disconnected, level too low |
-| Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed or other mode: check the set-up and recalibrate |
+| Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed, other mode, or another acquisition module or input settings: check the set-up and recalibrate |
 | Few valid frequency lines | Results > Validity: "no valid calibration" (load or run a calibration), low coherence / low SNR (amplitude, repetitions), termination not anechoic (τ, TL), velocity mismatch (thick specimen: thin-element Z_t not applicable) |
 | Transfer impedance view empty, "Thin-element model not applicable" | the specimen is thick (k·d > 1): use Reflection and transmission and Transmission loss |
 | A view shows "Preparing the view…" | the views are prepared in the background during the first half minute after the start (section 2); after a running action it is prepared first. "This view could not be prepared" names the cause in Messages: close and start the program again |

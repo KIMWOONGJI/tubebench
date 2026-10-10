@@ -233,5 +233,5 @@ end
 function c = setPath(c, path, value)
 % c.(a).(b)... = value for a dotted path
 parts = strsplit(path, '.');
-c = setfield(c, parts{:}, value); %#ok<SFLD>
+c = setfield(c, parts{:}, value);
 end
