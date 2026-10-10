@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Work order | WO-001 Part 1 (`docs/workorder_instrument_interface.md`; its §0 decides over older text) |
-| Status | **design, 2026-10-11** (stage 1), **revised after the design review** (stage 2: 24 issues, resolutions in section 13.2). Not implemented yet: until stage A is merged the code uses the implicit interface listed in Appendix A. |
+| Status | **design, 2026-10-11** (stage 1), **revised after the design review** (stage 2: 24 issues, resolutions in section 13.2). **Stage A implemented** on `wo-001` (contract classes, both drivers, registry, `tests/TestInstrumentContract.m`); the session, the window and the configuration still use the implicit interface of Appendix A until stages B and C. |
 | Applies to | `tim.app.MeasurementSession`, `tim.gui.Tubebench`, `+tim/+app`, `+tim/+cal`, `+tim/+val`, the drivers in `+tim/+instr` and `+tim/+sim` |
 
 This document is the contract between the measurement program and an instrument driver. A
@@ -94,7 +94,7 @@ by the registry, section 9).
 | `id = identity()` | what the instrument reported about itself when it was created (no I/O): `vendor`, `model`, `serial`, `firmware` (char, `''` when unknown), `raw` (its own text, e.g. the `*IDN?` reply). Shown in the window, stored in the metadata. |
 | `md = metadata()` | JSON-encodable struct stored with every measurement (section 7): at least `driver`, `displayName`, `roles`, `identity`, `sharedClock`, the driver settings in use; plus driver-specific state |
 | `setTimeout(t)` | shortens the I/O time-out to `t` s (used when the window closes: `close(true)` must never wait long for a switched-off instrument). Default: no-op. |
-| `close()` | safe state and release: source - disarm, output off (section 3.1, read-back not required), local, release; acquisition - stop, return to idle, release. **Never throws, idempotent: a second `close()` sends nothing.** Afterwards every other method raises an error whose identifier ends in `:closed` (`tim:instr:closed`, or the transport's own, e.g. `tim:scpi:closed`) and sends nothing; `outputOff`, `close` and `setTimeout` return quietly. |
+| `close()` | safe state and release: source - disarm, output off (section 3.1, read-back not required), local, release; acquisition - stop, return to idle, release. **Never throws, idempotent: a second `close()` sends nothing.** Afterwards nothing is sent any more: a method that needs the instrument raises an error (`tim:instr:closed`, or the transport's own, e.g. `tim:scpi:closed`; a refusal such as `tim:gen:notArmed` may come first); `outputOff`, `close` and `setTimeout` return quietly; members without I/O (`identity`, `metadata`, `collect`, `recent`, `rawBytes`, `isAcquiring`, `isPlanning`) keep working, so partial data stay available. |
 | `delete()` | **not** defined in the base class (MATLAB runs a base-class destructor after the subclass's, which would close twice and repeat I/O, D20). A driver's own `delete` leaves the device safe with as little I/O as possible: a source switches its output off (33220A: `close`), an acquisition stops a running acquisition (LAN-XI: stops the stream and keeps the recorder state, no further requests). |
 | `ProgressFcn` | `@(key, state, detail)` for the connection checklist (section 6) |
 
@@ -604,9 +604,10 @@ handles):
 | source | `outputOn()` | the true output state at the instrument, not through the driver |
 | source | `levelHistory()` | every level the instrument was programmed to since creation [Vpp] |
 | source | `forceOutputOn()` | switches the output on behind the driver's back |
+| source | `forceLevel(vpp)` (optional) | programs a level at the instrument behind the driver's back (the `outputOn` re-check); absent for an output without a programmed level |
 | source | `injectError()` | the instrument reports an error at its next command |
-| acquisition | `stallAfter(n)` | the next acquisition stops delivering data after `n` samples |
-| acquisition | `injectChannelFault(c)` | the next acquisition reports a device fault on input `c` |
+| acquisition | `stallAfter(n)` | from the next acquisition on, data stop after `n` samples (`Inf`: normal again) |
+| acquisition | `injectChannelFault(c)` | from the next acquisition on, the device reports a fault on input `c` |
 | acquisition | `isRecording()` | the device is recording |
 
 Contract cases: identity, metadata (JSON-encodable) and capabilities complete and consistent; step
@@ -618,7 +619,9 @@ quickly without throwing; a second `close` sends nothing; `acquire` shape, rate,
 integrity fields; a channel fault appears in `integrity`; Stop during `acquire` (error unchanged,
 device stopped, partial data, next `acquire` works); `AbortFcn` first on an `onBlock` error and on
 a driver error; `close` from inside `onBlock`; every acquisition driver, run with a separate
-source on the same rig, records the excitation inside the record. With `simcombined` and the rig's
+source on the same rig, records the excitation inside the record; the registry refuses an unknown
+driver, a wrong role or pairing and an invalid driver configuration before any I/O, and reads
+the legacy configuration keys; the product check names the product and the driver. With `simcombined` and the rig's
 `OutputLog` (stage B): Stop during planning plays nothing, Stop during execution ends the output
 within one block, an `onBlock` error after `outputOn` leaves the output off, the last output
 value is 0 after a normal plan, a Stop in either pass, an `onBlock` error and `close` during
@@ -732,7 +735,9 @@ Each stage ends with the full test suite and both bus-traffic fixtures passing u
 fixtures are never regenerated during WO-001 except for an owner-approved change of order, D24).
 
 **Stage A - contract, existing drivers, registry, contract tests (WO tasks 1, 2, 8 and the
-registry).**
+registry).** Done on `wo-001` (stage 3 of the work order): both bus fixtures unchanged; the
+LAN-XI connect steps exist twice (`LanXi.fromConfig` and still `MeasurementSession.connect`)
+until stage B switches the session to the registry.
 
 1. `tim.instr.Instrument`, `SignalSource`, `Acquisition` (abstract; help text = sections 2-4).
 2. `Keysight33220A < SignalSource`: static members (`fromConfig` builds the transport or its mock
@@ -750,8 +755,10 @@ registry).**
 4. `tim.instr.drivers`, `driverInfo`, `create` with the checks of section 9.1 (legacy keys, D38).
 5. Mocks: `Broken` link in `MockScpiTransport` and `MockLanXiHttp`, an INVALID channel flag in
    `MockLanXiStream`; `testHooks` of both drivers.
-6. `tests/TestInstrumentContract.m` (section 11.3, without the `simcombined` / `OutputLog` cases);
-   a registry connect produces the connect traffic of the bus fixture.
+6. `tests/TestInstrumentContract.m` (section 11.3, without the `simcombined` / `OutputLog` cases;
+   one object in both roles checked with the unregistered stub `tests/support/CombinedStub.m`);
+   `TestBusTraffic/registryConnectSendsTheSame`: a registry connect sends the connect section of
+   the bus fixture and reports the same checklist steps as `MeasurementSession.connect`.
    The session, the window and the configuration are not touched in stage A.
 
 **Stage B - configuration, session, metadata, calibration, contract-level simulation (WO tasks

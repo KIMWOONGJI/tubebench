@@ -44,7 +44,7 @@ or configuration.
 
 ## Status (2026-10-10)
 
-* **Software**: complete. 202 automated tests in 17 test classes (simulation and recorded hardware
+* **Software**: complete. 230 automated tests in 18 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -75,8 +75,10 @@ start_here.m            entry point (sections)        run_tests.m   automated te
 tubebench.m, start_tubebench.bat   start the window
 config/                 user_config.json (lab settings), example_config.json (template),
                         sim_thin_screen.json (virtual tube)
-+tim/+instr             Keysight33220A, ScpiTcpTransport, LanXi, LanXiHttp, LanXiTcpStream,
-                        LanXiStreamParser, RecordingStream, Mock* (simulation), mockBusLog
++tim/+instr             instrument contract: Instrument, SignalSource, Acquisition; registry:
+                        drivers, driverInfo, create, checkProducts; drivers Keysight33220A,
+                        ScpiTcpTransport, LanXi, LanXiHttp, LanXiTcpStream, LanXiStreamParser,
+                        RecordingStream; Mock* (simulation), mockBusLog
 +tim/+acq               checkIntegrity, voltsToPascal
 +tim/+dsp               sweepResponse, sineResponse, welchResponse, detectExcitation, estimateSweepLaw
 +tim/+cal               switchingCorrection, buildCalibration, interpolateCalibration,
@@ -101,7 +103,8 @@ config/                 user_config.json (lab settings), example_config.json (te
 resources/icons         status and button icons
 resources/logo          the tubebench mark: SVG (light, reverse) and PNG 16/32/48/256 px (window icon)
 tests/                  matlab.unittest suites + fixtures (real LAN-XI responses and stream,
-                        bus traffic of a simulated session: TestBusTraffic)
+                        bus traffic of simulated sessions, normal and fault paths:
+                        TestBusTraffic); TestInstrumentContract (every registered driver)
 examples/               demo_simulation.m, hardware_commissioning.m, bench_test_no_tube.m,
                         output/ (example plots)
 docs/                   see below
@@ -120,7 +123,7 @@ data/, calibration/     measurement and calibration output (never overwritten)
 | `docs/hardware_status.md` | verified vs pending, observations from the hardware sessions |
 | `docs/assumptions_and_limitations.md` | assumptions, limitations, future work |
 | `docs/ref_33220A_scpi.md`, `docs/ref_lanxi_openapi.md` | verified instrument protocol references |
-| `docs/instrument_interface.md` | contract for instrument drivers (design of WO-001 for 1.2.0, not implemented yet) |
+| `docs/instrument_interface.md` | contract for instrument drivers (WO-001 for 1.2.0; stage A implemented: contract classes, drivers, registry, contract tests) |
 
 ## References
 

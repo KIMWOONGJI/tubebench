@@ -70,6 +70,37 @@ classdef TestBusTraffic < matlab.unittest.TestCase
             tc.verifyTrue(isempty(msg), msg);
         end
 
+        function registryConnectSendsTheSame(tc)
+            % tim.instr.create (used by the session from WO-001 stage B) sends
+            % exactly what MeasurementSession.connect sends, and reports the
+            % same checklist steps
+            c = TestBusTraffic.scenarioConfig(tc.tmp);
+            steps = cell(0, 3);
+            function record(key, state, detail)
+                steps(end + 1, :) = {key, state, detail};
+            end
+            tim.instr.mockBusLog('start');
+            stopLog = onCleanup(@() tim.instr.mockBusLog('stop'));
+            s = tim.app.MeasurementSession(c);
+            s.ProgressCallback = @record;
+            s.connect();
+            viaSession = tim.instr.mockBusLog('lines'); stepsSession = steps;
+            s.close();
+            tim.instr.mockBusLog('start'); steps = cell(0, 3);
+            ctx = struct('mode', 'simulation', 'rig', tim.sim.SimulatedRig(c), 'progress', @record);
+            src = tim.instr.create('source', c, ctx);
+            acq = tim.instr.create('acquisition', c, ctx, src);
+            viaRegistry = tim.instr.mockBusLog('lines');
+            src.close(); acq.close();
+            tc.verifyEqual(viaRegistry, viaSession, 'same requests in the same order');
+            tc.verifyEqual(steps, stepsSession, 'same checklist steps and texts');
+            expected = TestBusTraffic.readFixture();
+            n = numel(viaRegistry);
+            tc.verifyEqual(viaRegistry, expected(2:n + 1), 'the connect section of the fixture');
+            tc.verifyEqual(expected{n + 2}, 'REST GET /rest/rec/module/info', 'prepareAcquisition follows');
+            clear stopLog
+        end
+
         function recorderIsOffByDefault(tc)
             % normal simulation use keeps no bus log
             tim.instr.mockBusLog('stop');
