@@ -1,0 +1,22 @@
+{
+  "formatVersion": 2,
+  "mode": "simulation",
+  "generator": {
+    "driver": "templatesource",
+    "maxVpp": 0.2,
+    "load": "INF",
+    "templatesource": {
+      "host": "TODO the instrument's IP address, as set on the instrument (never change it without the owner)",
+      "port": 5025,
+      "timeout": 5
+    }
+  },
+  "daq": {
+    "driver": "templateacquisition",
+    "templateacquisition": {
+      "address": "TODO what selects the device: NI device name (daqlist), IP address, audio device name",
+      "timeout": 5,
+      "stallTimeout": 2
+    }
+  }
+}

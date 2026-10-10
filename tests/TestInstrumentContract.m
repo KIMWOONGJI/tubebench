@@ -53,7 +53,11 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
     methods
         function cfg = config(~, role, name)
             % simulation configuration selecting driver name for role; the
-            % other role keeps its default driver unless name must take both
+            % other role keeps its default driver unless name must take both.
+            % The inputs of an acquisition driver take its defaults (as in a
+            % configuration file that only names the driver, section 9.2), not
+            % the LAN-XI values of tim.app.defaultConfig; a source that has no
+            % load 'INF' takes the first of its loads.
             cfg = tim.app.defaultConfig();
             cfg.geometry = cfg.simulation.Geometry;
             cfg.generator.maxVpp = 0.5;
@@ -61,7 +65,15 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             cfg.generator.driver = 'keysight33220a';
             c = capabilitiesOf(name);
             if strcmp(role, 'source') || c.rolesTogether, cfg.generator.driver = name; end
-            if strcmp(role, 'acquisition') || c.rolesTogether, cfg.daq.driver = name; end
+            if strcmp(role, 'acquisition') || c.rolesTogether
+                cfg.daq.driver = name;
+                cfg.acquisition.sampleRate = []; cfg.acquisition.range = '';
+                cfg.acquisition.filter = ''; cfg.acquisition.ccld = [];
+            end
+            if any(strcmp('source', c.roles)) && ~any(strcmp(cfg.generator.load, c.source.loads))
+                cfg.generator.load = c.source.loads{1};
+            end
+            cfg = tim.app.migrateConfig(cfg);            % empty input settings -> the driver's defaults
         end
 
         function [obj, h, cfg, rig] = make(tc, role, name, cfg)
