@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.2.0 (next version; not before the start-up work of 2026-10-10 is merged) |
-| Status | in progress since 2026-10-11 on branch `wo-001`; merged into `main` only after the owner's hardware check (§0) |
+| Status | **software complete** on branch `wo-001` (2026-10-11, review fixes included; section 7); **hardware check pending** (§0.3) - software-verified in simulation only; merged into `main` (version 1.2.0) only after the owner's hardware check |
 | Requested by | the owner (Woongji Kim) |
 | Scope | software only; hardware tests need the owner's approval and presence |
 | Depends on | nothing else; the in-tube hardware verification stays on hold independently |
@@ -93,17 +93,18 @@ analysis, changing the calibration method, a standalone executable.
 
 Use these to judge whether an instrument can work (Part 2, step 2). "Must" items are hard limits.
 Reworded after the design review of 2026-10-11 (`docs/instrument_interface.md` section 13.2,
-issues 3, 5, 6, 11 and 21).
+issues 3, 5, 6, 11 and 21) and the review of the implementation (section 13.3, findings 9 and 12:
+the IEPE current, `vppAtFullScale` of a combined driver).
 
 | Role | Requirement | Why |
 |---|---|---|
 | Acquisition | **Must:** ≥ 4 analog inputs sampled **simultaneously on one clock** | transfer functions between channels; skew is a phase error |
-| Acquisition | **Must:** IEPE/CCLD supply (4 mA) per channel, or an external supply | B&K 4957 microphones |
+| Acquisition | **Must:** IEPE/CCLD supply per channel with a constant current that the microphone data sheet allows (the lab's LAN-XI supplies 4 mA; compare the device's IEPE current with the B&K 4957 data sheet), or an external supply | B&K 4957 microphones |
 | Acquisition | **Must:** sample rate ≥ 2.2 × analysis fMax (4.5 kHz → ≥ 10 kS/s; now 16 384 S/s) with anti-alias filter, run at exactly the configured rate | spectral analysis to 4.5 kHz; a coerced rate mislabels the frequency axis |
 | Acquisition | **Must:** continuous gap-free recording of ≥ 10 s with gap/overload detection, delivering data **while it records** (streaming, or background acquisition with a polling read); a device that delivers only whole blocks works only when it is also the generator (shared clock) | swept sine with pre/post-roll; integrity check; the session switches a separate generator on and off as samples arrive |
 | Acquisition | Should: AC coupling/high-pass ≤ 1 Hz, input range ≤ 10 V peak, ≥ 24 bit, TEDS reading, data in volts (an input in full-scale units with an unknown gain gives levels in dB re FS only, unless its volts per full scale are measured) | dynamic range; sensitivities from TEDS; levels in Pa |
 | Generator | **Must:** output can be switched off by command (no waveform, 0 V or disconnected - an analog output that keeps its last value must be set to 0 V), and its state read back from the instrument or, for the output of a shared-clock device that is also the DAQ, from the device session (task stopped, 0 V written). A generator that cannot report its state is accepted only when the owner allows it explicitly in the configuration (`generator.allowUnconfirmedOff`); the window then says so after every stop | safety rules (output off on connect, error, close) |
-| Generator | **Must:** an amplitude limit that the driver enforces before every level command; an output programmed in full-scale units (audio interface) needs its measured volts per full scale at a fixed knob position (`generator.<driver>.vppAtFullScale`) | loudspeaker/power limit |
+| Generator | **Must:** an amplitude limit that the driver enforces before every level command; an output programmed in full-scale units (audio interface) needs its measured volts per full scale at a fixed knob position (`generator.<driver>.vppAtFullScale`; `daq.<driver>.vppAtFullScale` for a combined driver) | loudspeaker/power limit |
 | Generator | **Must:** a single logarithmic swept sine (the switching calibration and Test E always sweep); stepped sine and noise optional; frequency 80 Hz–5.5 kHz | excitation signals; the calibration method does not change |
 | Generator | Should: software (bus) trigger, completion query that waits for the end of the sweep (*OPC? or equivalent, or time-based) | timing of the sweep in the record |
 | Both | No hardware synchronisation between generator and DAQ is needed | the estimator uses channel ratios only (theory.md §4) |
@@ -169,7 +170,9 @@ instrument that has no driver.
 2. **Judge suitability** against §3; report each must/should item with the manual page that
    proves it. If a must item fails, stop and say why and what would work instead.
 3. **Write the driver** from `templates/`: driver class implementing the contract, transport,
-   protocol mock, defaults in `defaultConfig`, `docs/ref_<instrument>.md` with a source for every
+   protocol mock, defaults in `defaultConfig` (superseded: the driver's defaults are in its
+   `describe().defaults`, not in `tim.app.defaultConfig` - `docs/instrument_interface.md` D45 and
+   `docs/adding_an_instrument.md` section 6), `docs/ref_<instrument>.md` with a source for every
    command (manual section/page), registry entry.
 4. **Test offline:** driver unit tests on the mock, the contract test suite, full test suite.
 5. **Verify on hardware, step by step, each step only after the owner agrees and is present:**
@@ -197,3 +200,57 @@ first; no clicking or typing on the owner's screen; commit, never push unless as
    closing, Stop and output-off and add contract tests before refactoring; the start-up work of
    2026-10-10 (deferred view building) is merged (3e24bc2), so `Tubebench.m` is free.
 3. Open questions for the owner: answered on 2026-10-11, see §0.
+
+## 7. Implementation notes (2026-10-11)
+
+**What was built** (branch `wo-001`, base 8ff47f3; details, decisions D1-D47 and the review in
+`docs/instrument_interface.md` sections 13 and 14):
+
+* Part 1: the contract classes `tim.instr.Instrument`, `SignalSource` and `Acquisition`; the 33220A
+  and LAN-XI drivers implement them with every SCPI command and REST request of the normal path
+  unchanged (bus-traffic fixtures of the normal and the fault paths, recorded on the code before
+  WO-001); the registry (`drivers`, `driverInfo`, `create`: every check before any I/O, product
+  check); configuration `formatVersion` 2 (`generator.driver`, `daq.driver`, driver sub-structs;
+  `migrateConfig` reads old files and scripts); the session and the window through the registry,
+  naming no instrument; metadata and the calibration's DAQ chain; the simulated combined device
+  `simcombined` (change B); contract tests over every registered driver.
+* Part 2: the guide `docs/adding_an_instrument.md`, the templates `templates/instrument/` (a source,
+  an acquisition and a combined driver, each with its protocol mock and test; a reference document;
+  configuration snippets), the skill `.claude/skills/add-instrument/`, and the demo source `demo`
+  made by following the guide (dry run).
+* Fix stage: three reviews of the implementation, 12 findings, all addressed (contract section
+  13.3): loading only warns about driver limits (files of 1.1.0 load again), 0 V after the stop on
+  every end of a combined device, the contract cases for any block size, closing during connect
+  and `prepare`, misplaced settings, guidance for an NI device session. Verified in simulation
+  only: full suite 299 / 299 (21 test classes) in batch MATLAB, `TestBusTraffic` 5 / 5 with both
+  fixtures unchanged.
+
+**Deviations from the plan, and why**
+
+1. Task 7: no contract-level `SimulatedSource` / `SimulatedAcquisition`. The lab drivers run on
+   their protocol mocks in simulation (the only path that exercises their commands and the
+   bus-traffic tests), and the contract-level simulated driver is the combined `simcombined`,
+   which proves change B (D8).
+2. `AbortFcn` is not set by the session (D24): it would change the order on the bus after a
+   stalled stream and waits for the owner's approval. Until then the session switches the output
+   off in its error path after `acquire` returns; an interrupt is covered by the output guard.
+3. Bus traffic: two intended changes of order, both documented - closing the window inside a sweep
+   ends the measurement with `tim:instr:closed` (fault fixture edited in stage B), and a Stop during
+   the LAN-XI connect step returns the module to Idle from the driver, before the generator's
+   close lines instead of after them (fix stage; an explicit test, fixtures unchanged).
+4. §5 item 3: a driver's defaults are in its `describe().defaults`, not in `defaultConfig` (D45).
+5. §4 task 3 / acceptance: `validateConfig` asks the drivers, but a file is refused only where an
+   instrument is needed (Connect, the session); loading warns (D29, extended in the fix stage), so
+   old `user_config.json` files, files written by 1.1.0 and saved measurement folders still load.
+6. The window shows the instruments in an "In use" row and an Instruments table (D40) and has no
+   sample-rate or range control (D41); the choice stays in the configuration (§0.2).
+
+**What remains**
+
+* The owner's hardware check (§0.3): reconnect the 33220A and the LAN-XI 3676; connect and identify
+  with the output off; a short measurement at a level the owner approves (not above the configured
+  default 0.2 Vpp); Stop during a measurement; output-off read-back; closing. The steps are listed
+  in `docs/hardware_status.md`. Only then: hardware-verified, version 1.2.0, merge into `main`.
+* After the owner's approval: `AbortFcn = @() Gen.outputOff()` in the session and the fault
+  fixture updated (D24).
+* The NI and audio guidance (guide section 4.1) is not tried on a device: there is none in the lab.

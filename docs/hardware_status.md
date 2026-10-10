@@ -45,7 +45,7 @@ LAN-XI capabilities reported by `/rest/rec/module/info`:
 | Switching calibration on hardware (Test C) | **PENDING** | |
 | Rigid termination (Test D), empty tube (Test E), stepped vs sweep (Test G) | **PENDING** | geometry must be measured first |
 | GUI | SW-VERIFIED | simulation only |
-| Instrument interface of 1.2.0 (WO-001, branch `wo-001`: drivers through the registry, configuration by driver name, identity display in the window) | SW-VERIFIED | simulation only (contract tests, bus-traffic fixtures, hidden-window tests). **PENDING** the owner's hardware check (WO-001 §0.3): connect and identify with the output off, a short measurement at an approved level (≤ 0.2 Vpp), Stop and output-off checks |
+| Instrument interface of 1.2.0 (WO-001, branch `wo-001`: drivers through the registry, configuration by driver name, identity display in the window; review fixes of 2026-10-11) | SW-VERIFIED | simulation only (contract tests, bus-traffic fixtures, hidden-window tests). **PENDING** the owner's hardware check (WO-001 §0.3) - steps in the section "Pending: hardware check of the refactored drivers" below |
 
 ## Observation from the first hardware acquisition (IMPORTANT)
 
@@ -126,6 +126,71 @@ amplifier record and operator confirmation; stepped-sine scheduler without drift
 Microphone ↔ channel assignment at the end of the session (TEDS): ch1 3342023, ch2 3350978,
 ch3 3342022, ch4 3350977. **Enter the final mapping in `config/user_config.json → mics` before
 measuring in the tube.**
+
+## Pending: hardware check of the refactored drivers (WO-001, branch `wo-001`)
+
+Since 2026-10-11 the 33220A and the LAN-XI are driven through the instrument contract and the
+driver registry (`docs/instrument_interface.md`, `docs/workorder_instrument_interface.md`). This is
+**SW-VERIFIED only**: the full test suite in simulation (299 / 299 on 2026-10-11), the contract
+tests of every driver, and the bus-traffic tests, which show that a simulated session sends the same
+SCPI commands and REST requests as the code before WO-001 (two documented changes of order on
+fault paths: closing the window inside a sweep, and a Stop during the LAN-XI connect step).
+Nothing of WO-001 has run on the real instruments yet. The owner's check (WO-001 §0.3), each step
+only with the owner present; at the first surprise: output off at the generator, close the window,
+report:
+
+1. **Reconnect** the 33220A (LAN, 169.254.2.20:5025) and the LAN-XI 3676 (169.254.64.156) as on
+   2026-10-08, no address or firmware change; the microphones on their channels; amplifier at
+   minimum gain (or direct drive), loudspeaker connected only for steps 5-7. Check out `wo-001`;
+   `config/user_config.json` stays as it is. Expected: both instruments answer as before; the
+   33220A output LED off.
+2. **The lab file loads unchanged**: `cfg = tim.app.loadConfig('config/user_config.json')` gives
+   no warning; `cfg.generator.driver` `'keysight33220a'`, `cfg.daq.driver` `'lanxi'`,
+   `cfg.daq.lanxi.connector` `'BNC'`, `cfg.generator.maxVpp` 2.
+3. **Connect and identify with the output off** (script, nothing is switched on):
+   `s = tim.app.MeasurementSession(cfg); s.connect(); disp(s.Gen.identity()); disp(s.Daq.identity()); s.Gen.isOutputOn(1)`,
+   then `s.close()`. Expected: 33220A `MY44032054`, firmware 2.02; LAN-XI 3676-B-040, s/n 110283,
+   firmware 2.10.0.610; `isOutputOn(1)` false and the output LED off; after `close()` the
+   generator front panel is in local mode, and a new session (`s2 = tim.app.MeasurementSession(cfg);
+   s2.connect(); s2.close()`) prints no "[LAN-XI] Module not in state Idle" line (the module was
+   left in Idle); no error.
+4. **The window** (`tubebench`, hardware): before Connect "In use" shows "Keysight/Agilent 33220A
+   function generator" and "HBK LAN-XI module (Open API)", the lamps "Generator" and "LAN-XI";
+   Connect runs the checklist (function generator, LAN-XI module (REST), recorder state Idle, open
+   recorder, TEDS, channel setup - more than 10 s -, sensitivities, settling, signal check: ch3
+   may fail, the known fault) with the identities of step 3; afterwards "In use" reads
+   "Generator: 33220A s/n MY44032054" and "LAN-XI: 3676-B-040 s/n 110283" without "(simulated)",
+   and Setup > Connection lists vendor, model, serial number and firmware of both. Output LED off.
+5. **A short measurement at an approved level**: the owner states the level, at most the
+   configured default 0.2 Vpp (EXCITATION amplitude ≤ 0.1 Vpk; e.g. 0.05 Vpp first), swept sine,
+   one repetition, the amplifier record entered; answer the excitation confirmation only after the
+   owner agreed. Expected: the output LED is on only during the sweep; the sweep lies inside the
+   record on ch1, ch2, ch4; no integrity error apart from ch3; the output LED off afterwards.
+6. **Stop during a measurement**: the same level, a longer sweep (e.g. 5 s, 4 repetitions); press
+   Stop in the middle. Expected: the output LED goes off at once; the window says "Measurement
+   stopped by the operator. Generator output off (confirmed)."; the partial data are kept; the
+   next measurement works without reconnecting.
+7. **Output-off read-back**: after steps 5 and 6 the status line shows no "Generator output not
+   confirmed off"; the 33220A shows the output off (LED) - the read-back (`OUTP?`) and the
+   instrument agree.
+8. **Closing**: close the window while connected, once idle and once during a measurement.
+   Expected: the closing window lists "Generator output off (confirmed)" and "Instruments
+   disconnected"; the output LED stays off; the generator is back in local mode; at the next
+   Connect the checklist step "LAN-XI recorder state Idle" reads "Idle" (not "was ... returned
+   to Idle").
+
+| Step | Status | Date, result |
+|---|---|---|
+| 1-2 reconnect, lab file loads | **PENDING** | |
+| 3 connect and identify, output off | **PENDING** | |
+| 4 window: instruments in use, identities | **PENDING** | |
+| 5 short measurement at an approved level (≤ 0.2 Vpp) | **PENDING** | |
+| 6 Stop during a measurement | **PENDING** | |
+| 7 output-off read-back | **PENDING** | |
+| 8 closing (idle, during a measurement) | **PENDING** | |
+
+Only when every step has passed on the real instruments: HW-VERIFIED here, version 1.2.0
+(`tim.app.softwareVersion`) and the merge of `wo-001` into `main`.
 
 ## Required hardware tests (in this order)
 

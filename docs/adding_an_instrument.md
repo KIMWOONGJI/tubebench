@@ -100,12 +100,12 @@ not stated, and the manual page that proves it.
 | Role | Requirement | Why |
 |---|---|---|
 | Acquisition | **Must:** ≥ 4 analog inputs sampled **simultaneously on one clock** | transfer functions between channels; skew is a phase error |
-| Acquisition | **Must:** IEPE/CCLD supply (4 mA) per channel, or an external supply | B&K 4957 microphones |
+| Acquisition | **Must:** IEPE/CCLD supply per channel with a constant current that the microphone data sheet allows (the lab's LAN-XI supplies 4 mA; compare the device's IEPE current with the B&K 4957 data sheet), or an external supply | B&K 4957 microphones |
 | Acquisition | **Must:** sample rate ≥ 2.2 × analysis fMax (4.5 kHz → ≥ 10 kS/s; now 16 384 S/s) with anti-alias filter, run at exactly the configured rate | spectral analysis to 4.5 kHz; a coerced rate mislabels the frequency axis |
 | Acquisition | **Must:** continuous gap-free recording of ≥ 10 s with gap/overload detection, delivering data **while it records** (streaming, or background acquisition with a polling read); a device that delivers only whole blocks works only when it is also the generator (shared clock) | swept sine with pre/post-roll; integrity check; the session switches a separate generator on and off as samples arrive |
 | Acquisition | Should: AC coupling/high-pass ≤ 1 Hz, input range ≤ 10 V peak, ≥ 24 bit, TEDS reading, data in volts (an input in full-scale units with an unknown gain gives levels in dB re FS only, unless its volts per full scale are measured) | dynamic range; sensitivities from TEDS; levels in Pa |
 | Generator | **Must:** output can be switched off by command (no waveform, 0 V or disconnected - an analog output that keeps its last value must be set to 0 V), and its state read back from the instrument or, for the output of a shared-clock device that is also the DAQ, from the device session (task stopped, 0 V written). A generator that cannot report its state is accepted only when the owner allows it explicitly in the configuration (`generator.allowUnconfirmedOff`); the window then says so after every stop | safety rules (output off on connect, error, close) |
-| Generator | **Must:** an amplitude limit that the driver enforces before every level command; an output programmed in full-scale units (audio interface) needs its measured volts per full scale at a fixed knob position (`generator.<driver>.vppAtFullScale`) | loudspeaker/power limit |
+| Generator | **Must:** an amplitude limit that the driver enforces before every level command; an output programmed in full-scale units (audio interface) needs its measured volts per full scale at a fixed knob position (`generator.<driver>.vppAtFullScale`; `daq.<driver>.vppAtFullScale` for a combined driver) | loudspeaker/power limit |
 | Generator | **Must:** a single logarithmic swept sine (the switching calibration and Test E always sweep); stepped sine and noise optional; frequency 80 Hz–5.5 kHz | excitation signals; the calibration method does not change |
 | Generator | Should: software (bus) trigger, completion query that waits for the end of the sweep (*OPC? or equivalent, or time-based) | timing of the sweep in the record |
 | Both | No hardware synchronisation between generator and DAQ is needed | the estimator uses channel ratios only (theory.md §4) |
@@ -244,9 +244,16 @@ into `integrity.channelFaults` **in the driver's words** (`noteFaults`). TEDS: `
 the device reads none (the sensitivities then come from the certificate or nominal values).
 
 **Combined device** (3.5, 8.3). Leave the planning engine of `TemplateCombined` as it is
-(`acquire`, `render`, `apply`, `synthesize`, `haltOutput`, `finishOutput`, `endAcquire`; it is
-the engine of `tim.sim.SimulatedCombined`, tested by the contract tests). Replace only the device
-session calls. For an output in full-scale units (`levelKnown = false`): add the setting
+(`acquire`, `render`, `apply`, `synthesize`, `haltOutput`, `finishOutput`, `endOutput`,
+`endAcquire`; it is the engine of `tim.sim.SimulatedCombined`, and the contract tests run it on
+the template's mock - which cannot show what the real device does, so step 10 checks the output
+at its terminal). Replace only the device session calls; write the device session by section 4.1.
+Two rules of the engine that the device session must support: every end of playing (normal, Stop,
+error, close) plays the rest of the 5 ms fade, stops the device and **then** writes 0 V
+(`endOutput`), each step even when the one before failed - so `Dev.writeZero()` must work after
+`Dev.stop()`; and the block size is the setting `blockSamples` (any size the device needs; the
+contract tests use it). The one exception to "leave the engine as it is" is a device whose output
+is queued ahead (section 4.1). For an output in full-scale units (`levelKnown = false`): add the setting
 `vppAtFullScale` (no default) to `describe().defaults.settings` as `[]` (a combined driver reads
 its settings from `daq.<reg>`, so it is configured as `daq.<reg>.vppAtFullScale`), require it in
 `checkConfig` in hardware mode, refuse levels above it in `checkLevel`, and convert in
@@ -259,7 +266,8 @@ creation (no I/O). `metadata()` must be JSON-encodable and contain `driver`, `di
 for inputs `sampleRate`, `range`, `filter`, `ccld`, `teds`); it is stored with every measurement.
 
 **`describe()`** (2.1). `name` = registry name; `displayName` (vendor, model and kind, shown in
-the window and the metadata); `labels.<role>` (short lamp label); `defaults.settings` (the driver
+the window and the metadata; at most about 50 characters, one line of the window's "In use" row,
+which holds three lines for the two instruments); `labels.<role>` (short lamp label); `defaults.settings` (the driver
 settings and their defaults, step 6); `defaults.acquisition` (DAQ: the values of
 `acquisition.sampleRate`, `range`, `filter`, `ccld` when the configuration leaves them empty);
 `texts.settle` (what settles after `prepare`, `sprintf` format with the filter, or `''`);
@@ -270,13 +278,17 @@ real instrument - the demo of section 13, `simcombined` -: the registry then ref
 mode, and its `fromConfig` raises `tim:instr:simulationOnly` there as well.
 
 **`capabilities()`** (5). Every value from the manual, with its page in the reference document.
-The window limits its fields with them and `checkConfig` refuses configurations outside them, so
-an optimistic value is a safety defect. `products`: the MATLAB products the driver needs beyond
-MATLAB and the Signal Processing Toolbox, as `struct('name', <name in ver>, 'feature', <licence
-feature>)`, e.g. `'Instrument Control Toolbox'` / `'Instr_Control_Toolbox'`, `'Data Acquisition
-Toolbox'` / `'Data_Acq_Toolbox'`, `'Audio Toolbox'` / `'Audio_System_Toolbox'`. Support packages
-and vendor runtimes that `ver` does not list are checked by an optional static `checkInstalled()`
-(hardware mode, `tim:instr:missingProduct`).
+The window limits its fields with them and `checkConfig` refuses configurations outside them (at
+Connect; loading a file only warns), so an optimistic value is a safety defect. `products`: the
+MATLAB products the driver needs beyond MATLAB and the Signal Processing Toolbox, as
+`struct('name', <name in ver>, 'feature', <licence feature>)`, e.g. `'Instrument Control Toolbox'` /
+`'Instr_Control_Toolbox'`, `'Data Acquisition Toolbox'` / `'Data_Acq_Toolbox'`, `'Audio Toolbox'` /
+`'Audio_System_Toolbox'`. Support packages and vendor runtimes that `ver` does not list are checked
+by an optional static `checkInstalled()` (hardware mode, `tim:instr:missingProduct`);
+`TemplateAcquisition` and `TemplateCombined` contain a commented skeleton for an NI device (the
+NI-DAQmx support package and driver through `daqvendorlist`; check the call in the R2022b
+documentation). Without it, a missing support package shows only later, as an undefined function
+or a vendor error at Connect.
 
 **`connectionSteps()`** (6). One `connect` step with the registry name as key; an acquisition
 adds its `prepare` steps (the templates use `setup`). Keys must not repeat within a source /
@@ -297,6 +309,65 @@ Never touch `tim.app.MeasurementSession`, `tim.gui.Tubebench` or any other file 
 `+tim/+app`, `+tim/+cal`, `+tim/+dsp`, `+tim/+acoustics` for a new driver. If the driver seems to
 need such a change, stop and ask the owner: either the contract is missing something (that is a
 change of the contract, with its own review) or the driver is doing the session's job.
+
+### 4.1 The device session of a combined device (NI-DAQmx, audio interface)
+
+`TemplateCombined` talks to its device only through `obj.Dev`. For the hardware you write
+`+tim/+instr/<Name>Session.m`: a handle class with exactly the methods of the template header
+around the vendor interface. It is the only file that calls the product (`daq`,
+`audioPlayerRecorder`), and only inside its methods, so the class loads without the product. What
+each method must guarantee:
+
+| Method | Must |
+|---|---|
+| `identify()` | read only; vendor, model, serial number, firmware as the device reports them |
+| `configure(c)` | inputs (IEPE current, coupling, range) and the output channel; set the rate and return the rate the device **really** runs at (read back - a device may coerce it) |
+| `start()` | start playing (zeros first) and recording |
+| `playRecord(x)` | play the block `x` and return the input block recorded at the same samples, or with a fixed, known lag (below); never wait longer than the time-out |
+| `stop()` | stop output and inputs **at once** |
+| `writeZero()` | the output at 0 V now, in every state - also after `stop()` |
+| `close()` | release the device; never throws |
+| `setTimeout(t)` | the time-out of every wait [s] |
+
+**NI device (Data Acquisition Toolbox).** One `DataAcquisition` (`daq("ni")`) with the four inputs
+(`addinput`, measurement type `"IEPE"`, the excitation current and AC coupling) and the output
+(`addoutput`, `"Voltage"`) runs both on one clock. Look up every call and property in the R2022b
+documentation (`daq`, `addinput`, `addoutput`, `Rate`, `preload`, `start`, `write`, `read`, `stop`,
+`flush`, `NumScansQueued`) and enter each in the reference document with its page. What the device
+session has to solve:
+
+* **The output is queued ahead.** In continuous mode the output is preloaded before `start`, and
+  `write` queues more while the device runs; `read(d, m)` returns the next m recorded scans. When
+  `playRecord` queues block j, the device still plays a block queued P calls earlier, so the scans
+  `read` returns were recorded while that earlier block played: the input block lags the block
+  `playRecord` was given by the queue (P blocks of B samples). Keep P small and constant and write it down: the excitation then lies P·B samples
+  later in the record than planned, which the pre- and post-roll must cover (at 16 384 S/s, B =
+  2048 and P = 2: 0.25 s; the default pre- and post-roll are 1 s), and `tim.dsp.detectExcitation`
+  and the sweep gate check it after every measurement. At the normal end, read the queued blocks
+  (the end of the fade and zeros) before `stop`.
+* **Stop.** Queued samples cannot be faded any more. `outputOff` during the execution therefore
+  stops the device at once (`stop`, then `writeZero`) and `acquire` ends with
+  `tim:instr:outputStopped` (contract section 8.3): change `haltOutput` so - the one change of the
+  engine for such a device - and keep the contract cases green (the mock has no queue).
+* **Underrun.** When `onBlock` (the window's live view) takes longer than the queue, the output
+  runs out of samples, the device reports an error and `acquire` ends with it; the engine then
+  stops the device and writes 0 V (`endOutput`). A longer queue avoids it at the cost of the lag.
+* **0 V after the stop.** An NI analog output can keep its last value after `stop` and after the
+  device is released (contract section 3.1), so `writeZero()` must set 0 V on demand while the
+  device is stopped (a single-scan write; check in the documentation of `write` what your device
+  supports), and step 10 measures it at the output terminal.
+* `readwrite(d, x)` (foreground) plays and records one block per call but runs a separate finite
+  acquisition each time: the output idles between blocks and the record has gaps - not usable.
+
+**Audio interface (Audio Toolbox).** `audioPlayerRecorder` plays one frame and returns the frame
+recorded meanwhile (an ASIO driver on Windows); its round trip of a few milliseconds is the lag
+(contract section 3.3). Levels are in full-scale units (`levelKnown = false`, `vppAtFullScale`;
+inputs `dataUnit 'FS'` unless their volts per full scale are measured). Check at the output
+terminal what the output does after a stop and after `release`.
+
+The device session runs for the first time in step 10 (the mock replaces it in simulation), so
+step 9 checks it with the Code Analyzer and loads its class, and step 10 (a) starts with the
+loudspeaker disconnected.
 
 ## 5. Write the protocol mock
 
@@ -333,7 +404,10 @@ must run on any PC with MATLAB and the Signal Processing Toolbox.
   them to `tim.app.defaultConfig` (it holds only the default drivers' sub-structs) - a new
   generic setting that every driver would use is a change of the contract and needs the owner.
 * A default address is never a real instrument's: use the documentation address `192.0.2.10`
-  (RFC 5737), which no device has.
+  (RFC 5737), which no device has. A device chosen by name (an NI device, an audio interface) gets
+  no default (`''`), and `checkConfig` requires the name in hardware mode, as
+  `TemplateAcquisition` and `TemplateCombined` do: `Dev1` is the name NI-DAQmx gives the first
+  device, so a default `Dev1` would open whatever device happens to be there.
 * The generic settings (`generator.maxVpp`, `generator.load`, the `acquisition` and `excitation`
   sections) stay where they are; the driver only limits their values (`capabilities`,
   `checkConfig`). A DAQ driver gives the defaults of the inputs in `describe().defaults.acquisition`;
@@ -344,8 +418,10 @@ must run on any PC with MATLAB and the Signal Processing Toolbox.
   (`config/sim_thin_screen.json`; or load the lab file and save it in the new layout:
   `cfg = tim.app.loadConfig('config/user_config.json'); tim.app.saveConfig(cfg, 'config/<instrument>.json')`),
   and put the section of your role from `templates/instrument/config_snippet.json` into it
-  (`generator` for a source, `daq` for an acquisition, both for a combined driver, which names
-  itself in both and keeps its settings in `daq.<reg>`), with your driver's names and settings.
+  (`generator` for a source, `daq` for an acquisition) or, for a combined driver, both sections
+  of `config_snippet_combined.json` (it names itself in both and keeps its settings in
+  `daq.<reg>` only; settings in `generator.<reg>` are not read and give the warning
+  `tim:config:misplacedSettings`), with your driver's names and settings.
   Use `"mode": "simulation"` until step 10. **Do not change `config/user_config.json`**: it is
   the owner's lab file; switching it to a new driver is the owner's decision after step 10. Your
   configuration file is a working file: commit it only if the owner wants it in `config/`.
@@ -380,8 +456,11 @@ session only).
 Everything in this step runs in simulation; no instrument is contacted.
 
 1. **No placeholder left**: the `Select-String ... -Pattern 'TODO'` of step 3 finds nothing.
-2. **Code Analyzer**: `checkcode('+tim/+instr/<Name>.m')` (and the mock and the test): no message
-   except the "extra comma" of one-line `try, ...; catch, end` (the project's style).
+2. **Code Analyzer**: `checkcode('+tim/+instr/<Name>.m')` (and the mock, the test and the
+   device session `<Name>Session.m` of section 4.1): no message except the "extra comma" of
+   one-line `try, ...; catch, end` (the project's style). The device session runs only on the
+   hardware, so also load its class: `meta.class.fromName('tim.instr.<Name>Session')` returns the
+   class without an error, also on a PC without the product.
 3. **Driver tests**: `addpath(pwd); runtests('tests/Test<Name>.m')`. Adapt the copied tests to
    your instrument's facts (the `TODO` lines); add a test for every particular rule of the manual
    that the driver relies on (an order of commands, a reply format, a refusal).
@@ -416,8 +495,9 @@ into `docs/hardware_status.md` (step 11) - a step counts as passed only with a r
 
 Preparation (owner): the instrument connected and switched on, its address set by the owner (never
 change it), the loudspeaker connected only from step (c) on, an amplifier at minimum gain, and a
-copy of your configuration file with `"mode": "hardware"` and a conservative `generator.maxVpp`
-(not above the configured default 0.2 Vpp without the owner's decision). The other role keeps its
+copy of your configuration file with `"mode": "hardware"` and a conservative `generator.maxVpp`:
+no higher than the level the owner approves (the default excitation level is 0.2 Vpp; the default
+`generator.maxVpp` of `tim.app.defaultConfig` is 0.5 Vpp, the lab file's 2 Vpp). The other role keeps its
 lab instrument (33220A or LAN-XI) unless your driver takes both roles.
 
 **(a) Connect and identify, output off.**
@@ -434,6 +514,9 @@ s.close();
 Pass: the identity is the real model, serial and firmware (enter it in the reference document);
 the output is off - read back **and** seen at the instrument (front panel / output LED); after
 `close()` the instrument is idle and the output is still off; no error in the command window.
+For an analog or audio output (no relay), "seen at the instrument" means a voltmeter (DC) at the
+output terminal, with the loudspeaker and amplifier disconnected: 0 V after `connect` and after
+`close()`.
 
 **(b) Acquisition with the output off.**
 
@@ -467,7 +550,11 @@ Pass: the tone is in the record on every channel, no overload; after each measur
 is off (read back and at the instrument); the sweep lies inside the record with margins. Then in
 the window (`tubebench config/<instrument>_hw.json`): start a measurement and press **Stop** -
 the output goes off at once and the window says so; start one again and close the window - the
-output goes off.
+output goes off. For an analog or audio output, measure 0 V DC at the output terminal (voltmeter,
+before the amplifier) after the Stop, after closing, and after a measurement that ended with an
+error: an analog output that keeps its last value would put a DC voltage on the voice coil. (When
+the link to the device itself is lost, no program can set 0 V: with the loudspeaker disconnected,
+note what the output does then and report it to the owner.)
 
 **(d) Switching calibration and Test E.** As in `docs/calibration_procedure.md` (empty specimen
 section, the geometry measured and entered):
@@ -569,7 +656,8 @@ their driver tests, through the contract tests on their mocks.
 1. [ ] Fact sheet filled in; the manual at hand (section 1).
 2. [ ] Suitability table: every Must item met, with manual pages (section 2).
 3. [ ] Templates copied and renamed (section 3).
-4. [ ] Driver written; no `TODO` left (section 4).
+4. [ ] Driver written; no `TODO` left (section 4); for a combined device its device session
+   (section 4.1).
 5. [ ] Protocol mock written; no `TODO` left (section 5).
 6. [ ] Defaults in `describe()`; own configuration file in simulation mode (section 6).
 7. [ ] `docs/ref_<instrument>.md` with a source for every command (section 7).

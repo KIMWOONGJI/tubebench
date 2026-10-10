@@ -46,6 +46,20 @@ rules), input ranges, coupling / high-pass, IEPE supply, TEDS, start / read / st
 format and unit, the flags it reports (overload, open input, gaps) and how a stop is guaranteed
 on every exit path.
 
+For an interface of **function calls** instead of commands (a MATLAB toolbox such as the Data
+Acquisition Toolbox or the Audio Toolbox, a vendor SDK), list the calls of the device session
+(`docs/adding_an_instrument.md` section 4.1) instead, with the documentation that states them:
+
+| Purpose | Function / property, arguments | Documentation (product, release, page or section) | Notes |
+|---|---|---|---|
+| Find and identify the device | TODO | TODO | model, serial and firmware fields TODO |
+| Inputs: rate, range, coupling, IEPE current | TODO | TODO | is the rate coerced? read it back TODO |
+| Output channel | TODO | TODO | what the output does after a stop and after release (keeps the last value?) TODO |
+| Start, play and record a block, stop | TODO | TODO | queue length and the lag it gives TODO |
+| 0 V on demand after a stop | TODO | TODO | |
+| Errors and flags (underrun, overload, open input) | TODO | TODO | |
+| Release | TODO | TODO | |
+
 ## Limits used in `capabilities()`
 
 | Field | Value | Manual section, page |

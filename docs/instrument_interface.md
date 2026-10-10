@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Work order | WO-001 Part 1 (`docs/workorder_instrument_interface.md`; its §0 decides over older text) |
-| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). Part 2 (stage 6, section 14): the guide `docs/adding_an_instrument.md`, the templates `templates/instrument/` (tested by `tests/TestInstrumentTemplates.m`), the skill `.claude/skills/add-instrument/`, and the demo source `demo` made by following the guide. **Software-verified in simulation only**; the owner's hardware check (WO §0.3) is pending, and `AbortFcn` is not yet set by the session (D24, awaits the owner's approval). |
+| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). Part 2 (stage 6, section 14): the guide `docs/adding_an_instrument.md`, the templates `templates/instrument/` (tested by `tests/TestInstrumentTemplates.m`), the skill `.claude/skills/add-instrument/`, and the demo source `demo` made by following the guide. Fix stage after the review of the implementation (2026-10-11): loading only warns about driver limits, 0 V after the stop on every end of a combined device, block size from the driver in the contract cases, closing during connect / prepare, NI guidance (section 13.3). **Software-verified in simulation only**; the owner's hardware check (WO §0.3) is pending, and `AbortFcn` is not yet set by the session (D24, awaits the owner's approval). |
 | Applies to | `tim.app.MeasurementSession`, `tim.gui.Tubebench`, `+tim/+app`, `+tim/+cal`, `+tim/+val`, the drivers in `+tim/+instr` and `+tim/+sim` |
 
 This document is the contract between the measurement program and an instrument driver. A
@@ -14,7 +14,7 @@ step-by-step procedure, `templates/instrument/` the starting files.
 
 Units throughout: frequencies in Hz, times in s, sample counts per channel, sample rates in S/s,
 generator amplitudes in **Vpp as programmed** (see `generator.load`; a source programmed in
-full-scale units converts with its measured `vppAtFullScale`, section 3.3), input data in **volts
+full-scale units converts with its measured `vppAtFullScale`, section 3.4), input data in **volts
 at the input** (no sensitivity applied; full-scale units only for an input whose scale is
 unknown, section 4.2).
 
@@ -52,7 +52,8 @@ Life cycle, as the session uses it:
 ```
 src = tim.instr.create('source', cfg, ctx)            % connect, identify, output OFF
 acq = tim.instr.create('acquisition', cfg, ctx, src)  % connect, identify, idle (src itself if combined)
-acq.AbortFcn = @() src.outputOff()                    % abnormal end of acquire: output off first (8.1; D24)
+% planned (D24, after the owner's approval) - NOT set by the session as built:
+% acq.AbortFcn = @() src.outputOff()                  % abnormal end of acquire: output off first (8.1)
 acq.prepare(c)                                        % channels, range, CCLD, TEDS -> ready
 src.configureSweep(s) ... src.armOutput(true)
 [data, info] = acq.acquire(n, @onBlock)               % onBlock switches the output on / off
@@ -123,7 +124,10 @@ on the voice coil. Such a driver therefore
 * writes 0 V to each output channel first in `fromConfig`;
 * ends every plan with a fade to exactly 0 V (5 ms raised cosine) followed by zeros;
 * in `outputOff`, `close`, `delete` and on every error or Stop path writes 0 V to each output
-  channel after stopping and before releasing.
+  channel after stopping and before releasing - also when the device failed while it played (a
+  stall or time-out fails the rest of the fade as well): the fade, the stop and the 0 V write are
+  separate steps, each one tried even when the one before failed (`TemplateCombined.endOutput`).
+  The device session's 0 V write must therefore work after a stop.
 
 ### 3.2 Methods
 
@@ -178,7 +182,8 @@ in hardware mode unless the owner sets `generator.allowUnconfirmedOff = true` (s
 * `levelKnown = false`: the output is programmed in full-scale units (audio interface); the volts
   at the output depend on the device and its output knob (a professional line output reaches
   +18 to +24 dBu, well over 10 Vpp at 0 dBFS), so a static `maxVpp` cannot protect anything.
-  The driver setting `generator.<driver>.vppAtFullScale` (Vpp at full scale, measured once with
+  The driver setting `generator.<driver>.vppAtFullScale` (`daq.<driver>.vppAtFullScale` for a
+  combined driver, which reads only `daq.<driver>`; Vpp at full scale, measured once with
   a voltmeter at a fixed knob position; **no default**) is required in hardware mode
   (`checkConfig`). The driver converts Vpp to full-scale units with it and refuses any level with
   more than full scale or more than `generator.maxVpp` (`tim:gen:amplitude`); the operator
@@ -191,7 +196,8 @@ For a source whose output is played from a plan (section 8.3):
 
 * `configure*` and `setFrequency` outside `acquire` set the initial state of the next plan;
 * `outputOn` and `triggerSweep` outside `acquire` raise `tim:gen:schedule`;
-* `isOutputOn` is `false` outside `acquire`;
+* `isOutputOn` is `false` outside `acquire` - unless 0 V could not be written after a stop (the
+  state is then unknown and reported as on);
 * `configure*` before `prepare` use the `acquisition.sampleRate` captured by `fromConfig`, or raise
   `tim:gen:mode` when there is none; its frequency limits may be given as a fraction of the sample
   rate (`capabilities.source.bandFraction`).
@@ -369,7 +375,7 @@ connecting) and from the connected objects:
 |---|---|
 | INSTRUMENTS lamps 1 and 2: label | `describe().labels.source` / `.acquisition` (the lamp column widens for a longer label) |
 | Lamp tooltips | `'<label>: <displayName>'`, after Connect `' – <vendor> <model>, s/n <serial>, firmware <firmware>'` from `identity()` |
-| INSTRUMENTS "In use" (one line per instrument) | before Connect (and after Disconnect) the `displayName` of each configured driver; after Connect `'<label>: <model> s/n <serial>'` from `identity()`, followed by "(simulated)" in simulation mode (the protocol mocks report realistic identities, the LAN-XI mock the lab module's) |
+| INSTRUMENTS "In use" (one line per instrument; the row holds three lines, so a `displayName` of more than about 50 characters may wrap once) | before Connect (and after Disconnect) the `displayName` of each configured driver; after Connect `'<label>: <model> s/n <serial>'` from `identity()`, followed by "(simulated)" in simulation mode (the protocol mocks report realistic identities, the LAN-XI mock the lab module's) |
 | Setup > Connection, Instruments table | one row per role, one row "Output + Inputs (both roles)" for a combined device: role (lamp label and role), `displayName`, driver name, vendor, model, serial number, firmware (`identity()`, "–" before Connect) and the configured settings (`generator.maxVpp`, `load`; sample rate, range, filter, CCLD) |
 | Instruments table tooltip | the values the drivers allow (`capabilities()`: loads with `minVpp`–`maxVpp`, `sweepTime`, `waveforms`; `sampleRates` or `sampleRateRange`, `ranges`, `filters`, `ccld`, `teds`). The window has no sample-rate or range control: these are set in the configuration and checked by `checkConfig` (section 9.2) |
 | Connection checklist, lamp of each step, card refresh | `connectionSteps()` (`key`, `label`, `role`, `phase`), then the session's steps; the settling label from `texts.settle` (section 6) |
@@ -377,7 +383,7 @@ connecting) and from the connected objects:
 | Output state after Stop, an error or closing | `isOutputOn(1)` worded by `capabilities.source.readback` (section 3.2) |
 | Live view, background work | `recent()`; the background build waits while `isAcquiring()` |
 | Frequency fields (EXCITATION) | at most `acquisition.bandFraction` × `acquisition.sampleRate`, `source.frequencyRange(2)` and, for a shared clock, `source.bandFraction` × sample rate; at least `max(1 Hz, source.frequencyRange(1))` |
-| Amplitude field | from `source.minVpp` at `generator.load` (33220A at `INF`: 0.01 Vpk; before 1.2.0 the field allowed 0.005 Vpk, which the 33220A refuses) up to `generator.maxVpp` / 2 |
+| Amplitude field | from `source.minVpp` at `generator.load` (33220A at `INF`: 0.01 Vpk; before 1.2.0 the field allowed 0.005 Vpk, which the 33220A refuses: such a file loads with a warning and the field starts at the minimum) up to `generator.maxVpp` / 2 |
 | Sweep duration field | `source.sweepTime` |
 | Drive estimate | `source.outputImpedance_ohm` (`tim.app.driveEstimate`, D12) |
 
@@ -438,7 +444,9 @@ so the excitation would never be recorded.
 Only when `ctx.roles` contains both roles (`s.Gen == s.Daq`) may the driver plan:
 
 1. **Planning pass** - before anything is played, the driver calls `onBlock(n)` for
-   `n = B, 2B, ...` up to the requested count without waiting (B: driver block, e.g. 2048);
+   `n = B, 2B, ...` up to the requested count without waiting (B: the driver's block, its setting
+   `blockSamples`, e.g. 2048; the contract tests read it from `metadata().settings` and place
+   their actions in multiples of it);
    `isPlanning()` is `true`. Every source call made meanwhile is **scheduled** on the device
    timeline at the current `n` (sample-exact): `outputOn`, `triggerSweep`, `setFrequency`, a
    level, and `outputOff` ("off at n", the normal end of the excitation). `waitComplete` returns
@@ -457,6 +465,16 @@ A Stop from the window during the planning pass calls `outputOff` (scheduled) an
 `tim:session:stopped` is thrown from `onBlock`, which discards the plan; during execution the
 same `outputOff` stops the output at once. The session code is the same for both kinds of
 device: `measureSweep` / `measureStepped` / `measureNoise` are unchanged.
+
+A device whose output is **queued ahead** of the recording (an NI device in continuous mode: the
+output samples are written some blocks before they play) cannot fade samples that are already
+queued. Its `outputOff` during execution stops the device at once and then writes 0 V (the output
+stops at its last value - a click, no fade - and no DC remains), and `acquire` ends with
+`tim:instr:outputStopped`; its recorded blocks lag the played ones by the queue length, a fixed
+latency that must stay well inside the pre- and post-roll. The contract tests run on the protocol
+mock, which has no queue; on the hardware the Stop is checked at the output terminal
+(`docs/adding_an_instrument.md` sections 4.1 and 10). (Added after the review of 2026-10-11; there
+is no such device in the lab.)
 
 ## 9. Registry and configuration
 
@@ -531,22 +549,32 @@ session only (tests; trying a driver before its line is added).
   gives the step `'skip'`, no error; the swept sine with the configured spacing must be supported
   (`'sweep'` in `source.waveforms`, `excitation.sweep.spacing` in `sweepSpacing`) because the
   switching calibration and Test E are sweeps (`tim.app.runCalibration`), and `excitation.mode`
-  must be in `source.waveforms` (`tim:config:excitation`); levels within [`minVpp`, `maxVpp`] of
-  the load; sweep durations within `sweepTime`; a sample rate the device runs exactly; in hardware
-  mode `vppAtFullScale` for `levelKnown = false`.
+  must be in `source.waveforms` (`tim:config:excitation`); `generator.maxVpp` at most `maxVpp` of
+  the load, and the levels of the swept sine and of the selected signal at least `minVpp` (a level
+  that is not played now is refused by `configure*` when it is, `tim:gen:amplitude`); sweep
+  durations within `sweepTime`; a sample rate the device runs exactly; in hardware mode
+  `vppAtFullScale` for `levelKnown = false`.
 * Driver-specific settings live in a sub-struct named after the driver. It is merged onto
   `describe().defaults.settings`, not onto `tim.app.defaultConfig`. A sub-struct named after
   another registered driver is kept without a warning (a file can hold the settings of several
   drivers and switch with `driver`); unknown names still give `tim:config:unknownField`.
 * A combined driver reads its device settings from `daq.<name>`; `generator.driver` names the same
-  driver.
-* **Unknown driver names** (a measurement folder from another lab or from a driver removed later):
-  `loadConfig` and `validateConfig` give the **warning** `tim:config:driver`, keep its sub-struct
-  as it is and skip the driver-dependent limits, so File > Open measurement ("use the saved
-  set-up"), Load configuration and scripts that only reprocess still work. The **error** is raised
-  where an instrument is needed: by `tim.instr.create` at Connect and by
-  `validateConfig(cfg, 'instruments')`, which `MeasurementSession` calls (the window shows such
-  errors as "Check the settings").
+  driver. A sub-struct in a section its driver never reads (`generator.<name>` of a driver that
+  takes both roles, `generator.<name>` of a driver without the source role, `daq.<name>` of one
+  without the acquisition role) gives the warning `tim:config:misplacedSettings` in `loadConfig`
+  and at Connect (`tim.instr.create`; `tim.instr.Instrument.misplacedSettings`).
+* **Loading only warns** (D29; extended after the review of 2026-10-11). An **unknown driver name**
+  (a measurement folder from another lab or from a driver removed later): `loadConfig` and
+  `validateConfig` give the **warning** `tim:config:driver`, keep its sub-struct as it is and skip
+  the driver-dependent limits. A driver named for a role it does not have, and a value outside the
+  limits of the selected driver (e.g. a level below its minimum, `generator.maxVpp` above its
+  maximum at the load, a sweep time it cannot play - all accepted by 1.1.0), give the warning with
+  the driver's identifier (`tim:config:amplitude`, ...), also returned in the report (the window
+  logs it as a check). So File > Open measurement ("use the saved set-up"), Load configuration, the
+  start-up of the window and scripts that only reprocess still work. The **error** is raised where
+  an instrument is needed: by `tim.instr.create` at Connect and by
+  `validateConfig(cfg, 'instruments')`, which `MeasurementSession` calls in its constructor and
+  setters, and the window while it is connected (it shows such errors as "Check the settings").
 * `tim.app.driveEstimate` takes the source impedance from `capabilities().source.outputImpedance_ohm`
   of `generator.driver` (before 1.2.0 a fixed 50 Ω: a DAQ output of about 0 Ω driving an 8 Ω
   loudspeaker directly would have been estimated (58/8)² ≈ 50 times too low - a safety defect for
@@ -562,11 +590,12 @@ and by `validateConfig` for configurations built in code (old scripts set `cfg.l
 
 1. A top-level `lanxi` section and no `daq` section → `daq.driver = "lanxi"`, `daq.lanxi = lanxi`;
    `lanxi` is removed (no unknown-field warning).
-2. `generator.host` / `port` / `timeout` outside a driver sub-struct move into
-   `generator.keysight33220a` **only when the selected driver is `keysight33220a` or no driver is
-   given**. Otherwise they stay unused and the warning `tim:config:legacyField` names the key and
-   where it belongs (e.g. `generator.<driver>.host`): a user who only changed the driver name must
-   not silently get the new driver's default address.
+2. `generator.host` / `port` / `timeout` outside a driver sub-struct always move into
+   `generator.keysight33220a`, the driver they belong to (a saved file then holds them there).
+   When another generator driver is selected, that driver does not use them, and the warning
+   `tim:config:legacyField` names the keys and where that driver's own setting goes
+   (`generator.<driver>.*`): a user who only changed the driver name must not silently get the new
+   driver's default address without being told.
 3. A missing `driver` key → the default driver of the role (`keysight33220a`, `lanxi`).
 4. Both layouts in one file → the new keys win; `tim:config:legacyField` names the ignored old keys.
    A configuration built in code starts from `defaultConfig`, which already holds the new keys with
@@ -644,7 +673,9 @@ Acquisition:
 11. Integrity problems are reported in `info.integrity`, never hidden; partial data stay available
     through `collect`.
 
-Combined device: 12. when the acquisition stops for any reason, the output stops too (0 V).
+Combined device: 12. when the acquisition stops for any reason - also when the device itself
+fails while the output plays - the output stops too: the device is stopped, then 0 V is written
+(section 3.1).
 
 ### 11.2 Session (defence in depth)
 
@@ -686,14 +717,19 @@ an `'instrument'` read-back returns `true`; after `breakLink`, `outputOff` and `
 quickly without throwing; a second `close` sends nothing; `acquire` shape, rate, unit and
 integrity fields; a channel fault appears in `integrity`; Stop during `acquire` (error unchanged,
 device stopped, partial data, next `acquire` works); `AbortFcn` first on an `onBlock` error and on
-a driver error; `close` from inside `onBlock`; every acquisition driver, run with a separate
+a driver error; `close` from inside `onBlock`; `close` from `ProgressFcn` at each step of `prepare`
+(nothing sent afterwards, `tim:instr:closed`); every acquisition driver, run with a separate
 source on the same rig, records the excitation inside the record; the registry refuses an unknown
 driver, a wrong role or pairing and an invalid driver configuration before any I/O, and reads
 the legacy configuration keys; the product check names the product and the driver. With `simcombined` and the rig's
 `OutputLog` (stage B): Stop during planning plays nothing, Stop during execution ends the output
 within one block, an `onBlock` error after `outputOn` leaves the output off, the last output
 value is 0 after a normal plan, a Stop in either pass, an `onBlock` error and `close` during
-`acquire`, and `estimateSweepLaw` of the played sweep is within tolerance.
+`acquire`, a device that stalls while the output plays leaves it at 0 V (stopped, then 0 V; the
+template mock keeps its last value after a stop like an analog output), and `estimateSweepLaw`
+of the played sweep is within tolerance. The block cases place their actions in multiples of the
+driver's block (`settings.blockSamples`), and `TestInstrumentTemplates` also runs them for a copy
+of `TemplateCombined` with a block of 4096 samples (review of 2026-10-11).
 
 The configuration of the contract cases (`config(role, name)`) selects the driver for its role and
 keeps the default driver of the other; since stage 6 an acquisition driver gets **its own input
@@ -718,8 +754,9 @@ own driver tests (D42).
 | `tim:instr:outputStopped` | block driver | `outputOff` during execution ended the acquisition early (section 8.3) |
 | `tim:instr:noHooks` | `testHooks` | the object does not run on its protocol mock |
 | `tim:config:driver` | `validateConfig`, `checkConfig`, registry | missing / unknown driver (a warning when only loading, section 9.2) |
-| `tim:config:*` | `validateConfig`, `checkConfig` | a setting the driver does not support |
+| `tim:config:*` | `validateConfig`, `checkConfig` | a setting the driver does not support (a warning when only loading, section 9.2) |
 | `tim:config:legacyField` (warning) | `migrateConfig` | old keys ignored or not moved (section 9.3) |
+| `tim:config:misplacedSettings` (warning) | `loadConfig`, registry | driver settings in a section the driver never reads, e.g. `generator.<d>` of a combined driver (section 9.2) |
 | `tim:gen:notArmed` | source | `outputOn` without `armOutput(true)` |
 | `tim:gen:amplitude` | source | level above the limit, not positive, below the instrument minimum or above full scale |
 | `tim:gen:mode` | source | call not valid in the configured mode (unconfigured `outputOn`, `setFrequency` outside sine, `triggerSweep` outside sweep, a block source configured before any sample rate is known) |
@@ -764,7 +801,7 @@ own driver tests (D42).
 | D26 | Exact sample rate or `tim:<driver>:rate`; the rate list or range is a capability; `checkConfig` refuses rates the device cannot run exactly | a static `isRateExact(fs)` member as the review proposed | `checkConfig` is already the static place that validates the driver's settings; one member less |
 | D27 | Rig `respond(x)` + `OutputLog`; `setGeneratorState` only for the 33220A mock | every source maps its state onto the 33220A fields | a sample-buffer mock cannot express its output as a 33220A state; generic safety assertions need what was really played |
 | D28 | Static `testHooks(obj)` per driver (simulation only) | driver-specific contract tests | without generic hooks the duties of §11 could only be tested for the 33220A |
-| D29 | Unknown driver: warning on load, error at Connect | error in `validateConfig` (stage 1) | saved folders of other labs and scripts that only reprocess must keep loading |
+| D29 | Unknown driver: warning on load, error at Connect; since the review of 2026-10-11 also a driver in a role it does not have and a value outside the selected driver's limits | error in `validateConfig` (stage 1); errors for limit violations also on load (as built until the review) | saved folders of other labs and scripts that only reprocess must keep loading, and so must files that 1.1.0 accepted and wrote (WO §4 acceptance) |
 | D30 | Products as `name` + `feature`, hardware mode only; optional `checkInstalled()` for support packages and runtimes | `ver` names in every mode | `license` needs feature names; support packages and vendor runtimes are no MATLAB products; mocks need no toolbox |
 | D31 | Second bus fixture for the fault paths, recorded before stage A on the pre-refactor code | normal-path fixture only | the fault paths (error, Stop, cancel, power refusal, fast close) are the highest refactor risk and can be recorded on the old code only once |
 | D32 | Empty generic acquisition values mean the driver default; `ccld` / TEDS policy in `checkConfig` | LAN-XI values as generic defaults | a file that only names another DAQ must not fail on `'10 Vpeak'` / `'0.7 Hz'` |
@@ -775,7 +812,7 @@ own driver tests (D42).
 | D37 | `tim.app.outputGuard` in stage B | stage A | stage A does not change the session (stage plan); the guard is the first change of stage B |
 | D38 | Stage A: the registry reads the legacy keys itself | `migrateConfig` in stage A | the configuration code changes in stage B; the registry must already work with every configuration of today |
 | D39 | Window texts from two short driver texts, `texts.noun` and `texts.closed` (stage C) | compose the sentences from the display names (stage plan); from the lamp labels | the display names are long and name the protocol ("HBK LAN-XI module (Open API)"), the lamp labels are capitalised or plural ("Inputs"); with a noun and a closed state the operating-mode, Connect and Disconnect tooltips read exactly as before for the two lab drivers (the closing dialog and the Disconnect log line nearly so: "Closing the connections: generator output off, LAN-XI module back to Idle …") and correctly for a combined device |
-| D40 | Identity display: an "In use" row in INSTRUMENTS (one line per instrument) and an Instruments table in Setup > Connection, plus the lamp tooltips; "(simulated)" in simulation mode | tooltips only; an identity panel in place of the checklist | visible at a glance without hovering, the table has room for vendor, firmware and the settings; the LAN-XI mock reports the lab module's real serial number, which must not look like a connected instrument. The control panel still fits the 1920 × 1080 lab screen (about 900 px of content, limit 930) |
+| D40 | Identity display: an "In use" row in INSTRUMENTS (one line per instrument) and an Instruments table in Setup > Connection, plus the lamp tooltips; "(simulated)" in simulation mode | tooltips only; an identity panel in place of the checklist | visible at a glance without hovering, the table has room for vendor, firmware and the settings; the LAN-XI mock reports the lab module's real serial number, which must not look like a connected instrument. The control panel still fits the 1920 × 1080 lab screen (about 920 px of content since the "In use" row holds three lines - review of 2026-10-11: a display name that wraps hid the second instrument -, limit 930) |
 | D41 | GUI limits of the EXCITATION fields from `capabilities()`; no sample-rate or range control in the window | keep 0.45 × sample rate and 0.005 Vpk; add selectors for sample rate and range | one rule for the window and `checkConfig`, so the window no longer accepts a level the source refuses only at measure time (33220A: 0.02 Vpp at `INF`); the input settings stay in the configuration (the window shows them and the allowed values, section 7.1) |
 | D42 | Templates are complete drivers of imaginary instruments that pass the contract tests on their own mocks (`tests/TestInstrumentTemplates`); every instrument fact is a line marked `TODO` | skeletons with empty methods; templates that are not run | a person starts from code that is known to meet the contract, and only replaces facts; a template that is never run breaks unnoticed; the `TODO` markers and the guide's "no `TODO` left" check make every placeholder visible (stage 6) |
 | D43 | The demo source `demo` stays registered, simulation only (`describe().simulation = 'only'`) | remove it after the dry run; keep it in `tests/support` | the guide's worked example stays checked by the contract tests and visible in the registry; `'only'` keeps it out of hardware mode (registry check 4) |
@@ -815,6 +852,26 @@ the decision named.
 | 22 | Migration edge cases | one `migrateConfig`; legacy keys only to the legacy driver | 9.3, D34 | B |
 | 23 | Inventory gaps; D8 undecided | `ampDirect` and the `driveEstimate` help added to Appendix A; D8 recorded as owner decision | A.3, D8, D12 | B |
 | 24 | Minimality | `shutdown`, `Mode`, `MaxVpp`, `Load` out; `minVpp`, `sweepTime`, step role `'both'`, card refresh after `'prepare'` steps | 3, 4, 5, 6, D21 | A (contract), B (cards), C (GUI limits) |
+
+### 13.3 Review of the implementation (2026-10-11, fix stage)
+
+Three independent reviews (safety / bus, compatibility / contract, usability / documentation) of
+the code as built; every finding was reproduced or checked in the code first.
+
+| # | Finding (severity) | Resolution | Where |
+|---|---|---|---|
+| 1 | Stop or an error during the LAN-XI connect step after `module/info`: the object was dropped and the module not returned to Idle (low) | `LanXi.fromConfig` returns the module to Idle (status request, Idle if needed, 2 s time-out) before the error propagates. The status request now comes before the generator's close lines (the e8fb4fb code sent it from the window's `close(true)`, after them): an intended change of order, checked against an explicit list; both fixtures unchanged | `LanXi.m`; `TestBusTraffic/stopDuringConnectReturnsTheModuleToIdle` |
+| 2 | `close()` from `ProgressFcn` during `prepare` (window closed during the TEDS step): the LAN-XI driver sent the TEDS requests to the closed module (low) | closed check after every step report and in the TEDS poll; a TEDS failure no longer hides `tim:instr:closed`; the same check in `simcombined` and the templates | 2.2, 11.1 duty 9; contract case `closeFromProgressDuringPrepare` (every step) |
+| 3 | Files that 1.1.0 accepted and wrote no longer loaded (a level below the generator minimum - the 1.1.0 window wrote 0.01 Vpp -, `maxVpp` up to 20 Vpp at load `'50'`, a sweep over 500 s, connector `''`): the window did not start, Open measurement dropped "use the saved set-up" (medium) | loading only warns about driver limits (D29 extended); errors in the session (constructor and setters), the registry and the connected window; the generator minimum is checked for the swept sine and the selected signal only (another level is refused when played); LAN-XI connector `''` accepted (no `ConnectorSelect`, as 1.1.0). Not taken: `''` as "driver default" in `settingsFrom` - it would send `ConnectorSelect BNC` where 1.1.0 sent nothing, and turn an empty address into the default address | 9.2; `validateConfig`, `SignalSource.checkSourceConfig`, `LanXi.checkConfig`; `TestConfiguration/filesOfVersion110StillLoad`, `TestGui/fileOfVersion110WithLevelsBelowTheMinimum` |
+| 4 | Section 9.3 rule 2 contradicted `migrateConfig` (low) | text corrected (the keys always move to `generator.keysight33220a`) | 9.3 |
+| 5 | Section 1 showed the session setting `AbortFcn` (low) | marked as planned (D24) | 1 |
+| 6 | `TemplateCombined`: a device error while the output played skipped the 0 V write (fade and 0 V in one `try`); 0 V was never written after the stop (high) | `endOutput`: the rest of the fade, the stop, then 0 V - separate steps, each tried; 0 V after the stop on every end, the normal one included; `isOutputOn` true when 0 V could not be written; the template mock keeps its last value after `stop` and `close`; `simcombined` in the same order; guide step 10: 0 V DC at the output terminal | 3.1, 3.5, 11.1 duty 12; contract case `deviceStallWhilePlayingLeavesOutputAtZero` |
+| 7 | The block cases of the contract tests assumed B = 2048: a combined driver with another block failed 4 cases (medium) | actions in multiples of the driver's block (`settings.blockSamples`, `planUnit`); `TestInstrumentTemplates` runs them for a copy of the template with 4096 | 8.3, 11.3 |
+| 8 | No usable guidance for the device session of an NI device (queued output, Stop latency, underrun, 0 V after stop) (medium) | guide section 4.1, the queued-output note in 8.3, a class-load check of the session in step 9, a table for function-call interfaces in `ref_template.md`. Guidance only: there is no NI device in the lab | 8.3; guide 4.1, 9, 10 |
+| 9 | Settings of a combined driver in `generator.<driver>` were silently ignored; the templates' default address `Dev1` (medium) | warning `tim:config:misplacedSettings` (`loadConfig`, registry); `vppAtFullScale` worded for a combined driver; `config_snippet_combined.json`; the templates' address has no default and is required in hardware mode | 3.4, 9.2; guide 6 |
+| 10 | The "In use" row (two lines) hid the second instrument when a display name wrapped (low) | row of three lines; guide: `displayName` at most about 50 characters | 7.1, D40 |
+| 11 | Documents inconsistent in four places (low) | WO §5 item 3 (defaults in `describe()`, D45), the reference to 3.4, the `maxVpp` wording of guide step 10, the README status date | - |
+| 12 | NI suitability: the IEPE current and the support-package check left open (low) | the Must item names the microphone data sheet; a commented `checkInstalled` skeleton in the acquisition and combined templates | guide 2, 4 |
 
 ## 14. Implementation plan
 
@@ -972,6 +1029,21 @@ classes: `TestDemoSource` and `TestInstrumentTemplates` new, 11 contract cases f
 bus-traffic fixtures unchanged; the templates and the demo files give only the Code Analyzer's
 "extra comma" messages of the one-line `try` (the project's style). The owner's hardware check
 (§0.3) follows.
+
+**Fix stage - review of the implementation (2026-10-11).** Twelve findings of three reviews,
+resolved as listed in section 13.3. Each was first reproduced in simulation (or checked in the
+code); the new tests fail on the code before the fixes (checked in a temporary worktree of
+f892d19 with the new tests: `closeFromProgressDuringPrepare` for `lanxi`, `simcombined` and the
+templates, `deviceStallWhilePlayingLeavesOutputAtZero` for the combined template, the misplaced
+settings of the combined snippet). The bus traffic of the normal path and of the recorded fault
+paths is unchanged; the one intended change of order (a Stop during the LAN-XI connect step) is
+checked by its own test.
+
+Verified at the end of the fix stage (simulation only): full suite 299 / 299 in batch
+MATLAB (21 test classes); `TestBusTraffic` 5 / 5 with both fixtures unchanged; no new Code Analyzer
+message in the changed files; `config/*.json` and the `config.json` of the five saved measurement
+folders under `data/` load without a warning (read only). The owner's hardware check (§0.3) is the
+next step (`docs/hardware_status.md`).
 
 ## Appendix A - Inventory of the instrument-specific code before WO-001 (commit 8ff47f3)
 

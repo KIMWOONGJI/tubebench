@@ -54,9 +54,9 @@ template (simulation mode, no geometry) - never copy it over `user_config.json`.
 software commit does not see uncommitted local changes - commit before measuring with edited code
 or configuration.
 
-## Status (2026-10-10)
+## Status (2026-10-11)
 
-* **Software**: complete. 291 automated tests in 21 test classes (simulation and recorded hardware
+* **Software**: complete. 299 automated tests in 21 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -70,7 +70,8 @@ or configuration.
 * **Hardware**: network, identification, the LAN-XI recorder state machine and binary streaming
   are verified on the real instruments. The generator output, the microphone chain, TEDS,
   calibration and the acoustic validation (Tests A–G) are **pending**; see
-  `docs/hardware_status.md`.
+  `docs/hardware_status.md`, which also lists the pending hardware check of the 1.2.0 instrument
+  interface (WO-001, branch `wo-001`: software-verified in simulation only).
 * **Geometry**: CAD design values of the lab tube (s1 29, L1 41, d 75, L2 41, s2 29 mm; the
   specimen fills the 75 mm specimen section) are in `config/user_config.json`; verify them with
   calipers. The switching calibration is done with the empty specimen section mounted and ends
@@ -128,7 +129,7 @@ tests/                  matlab.unittest suites + fixtures (real LAN-XI responses
                         device; identity display); support/ (test-only drivers)
 templates/instrument    starting files for a new driver (source, acquisition, combined device,
                         their protocol mocks and tests, reference document, configuration
-                        snippet); not on the path (docs/adding_an_instrument.md)
+                        snippets); not on the path (docs/adding_an_instrument.md)
 .claude/skills          add-instrument: the Claude Code skill that runs the driver guide
 examples/               demo_simulation.m, hardware_commissioning.m, bench_test_no_tube.m,
                         output/ (example plots)
