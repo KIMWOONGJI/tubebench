@@ -15,6 +15,8 @@ classdef MockLanXiStream < handle
     %     StopAfterSamples    simulate interruption              (Inf)
     %     ShuffleSignals      random signal order inside messages (false)
     %     OmitInterpretation  never send Interpretation         (false)
+    %     InvalidSignals      signal ids reported INVALID (DataQuality, cable /
+    %                         CCLD fault) when measuring starts  ([])
 
     properties (SetAccess = private)
         Rig
@@ -35,7 +37,7 @@ classdef MockLanXiStream < handle
     methods
         function obj = MockLanXiStream(rig, fs, rangeV, channels, opt)
             d = struct('BlockSamples', 2048, 'SamplesPerMessage', 256, 'RandomChunking', false, ...
-                'CorruptEvery', 0, 'StopAfterSamples', Inf, 'ShuffleSignals', false, 'OmitInterpretation', false);
+                'CorruptEvery', 0, 'StopAfterSamples', Inf, 'ShuffleSignals', false, 'OmitInterpretation', false, 'InvalidSignals', []);
             if nargin >= 5
                 f = fieldnames(opt);
                 for i = 1:numel(f), d.(f{i}) = opt.(f{i}); end
@@ -53,6 +55,10 @@ classdef MockLanXiStream < handle
                 ids = 1:numel(obj.SignalChannels);
                 scale = obj.RangeV * 10^(1.5/20) * ones(size(ids));
                 obj.Backlog = [obj.Backlog, tim.sim.lanxiEncode('interpretation', ids, scale, obj.Fs, 'V', obj.T0)];
+            end
+            bad = obj.Opt.InvalidSignals;
+            if ~isempty(bad)
+                obj.Backlog = [obj.Backlog, tim.sim.lanxiEncode('quality', bad, 8 * ones(1, numel(bad)), obj.T0)];
             end
         end
 

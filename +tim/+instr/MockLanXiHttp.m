@@ -13,6 +13,8 @@ classdef MockLanXiHttp < handle
     %   Fault injection:
     %     TedsPresent      logical 1x4 - channels returning a TEDS record
     %     FailPath         path for which the next request fails (network error)
+    %     Broken           lost link: every request fails (network error), nothing
+    %                      reaches the module
     %     StreamOptions    struct passed to MockLanXiStream (chunking, corruption...)
     %
     %   Log lists every request ('METHOD path'). While tim.instr.mockBusLog
@@ -26,6 +28,7 @@ classdef MockLanXiHttp < handle
         TedsSensitivity double = [11.2 11.5 10.9 11.3] * 1e-3
         TedsSerial double = [3001001 3001002 3001003 3001004]
         FailPath char = ''
+        Broken logical = false
         StreamOptions struct = struct()
         Port double = 1536
     end
@@ -51,6 +54,9 @@ classdef MockLanXiHttp < handle
         function [data, status, raw] = request(obj, method, path, body, ~)
             if nargin < 4, body = []; end
             method = upper(method);
+            if obj.Broken
+                error('tim:lanxi:network', 'LAN-XI %s %s failed: mock link lost', method, path);
+            end
             obj.Log{end+1} = sprintf('%s %s', method, path);
             tim.instr.mockBusLog('add', 'REST', strtrim(sprintf('%s %s %s', method, path, bodyText(body))));
             if ~isempty(obj.FailPath) && strcmpi(path, obj.FailPath)
@@ -102,6 +108,9 @@ classdef MockLanXiHttp < handle
 
         function s = openStream(obj, ~, port)
             %OPENSTREAM Stream factory for tim.instr.LanXi in simulation.
+            if obj.Broken
+                error('tim:lanxi:streamConnect', 'Mock: link lost (port %d).', port);
+            end
             tim.instr.mockBusLog('add', 'STREAM', sprintf('open port %d', port));
             if port ~= obj.Port
                 error('tim:lanxi:streamConnect', 'Mock: no listener on port %d.', port);

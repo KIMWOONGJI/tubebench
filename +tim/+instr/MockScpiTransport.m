@@ -10,7 +10,9 @@ classdef MockScpiTransport < handle
     %   forwarded so the simulated acquisition "hears" the excitation.
     %
     %   Fault injection: set FailNextQuery = true to emulate a timeout,
-    %   or InjectError = '-222,"Data out of range"' to push an error.
+    %   InjectError = '-222,"Data out of range"' to push an error, or
+    %   Broken = true to emulate a lost link (every command fails, nothing
+    %   reaches the instrument).
     %
     %   Log lists every command ('> cmd'), every response ('< resp') and the
     %   close; the same lines go to tim.instr.mockBusLog (bus 'SCPI') while
@@ -21,6 +23,7 @@ classdef MockScpiTransport < handle
         IdnString = 'Agilent Technologies,33220A,MOCK0001,2.02-2.02-22-2'
         FailNextQuery logical = false
         InjectError char = ''
+        Broken logical = false   % lost link: every write / query fails with tim:scpi:timeout
     end
     properties (SetAccess = private)
         State struct
@@ -37,6 +40,7 @@ classdef MockScpiTransport < handle
 
         function write(obj, cmd)
             obj.assertOpen();
+            obj.assertLink(cmd);
             obj.addLog(['> ' cmd]);
             parts = strsplit(cmd, ';');
             for i = 1:numel(parts)
@@ -49,6 +53,7 @@ classdef MockScpiTransport < handle
 
         function resp = query(obj, cmd, ~)
             obj.assertOpen();
+            obj.assertLink(cmd);
             obj.addLog(['> ' cmd]);
             if obj.FailNextQuery
                 obj.FailNextQuery = false;
@@ -75,6 +80,10 @@ classdef MockScpiTransport < handle
 
         function assertOpen(obj)
             if obj.Closed, error('tim:scpi:closed', 'Mock transport closed.'); end
+        end
+
+        function assertLink(obj, cmd)
+            if obj.Broken, error('tim:scpi:timeout', 'No response to "%s" (mock: link lost).', cmd); end
         end
 
         function addLog(obj, line)
