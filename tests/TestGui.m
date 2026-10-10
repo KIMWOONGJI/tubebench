@@ -444,6 +444,116 @@ classdef TestGui < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function instrumentsShownFromTheDrivers(tc)
+            % WO-001 section 0.2: no instrument selector; the window shows which
+            % instruments are in use - before connecting the display names of the
+            % configured drivers, after connecting the identity the instruments
+            % reported (model, serial number, firmware) - in INSTRUMENTS (lamps,
+            % "In use") and in Setup > Connection. The two lab drivers on their
+            % protocol mocks keep today's texts and lamp labels.
+            c = tim.app.defaultConfig();
+            c.mode = 'simulation';
+            c.geometry = c.simulation.Geometry;
+            file = fullfile(tc.tmp, 'cfg.json');
+            tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            g = tim.instr.driverInfo('keysight33220a'); d = tim.instr.driverInfo('lanxi');
+            names = [g.displayName newline d.displayName];      % one line per instrument
+            % before connecting: the configured drivers
+            tc.verifyEqual({h.lampLabel.Text}, {'Generator', 'LAN-XI', 'ch1', 'ch2', 'ch3', 'ch4'});
+            tc.verifyEqual(h.instr.Text, names);
+            tc.verifySubstring(h.lamp(1).Tooltip, g.displayName);
+            tc.verifySubstring(h.lamp(2).Tooltip, d.displayName);
+            T = h.instrTable.Data;
+            tc.verifyEqual(T(:, 1:3), {'Generator (signal source)', g.displayName, 'keysight33220a'; ...
+                'LAN-XI (acquisition)', d.displayName, 'lanxi'});
+            tc.verifyEqual(T(:, 4:7), repmat({'–'}, 2, 4), 'no identity before connecting');
+            tc.verifyEqual(T{2, 8}, '16384 S/s, 10 Vpeak, high-pass 0.7 Hz, CCLD on');
+            tc.verifySubstring(h.instrTable.Tooltip, '4096, 8192, 16384, 32768, 65536', 'rates the driver allows');
+            % the texts of before for the lab drivers, composed from describe().texts
+            tc.verifyEqual(h.connect.Tooltip, ['Connect the generator and the LAN-XI module (generator output off), ' ...
+                'read TEDS and check every channel (Setup > Connection).']);
+            tc.verifyEqual(h.disconnect.Tooltip, 'Generator output off, LAN-XI module back to Idle, connections closed.');
+            tc.verifyEqual(h.modeLabel.Tooltip, 'Simulation: virtual tube for practice. Hardware: generator and LAN-XI module.');
+            % EXCITATION limits from the capabilities
+            tc.verifyEqual(h.fStop.Limits, [1, 0.45 * c.acquisition.sampleRate]);
+            tc.verifyEqual(h.amp.Limits(1), 0.01, 'AbsTol', 1e-12, '33220A: 20 mVpp at load INF');
+            tc.verifyEqual(h.dur.Limits, [0.001 500], '33220A sweep times');
+            % connected: the identity the instruments reported
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            s = app.Session;
+            tc.assertNotEmpty(s, 'connected');
+            ig = s.Gen.identity(); id = s.Daq.identity();
+            tc.verifyEqual({ig.model, ig.serial, id.model, id.serial}, {'33220A', 'MOCK0001', '3676-B-040', '110283'}, ...
+                'identities of the protocol mocks');
+            T = h.instrTable.Data;
+            tc.verifyEqual(T(1, 4:7), {ig.vendor, ig.model, ig.serial, ig.firmware});
+            tc.verifyEqual(T(2, 4:7), {id.vendor, id.model, id.serial, id.firmware});
+            tc.verifyEqual(h.instr.Text, sprintf('Generator: 33220A s/n MOCK0001 (simulated)\nLAN-XI: 3676-B-040 s/n 110283 (simulated)'));
+            tc.verifySubstring(h.lamp(1).Tooltip, sprintf('%s 33220A, s/n MOCK0001, firmware %s', ig.vendor, ig.firmware));
+            tc.verifySubstring(h.lamp(2).Tooltip, sprintf('s/n 110283, firmware %s', id.firmware));
+            tc.verifyEqual(h.lamp(1).Tooltip, app.LampTips{1}, 'kept after the action');
+            % disconnected: the configured drivers again
+            feval(h.disconnect.ButtonPushedFcn, h.disconnect, []);
+            tc.verifyEqual(h.instr.Text, names);
+            tc.verifyEqual(h.instrTable.Data(:, 5), {'–'; '–'});
+            tc.verifyTrue(any(endsWith(h.log.Value, ...
+                'Instruments disconnected by the operator (generator output off, LAN-XI module back to Idle).')));
+            clear cleanup
+        end
+
+        function combinedDeviceShownFromItsDriver(tc)
+            % the simulated combined device (one object in both roles): one row of
+            % the Instruments table, its lamp labels, checklist, texts and limits
+            % before connecting and its identity after - all from its driver
+            c = tim.app.defaultConfig();
+            c.mode = 'simulation';
+            c.generator.driver = 'simcombined'; c.daq.driver = 'simcombined';
+            c.geometry = c.simulation.Geometry;
+            file = fullfile(tc.tmp, 'cfg.json');
+            tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            d = tim.instr.driverInfo('simcombined');
+            tc.verifyEqual({h.lampLabel(1:2).Text}, {'Output', 'Inputs'});
+            tc.verifyEqual(app.ConnList.Keys, {'device', 'setup', 'sens', 'settle', 'signal'}, 'checklist before connecting');
+            tc.verifyEqual(h.instr.Text, d.displayName);
+            T = h.instrTable.Data;
+            tc.verifySize(T, [1 8], 'one device');
+            tc.verifyEqual(T(1, 1:3), {'Output + Inputs (both roles)', d.displayName, 'simcombined'});
+            tc.verifyEqual(h.connect.Tooltip, 'Connect the simulated device (output off) and check every channel (Setup > Connection).');
+            tc.verifyEqual(h.disconnect.Tooltip, 'Simulated device stopped, output at 0 V, connections closed.');
+            for t = {h.modeLabel.Tooltip, h.connect.Tooltip, h.disconnect.Tooltip, h.instr.Tooltip, h.lamp(1).Tooltip, ...
+                    h.lamp(2).Tooltip, h.instrTable.Tooltip}
+                tc.verifyFalse(contains(t{1}, {'LAN-XI', '33220'}), t{1});
+            end
+            tc.verifyEqual(h.amp.Limits(1), 0.0005, 'AbsTol', 1e-12, 'its smallest level (1 mVpp)');
+            tc.verifyEqual(h.dur.Limits, [0.1 300], 'its sweep times');
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            s = app.Session;
+            tc.assertNotEmpty(s, 'connected');
+            id = s.Gen.identity();
+            tc.verifyEqual({id.model, id.serial, id.firmware}, {'SIM-1AO-4AI', 'SIM-0001', '1.0'});
+            tc.verifyEqual(h.instrTable.Data(1, 4:7), {id.vendor, id.model, id.serial, id.firmware});
+            tc.verifyEqual(h.instr.Text, 'Output + Inputs: SIM-1AO-4AI s/n SIM-0001 (simulated)');
+            tc.verifySubstring(h.lamp(1).Tooltip, 'SIM-1AO-4AI, s/n SIM-0001, firmware 1.0');
+            tc.verifySubstring(h.lamp(2).Tooltip, 'SIM-1AO-4AI, s/n SIM-0001, firmware 1.0');
+            clear cleanup
+        end
+
+        function noInstrumentNamesInWindowOrSession(tc)
+            % WO-001 acceptance: the window and the session name no instrument;
+            % every such text comes from the drivers (grep lanxi / lan-xi / 33220)
+            for f = {fullfile('+tim', '+gui', 'Tubebench.m'), fullfile('+tim', '+app', 'MeasurementSession.m')}
+                lines = strsplit(tim.app.readTextUtf8(fullfile(tim.app.projectRoot(), f{1})), newline);
+                hit = find(~cellfun(@isempty, regexpi(lines, 'lanxi|lan-xi|33220', 'once')));
+                tc.verifyEmpty(hit, sprintf('%s line(s) %s: %s', f{1}, mat2str(hit), strjoin(lines(hit), ' | ')));
+            end
+        end
+
         function steppedDisplayShowsStepLevels(tc)
             % regression 2026-10-09: the Spectrum tab showed the PSD of the whole
             % stepped record (line spectrum -> one spike per step). It shows the
@@ -531,7 +641,7 @@ classdef TestGui < matlab.unittest.TestCase
             for n = {'mode','connect','disconnect','exMode','fStart','fStop','dur','amp','reps', ...
                     'ampModel','ampGain','spkZ','spkP','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
                     'temp','pres','loadCal','runCal','save','reprocess','status','drive','fLimits','calLabel', ...
-                    'specimen','resultStatus','durEst'}
+                    'specimen','resultStatus','durEst','instr'}
                 tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
             end
         end

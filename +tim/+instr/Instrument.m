@@ -14,7 +14,8 @@ classdef (Abstract) Instrument < handle
     %                                daq.driver), displayName, labels.<role>
     %                                (lamp label), defaults.settings (driver
     %                                sub-struct), defaults.acquisition,
-    %                                texts.settle, simulation ('protocol'|'only')
+    %                                texts.settle / noun / closed (window
+    %                                texts), simulation ('protocol'|'only')
     %     c = capabilities()         roles, sharedClock, rolesTogether, products
     %                                (struct array name/feature), source.*,
     %                                acquisition.* (section 5)

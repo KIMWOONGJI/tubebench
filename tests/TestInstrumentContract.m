@@ -158,6 +158,9 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyTrue(any(strcmp(d.simulation, {'protocol', 'only'})));
             tc.verifyTrue(isstruct(d.defaults.settings));
             tc.verifyTrue(ischar(d.texts.settle));
+            % window texts: the instrument in a sentence and the state close() leaves it in
+            tc.verifyTrue(ischar(d.texts.noun) && ~isempty(d.texts.noun), 'texts.noun');
+            tc.verifyTrue(ischar(d.texts.closed) && ~isempty(d.texts.closed), 'texts.closed');
             c = d.capabilities;
             tc.verifyNotEmpty(c.roles);
             tc.verifyTrue(all(ismember(c.roles, {'source', 'acquisition'})));

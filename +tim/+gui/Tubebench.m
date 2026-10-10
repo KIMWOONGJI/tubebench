@@ -19,8 +19,19 @@ classdef Tubebench < handle
     %   prepared at once, and every action prepares the views it uses before
     %   it starts. A background step NEVER runs while an action runs (Busy),
     %   a session operation or a data stream is active, or the window closes:
-    %   it would stall the LAN-XI data stream. A hidden window builds every
-    %   view at once (as before, no timer) unless 'Deferred' is true.
+    %   it would stall the data stream of the acquisition. A hidden window
+    %   builds every view at once (as before, no timer) unless 'Deferred' is
+    %   true.
+    %
+    %   Instruments: the configuration selects the drivers (generator.driver,
+    %   daq.driver); the window has no selector. Everything it says about the
+    %   instruments comes from the drivers (tim.instr.driverInfo, the
+    %   identity() of the connected objects): the INSTRUMENTS lamps, their
+    %   labels and tooltips, the "In use" line and the Instruments table of
+    %   Setup > Connection (display name before connecting; vendor, model,
+    %   serial number and firmware as reported after connecting), the
+    %   connection checklist, the Connect / Disconnect texts and the limits
+    %   of the EXCITATION fields (docs/instrument_interface.md).
     %
     %   Layout: menu bar (File, Help); control panel on the left in workflow
     %   order (INSTRUMENTS, IMPEDANCE TUBE, EXCITATION, CALIBRATION,
@@ -69,6 +80,7 @@ classdef Tubebench < handle
         ProgressWin = []        % progress dialog of Save measurement
         AboutFig = []           % Help > About window (one at a time)
         OutputUnconfirmed logical = false  % last read-back did not confirm the generator output off
+        LampTips cell = {'', ''}  % tooltips of the two instrument lamps (driver display name, identity)
         PendingStop logical = false % Stop / close before the connection has a session (gui-5)
         BusyWhat char = ''      % the running action ('calibration', 'measurement', ...)
         PromptAnswer char = ''  % answer of the calibration bar (askBar)
@@ -178,6 +190,7 @@ classdef Tubebench < handle
                     app.H.connHead.Text = 'Disconnected. The list shows the last connection.';
                     app.H.connHead.FontColor = [0.3 0.3 0.3];
                 end
+                if isfield(app.H, 'instr') && isvalid(app.H.instr), app.refreshInstruments(); end
             end
             if isfield(app.H, 'status') && isvalid(app.H.status), app.setStatus('Not connected', 'idle'); end
             if isfield(app.H, 'lamp') && all(isvalid(app.H.lamp))
@@ -462,7 +475,7 @@ classdef Tubebench < handle
             %   first drawing. Returns at once - and retries at the next tick -
             %   while an action runs (Busy), a session operation or a data stream
             %   is active, a view is being prepared or the window closes: a step
-            %   takes 0.5-3 s and would stall the LAN-XI data stream.
+            %   takes 0.5-3 s and would stall the data stream of the acquisition.
             if app.Closing || isempty(app.Fig) || ~isvalid(app.Fig)
                 app.stopBuild(); return
             end
@@ -538,16 +551,16 @@ classdef Tubebench < handle
             g = uigridlayout(app.Fig, [1 2], 'ColumnWidth', {412, '1x'}, 'Padding', [0 0 0 0], ...
                 'ColumnSpacing', 0, 'BackgroundColor', P.ui.panel);
             % ---------------- control panel (left), workflow order. Fixed row
-            % heights [px]: about 860 px -> no scrolling in the window
+            % heights [px]: about 900 px -> no scrolling in the window
             % on the lab screen (1920 x 1080: about 985 px); Scrollable stays on
             % as a fallback for small screens.
             bar = 26; rw = 24; sp = 4;
-            rowH = {bar, 26, 22, 22, ...                    %  1- 4 INSTRUMENTS: bar, mode + connect, status, lamps
-                sp, bar, rw, 16, rw, 30, ...                %  5-10 IMPEDANCE TUBE: spacer, bar, D/T/p, names, distances, info
-                sp, bar, rw, rw, rw, rw, rw, rw, rw, 30, ...% 11-20 EXCITATION: spacer, bar, 7 field rows, drive
-                sp, bar, 22, 28, ...                        % 21-24 CALIBRATION: spacer, bar, status, buttons
-                sp, bar, rw, 36, 26, ...                    % 25-29 MEASUREMENT: spacer, bar, specimen, start / stop, background
-                sp, bar, 22, 28};                           % 30-33 RESULTS: spacer, bar, status, buttons
+            rowH = {bar, 26, 22, 22, 30, ...                %  1- 5 INSTRUMENTS: bar, mode + connect, status, lamps, in use
+                sp, bar, rw, 16, rw, 30, ...                %  6-11 IMPEDANCE TUBE: spacer, bar, D/T/p, names, distances, info
+                sp, bar, rw, rw, rw, rw, rw, rw, rw, 30, ...% 12-21 EXCITATION: spacer, bar, 7 field rows, drive
+                sp, bar, 22, 28, ...                        % 22-25 CALIBRATION: spacer, bar, status, buttons
+                sp, bar, rw, 36, 26, ...                    % 26-30 MEASUREMENT: spacer, bar, specimen, start / stop, background
+                sp, bar, 22, 28};                           % 31-34 RESULTS: spacer, bar, status, buttons
             left = uigridlayout(g, [numel(rowH) 1], 'RowHeight', rowH, 'ColumnWidth', {'1x'}, ...
                 'Scrollable', 'on', 'RowSpacing', 4, 'Padding', [10 8 10 8], 'BackgroundColor', P.ui.panel);
             left.Layout.Row = 1; left.Layout.Column = 1;
@@ -555,30 +568,36 @@ classdef Tubebench < handle
             LW = 106;                                 % label column of the two-column rows
             ex = {116, '1x', 104, '1x'};              % excitation rows: label, field, label, field
             r = 0;
-            % ---------------- INSTRUMENTS
+            % ---------------- INSTRUMENTS (texts of the instruments: refreshInstruments,
+            % from the drivers the configuration selects)
             r = r + 1; app.sectionBar(left, r, 'INSTRUMENTS');
             r = r + 1; rg = app.rowGrid(left, r, {LW, '1x', 86, 86});
-            app.label(rg, 'Operating mode', 'Simulation: virtual tube for practice. Hardware: generator and LAN-XI module.');
+            h.modeLabel = app.label(rg, 'Operating mode');
             h.mode = uidropdown(rg, 'Items', {'Simulation', 'Hardware'}, 'ItemsData', {'simulation', 'hardware'}, ...
                 'Tooltip', 'Simulation: virtual tube (practice, tests). Hardware: the real instruments. Fixed while connected.');
-            h.connect = uibutton(rg, 'Text', 'Connect', 'ButtonPushedFcn', @(~, ~) app.onConnect(), ...
-                'Tooltip', ['Connect the generator and the LAN-XI module (generator output off), read TEDS ' ...
-                'and check every channel (Setup > Connection).']);
-            h.disconnect = uibutton(rg, 'Text', 'Disconnect', 'ButtonPushedFcn', @(~, ~) app.onDisconnect(), ...
-                'Tooltip', 'Generator output off, LAN-XI module back to Idle, connections closed.');
+            h.connect = uibutton(rg, 'Text', 'Connect', 'ButtonPushedFcn', @(~, ~) app.onConnect());
+            h.disconnect = uibutton(rg, 'Text', 'Disconnect', 'ButtonPushedFcn', @(~, ~) app.onDisconnect());
             r = r + 1; rg = app.rowGrid(left, r, {LW, '1x'});
             app.label(rg, 'Status');
             h.status = uilabel(rg, 'Text', 'Not connected', 'FontColor', P.ui.muted, 'FontWeight', 'bold');
-            % status lamps: generator, LAN-XI, the four channels (details: Setup > Connection)
+            % status lamps: signal source and acquisition (labels from the drivers), the
+            % four channels (details: Setup > Connection)
             r = r + 1; gl = app.rowGrid(left, r, {88, 70, '1x', '1x', '1x', '1x'});
-            names = {'Generator', 'LAN-XI', 'ch1', 'ch2', 'ch3', 'ch4'};
-            tips = {'function generator 33220A', 'LAN-XI module', 'channel 1', 'channel 2', 'channel 3', 'channel 4'};
+            h.lampGrid = gl;
+            names = {'Generator', 'DAQ', 'ch1', 'ch2', 'ch3', 'ch4'};
+            tips = {'', '', 'channel 1', 'channel 2', 'channel 3', 'channel 4'};
             for i = 1:6
                 gi = uigridlayout(gl, [1 2], 'Padding', [0 0 0 0], 'ColumnSpacing', 4, 'ColumnWidth', {13, '1x'}, ...
                     'BackgroundColor', P.ui.panel);
                 h.lamp(i) = uilamp(gi, 'Color', P.idle, 'Tooltip', [tips{i} ' - details in Setup > Connection']);
-                uilabel(gi, 'Text', names{i}, 'FontSize', 11, 'Tooltip', tips{i});
+                h.lampLabel(i) = uilabel(gi, 'Text', names{i}, 'FontSize', 11, 'Tooltip', tips{i});
             end
+            % the instruments in use: display names, after Connect the identity they reported
+            r = r + 1; rg = app.rowGrid(left, r, {LW, '1x'});
+            h.instrLabel = app.label(rg, 'In use');
+            h.instrLabel.VerticalAlignment = 'top';
+            h.instr = uilabel(rg, 'Text', '', 'FontSize', 11, 'WordWrap', 'on', 'VerticalAlignment', 'top', ...
+                'FontColor', P.ui.muted);
             % ---------------- IMPEDANCE TUBE
             r = r + 2; app.sectionBar(left, r, 'IMPEDANCE TUBE', 'lengths in mm');
             r = r + 1; rg = app.rowGrid(left, r, {LW, '1x', 46, '1x', 50, '1x'});
@@ -634,7 +653,7 @@ classdef Tubebench < handle
                 'Tooltip', 'Start frequency of the excitation [Hz].', 'ValueChangedFcn', @(~, ~) app.updateDrive());
             app.label(rg, 'to', '', 'center');
             h.fStop = uieditfield(rg, 'numeric', 'Limits', [1 1e5], 'ValueDisplayFormat', '%.6g', ...
-                'Tooltip', 'Stop frequency of the excitation [Hz]; at most 0.45 × sample rate.', ...
+                'Tooltip', 'Stop frequency of the excitation [Hz].', ...     % with its limit: refreshFromCfg
                 'ValueChangedFcn', @(~, ~) app.updateDrive());
             r = r + 1; rg = app.rowGrid(left, r, ex);
             h.durLabel = app.label(rg, 'Sweep duration [s]');
@@ -729,14 +748,20 @@ classdef Tubebench < handle
             t = uitab(tabs, 'Title', 'Setup'); h.setupTab = t;
             h.setupTabs = app.subTabs(t);
             h.connTab = uitab(h.setupTabs, 'Title', 'Connection');
-            pg = tim.gui.ViewPage(h.connTab, 'Connection', ['Every step of the connection: generator, LAN-XI, ' ...
-                'TEDS, sensitivities and a 1 s signal check without excitation. The generator output stays OFF.'], ...
-                'Summary', false);
+            pg = tim.gui.ViewPage(h.connTab, 'Connection', ['The instruments in use and every step of the ' ...
+                'connection: identification, input set-up, sensitivities and a 1 s signal check without excitation. ' ...
+                'The generator output stays OFF.'], 'Summary', false);
             app.Pages.conn = pg;
-            tg = uigridlayout(pg.Body, [4 1], 'RowHeight', {24, 290, 128, '1x'}, 'RowSpacing', 8, ...
+            tg = uigridlayout(pg.Body, [5 1], 'RowHeight', {24, 76, 290, 128, '1x'}, 'RowSpacing', 8, ...
                 'Padding', [6 2 0 0], 'BackgroundColor', 'w');
             h.connHead = uilabel(tg, 'Text', 'Press "Connect": every step of the connection is checked here.', ...
                 'FontWeight', 'bold', 'FontSize', 13);
+            % the instruments of the configuration (one row per role, one row for a
+            % device that takes both): display name and driver; after Connect the
+            % identity the instrument reported (refreshInstruments)
+            h.instrTable = uitable(tg, 'ColumnName', {'Role', 'Instrument', 'Driver', 'Vendor', 'Model', ...
+                'Serial number', 'Firmware', 'Settings'}, 'RowName', {}, 'FontSize', 11, 'Data', cell(0, 8), ...
+                'ColumnWidth', {170, '4x', 100, 130, 100, 100, 110, '5x'});
             pc = uipanel(tg, 'Title', 'Connection checklist', 'FontWeight', 'bold', 'BackgroundColor', 'w');
             app.ConnList = tim.gui.Checklist(pc, app.connKeys(), app.connLabels(), struct('LabelWidth', 270));
             gc = uigridlayout(tg, [1 4], 'ColumnSpacing', 10, 'Padding', [0 0 0 0], 'BackgroundColor', 'w');
@@ -1102,6 +1127,210 @@ classdef Tubebench < handle
             end
         end
 
+        function r = instruments(app)
+            % the instruments of the configuration (of the connection while
+            % connected), r(1) signal source, r(2) acquisition, from the drivers
+            % only: registry name, display name, lamp label, the noun and the
+            % closed state of the window texts (describe().texts), capabilities
+            % ([] for an unknown driver: an opened folder of another set-up) and,
+            % while connected, the identity the instrument reported
+            c = app.Cfg; s = app.Session;
+            if ~isempty(s) && isvalid(s), c = s.Cfg; else, s = []; end
+            sections = {'generator', 'daq'};
+            roles = {'source', 'acquisition'};
+            fallback = struct('label', {{'Generator', 'DAQ'}}, 'noun', {{'generator', 'DAQ'}}, ...
+                'closed', {{'output off', 'stopped'}});
+            r = struct('role', roles, 'driver', '', 'known', false, 'displayName', '', 'label', fallback.label, ...
+                'noun', fallback.noun, 'closed', fallback.closed, 'caps', [], 'identity', [], 'combined', false);
+            for k = 1:2
+                name = c.(sections{k}).driver;
+                if isstring(name) && isscalar(name), name = char(name); end
+                if ~ischar(name), name = '?'; end
+                r(k).driver = name;
+                r(k).displayName = sprintf('unknown driver "%s"', name);
+                try
+                    d = tim.instr.driverInfo(name);
+                catch
+                    continue                            % not registered here
+                end
+                r(k).known = true; r(k).displayName = d.displayName; r(k).caps = d.capabilities;
+                if isfield(d.labels, roles{k}) && ~isempty(d.labels.(roles{k})), r(k).label = d.labels.(roles{k}); end
+                r(k).noun = d.displayName;
+                if isfield(d.texts, 'noun') && ~isempty(d.texts.noun), r(k).noun = d.texts.noun; end
+                if isfield(d.texts, 'closed') && ~isempty(d.texts.closed), r(k).closed = d.texts.closed; end
+            end
+            [r.combined] = deal(strcmp(r(1).driver, r(2).driver));
+            if ~isempty(s) && s.Connected
+                obj = {s.Gen, s.Daq};
+                for k = 1:2
+                    try, r(k).identity = obj{k}.identity(); catch, end
+                end
+            end
+        end
+
+        function refreshInstruments(app)
+            % which instruments are in use, from the drivers (no selection here:
+            % the configuration selects them): lamp labels and tooltips, the "In
+            % use" line of INSTRUMENTS, the Instruments table of Setup > Connection
+            % (the display names before connecting, the identity each instrument
+            % reported after connecting), the Connect / Disconnect texts; the
+            % checklist follows the configured drivers while not connected
+            h = app.H; P = tim.gui.palette();
+            r = app.instruments();
+            s = app.Session; if ~isempty(s) && ~isvalid(s), s = []; end
+            c = app.Cfg; if ~isempty(s), c = s.Cfg; end
+            one = r(1).combined;                         % one device takes both roles
+            idx = 1:2; if one, idx = 1; end
+            connected = ~isempty(r(1).identity) || ~isempty(r(2).identity);
+            % lamps: label and tooltip per role
+            tips = cell(1, 2);
+            for k = 1:2
+                tips{k} = sprintf('%s: %s', r(k).label, r(k).displayName);
+                if ~isempty(r(k).identity), tips{k} = sprintf('%s – %s', tips{k}, idText(r(k).identity, true)); end
+                tips{k} = [tips{k} ' – details in Setup > Connection'];
+                h.lampLabel(k).Text = r(k).label; h.lampLabel(k).Tooltip = tips{k};
+                h.lamp(k).Tooltip = tips{k};
+            end
+            app.LampTips = tips;
+            w = h.lampGrid.ColumnWidth;
+            w(1:2) = {max(88, 25 + 7 * numel(r(1).label)), max(70, 25 + 7 * numel(r(2).label))};
+            h.lampGrid.ColumnWidth = w;
+            % "In use", one line per instrument: display names, or the identities
+            % with the lamp labels
+            if connected
+                parts = cell(1, numel(idx));
+                for i = 1:numel(idx)
+                    k = idx(i); lbl = r(k).label;
+                    if one, lbl = strjoin({r.label}, ' + '); end
+                    parts{i} = sprintf('%s: %s', lbl, idText(r(k).identity, false));
+                    if strcmp(c.mode, 'simulation'), parts{i} = [parts{i} ' (simulated)']; end
+                end
+                h.instr.FontColor = P.ui.text;
+            else
+                parts = {r(idx).displayName};
+                h.instr.FontColor = P.ui.muted;
+            end
+            h.instr.Text = strjoin(parts, newline);
+            tip = sprintf(['The instruments selected in the configuration (generator.driver "%s", daq.driver "%s"); ' ...
+                'after Connect, the model and serial number each instrument reported. Details: Setup > Connection. ' ...
+                'Other instruments are chosen in the configuration file (user guide, section 9).'], r(1).driver, r(2).driver);
+            h.instr.Tooltip = tip; h.instrLabel.Tooltip = tip;
+            % Setup > Connection: one row per instrument
+            roleText = {'signal source', 'acquisition'};
+            rows = cell(numel(idx), 8);
+            for i = 1:numel(idx)
+                k = idx(i);
+                if one
+                    role = sprintf('%s (both roles)', strjoin({r.label}, ' + '));
+                    st = [app.settingsText(1, c) '; ' app.settingsText(2, c)];
+                else
+                    role = sprintf('%s (%s)', r(k).label, roleText{k});
+                    st = app.settingsText(k, c);
+                end
+                id = r(k).identity;
+                if isempty(id), id = struct('vendor', '', 'model', '', 'serial', '', 'firmware', ''); end
+                rows(i, :) = {role, r(k).displayName, r(k).driver, orDash(id.vendor), orDash(id.model), ...
+                    orDash(id.serial), orDash(id.firmware), st};
+            end
+            h.instrTable.Data = rows;
+            h.instrTable.Tooltip = app.choicesText(r);
+            % Connect / Disconnect and the operating mode, worded with the drivers' nouns
+            nouns = {r(idx).noun};
+            teds = ~isempty(r(2).caps) && isfield(r(2).caps, 'acquisition') && r(2).caps.acquisition.teds;
+            tedsText = ''; if teds, tedsText = ', read TEDS'; end
+            h.modeLabel.Tooltip = sprintf('Simulation: virtual tube for practice. Hardware: %s.', strjoin(nouns, ' and '));
+            if one
+                h.connect.Tooltip = sprintf(['Connect the %s (output off)%s and check every channel ' ...
+                    '(Setup > Connection).'], nouns{1}, tedsText);
+            else
+                h.connect.Tooltip = sprintf(['Connect the %s and the %s (%s output off)%s and check every channel ' ...
+                    '(Setup > Connection).'], nouns{1}, nouns{2}, nouns{1}, tedsText);
+            end
+            h.disconnect.Tooltip = [app.capital(app.closedText(r)) ', connections closed.'];
+            % checklist of the configured drivers (while connected: the connection's)
+            if isempty(s) && ~isempty(app.ConnList)
+                keys = app.connKeys();
+                if ~isequal(keys, app.ConnList.Keys), app.ConnList.rebuild(keys, app.connLabels()); end
+            end
+        end
+
+        function t = closedText(app, r)
+            % '<noun> <closed>, <noun> <closed>' (e.g. 'generator output off'):
+            % what closing the connection leaves each instrument in
+            % (describe().texts of the drivers)
+            if nargin < 2, r = app.instruments(); end
+            idx = 1:2; if r(1).combined, idx = 1; end
+            t = strjoin(arrayfun(@(k) sprintf('%s %s', r(k).noun, r(k).closed), idx, 'UniformOutput', false), ', ');
+        end
+
+        function t = settingsText(~, k, c)
+            % the configured settings of a role: generator limit and load, or the
+            % input settings of the acquisition
+            if k == 1
+                t = sprintf('limit %g Vpp, load %s', c.generator.maxVpp, char(string(c.generator.load)));
+            else
+                a = c.acquisition; cc = logical(a.ccld);
+                if all(cc), cl = 'on'; elseif ~any(cc), cl = 'off'; else, cl = ['on ch' sprintf('%d', find(cc))]; end
+                t = sprintf('%g S/s, %s, high-pass %s, CCLD %s', a.sampleRate, char(string(a.range)), ...
+                    char(string(a.filter)), cl);
+            end
+        end
+
+        function t = choicesText(~, r)
+            % tooltip of the Instruments table: what each driver allows for the
+            % settings of the configuration (capabilities(); no selector here)
+            lines = {'Settings from the configuration; the values the drivers allow:'};
+            if ~isempty(r(1).caps) && isfield(r(1).caps, 'source')
+                q = r(1).caps.source;
+                lims = arrayfun(@(i) sprintf('%s %g–%g Vpp', q.loads{i}, q.minVpp(i), q.maxVpp(i)), ...
+                    1:numel(q.loads), 'UniformOutput', false);
+                lines{end + 1} = sprintf('%s – generator.load and level: %s; sweep %g–%g s; signals %s.', ...
+                    r(1).displayName, strjoin(lims, ', '), q.sweepTime, strjoin(q.waveforms, ', '));
+            end
+            if ~isempty(r(2).caps) && isfield(r(2).caps, 'acquisition')
+                q = r(2).caps.acquisition;
+                if isempty(q.sampleRates)
+                    rates = sprintf('%g–%g', q.sampleRateRange);
+                else
+                    rates = strjoin(arrayfun(@(x) sprintf('%g', x), q.sampleRates, 'UniformOutput', false), ', ');
+                end
+                yn = {'no', 'yes'};
+                lines{end + 1} = sprintf(['%s – acquisition.sampleRate %s S/s; range %s; filter %s; switchable CCLD %s; ' ...
+                    'TEDS %s.'], r(2).displayName, rates, strjoin(q.ranges, ', '), strjoin(q.filters, ', '), ...
+                    yn{1 + q.ccld}, yn{1 + q.teds});
+            end
+            t = strjoin(lines, newline);
+        end
+
+        function L = excitationLimits(app)
+            % limits of the EXCITATION fields from the configured drivers: the
+            % highest frequency (usable band of the acquisition, source range),
+            % the smallest level at the configured load and the sweep durations
+            % of the source (today's values when a driver is unknown)
+            c = app.Cfg; r = app.instruments();
+            fs = c.acquisition.sampleRate;
+            L = struct('fMin', 1, 'fMax', 0.45 * fs, 'minVpp', 0.01, 'sweepTime', [0.001 500], ...
+                'fText', sprintf('0.45 × sample rate (%g S/s)', fs));
+            if ~isempty(r(2).caps) && isfield(r(2).caps, 'acquisition')
+                b = r(2).caps.acquisition.bandFraction;
+                L.fMax = b * fs; L.fText = sprintf('%.2g × sample rate (%g S/s, %s)', b, fs, r(2).displayName);
+            end
+            if ~isempty(r(1).caps) && isfield(r(1).caps, 'source')
+                q = r(1).caps.source;
+                L.fMin = max(1, q.frequencyRange(1));
+                if q.frequencyRange(2) < L.fMax
+                    L.fMax = q.frequencyRange(2); L.fText = sprintf('the %s', r(1).displayName);
+                end
+                if isfinite(q.bandFraction) && q.bandFraction * fs < L.fMax     % shared clock
+                    L.fMax = q.bandFraction * fs;
+                    L.fText = sprintf('%.2g × sample rate (%g S/s, %s)', q.bandFraction, fs, r(1).displayName);
+                end
+                k = find(strcmp(char(string(c.generator.load)), q.loads), 1);
+                if ~isempty(k), L.minVpp = q.minVpp(k); end
+                L.sweepTime = q.sweepTime;
+            end
+        end
+
         function sectionBar(~, parent, row, txt, hint)
             % section title of the control panel: dark bar, white bold text
             P = tim.gui.palette();
@@ -1141,15 +1370,22 @@ classdef Tubebench < handle
             ls = struct('impedance_ohm', 8, 'maxPower_W', 1);
             if isfield(c, 'loudspeaker'), ls = c.loudspeaker; end
             h.spkZ.Value = ls.impedance_ohm; h.spkP.Value = ls.maxPower_W;
-            % frequency fields: up to 0.45 fs (validateConfig); amplitude up to the safety limit
-            fMax = 0.45 * c.acquisition.sampleRate;
-            h.fStart.Limits = [1 fMax]; h.fStop.Limits = [1 fMax];
+            % the instruments in use (lamps, In use, Setup > Connection, Connect texts)
+            app.refreshInstruments();
+            % frequency fields: up to the usable band of the configured drivers
+            % (checkConfig); amplitude from the smallest level of the source at the
+            % configured load up to the safety limit
+            L = app.excitationLimits();
+            h.fStart.Limits = [L.fMin L.fMax]; h.fStop.Limits = [L.fMin L.fMax];
+            h.fStop.Tooltip = sprintf('Stop frequency of the excitation [Hz]; at most %.6g Hz = %s.', L.fMax, L.fText);
             lim = c.generator.maxVpp / 2;
-            h.amp.Limits = [min(0.005, lim / 2), lim];
+            lo = L.minVpp / 2; if lo >= lim, lo = lim / 2; end
+            h.amp.Limits = [lo, lim];
             app.excitationToUi(h.exMode.Value);
             h.amp.Value = min(max(c.excitation.sweep.amplitudeVpp / 2, h.amp.Limits(1)), lim);
-            h.amp.Tooltip = sprintf(['Generator amplitude [Vpk], %s; amplitude limit %.3g Vpk ' ...
-                '(configuration generator.maxVpp = %.3g Vpp)'], loadText(c), lim, c.generator.maxVpp);
+            h.amp.Tooltip = sprintf(['Generator amplitude [Vpk], %s; from %.3g Vpk (smallest level of the generator ' ...
+                'at load %s) up to the amplitude limit %.3g Vpk (configuration generator.maxVpp = %.3g Vpp)'], ...
+                loadText(c), lo, char(string(c.generator.load)), lim, c.generator.maxVpp);
             items = c.amplifier.knownModels; if ischar(items), items = {items}; end
             if ~any(strcmp(items, 'none (direct drive)')), items = [{'none (direct drive)'}, items(:).']; end
             if ~isempty(c.amplifier.model) && ~any(strcmp(items, c.amplifier.model)), items{end+1} = c.amplifier.model; end
@@ -1197,9 +1433,10 @@ classdef Tubebench < handle
                 h.dur.Tooltip = sprintf(['number of frequency steps (%s spacing); each step: %g s settling + %g s ' ...
                     'recording'], s.spacing, s.settleTime, s.recordTime);
             else
+                T = app.excitationLimits().sweepTime;     % sweep durations of the generator
                 h.durLabel.Text = 'Sweep duration [s]';
-                h.dur.RoundFractionalValues = 'off'; h.dur.Limits = [0.001 500]; h.dur.Value = min(max(s.duration, 0.001), 500);
-                h.dur.Tooltip = 'duration of one sweep [s]';
+                h.dur.RoundFractionalValues = 'off'; h.dur.Limits = T; h.dur.Value = min(max(s.duration, T(1)), T(2));
+                h.dur.Tooltip = sprintf('duration of one sweep [s], %g to %g s', T);
             end
             app.updateDrive();
         end
@@ -1644,7 +1881,7 @@ classdef Tubebench < handle
                 h.stop.Tooltip = 'Stop the running action. The generator output is switched off at once.';
                 app.Busy = false; app.BusyWhat = '';
                 for i = 1:numel(ctl), ctl{i}.Enable = 'on'; end
-                h.lamp(1).Tooltip = 'Generator (Keysight 33220A) – details in Setup > Connection';
+                h.lamp(1).Tooltip = app.LampTips{1};     % display name and identity (refreshInstruments)
                 if app.OutputUnconfirmed
                     % the read-back after an error did not confirm the output off
                     h.lamp(1).Color = P.fail; h.lamp(1).Tooltip = 'Generator output NOT confirmed off – check the generator.';
@@ -1916,8 +2153,9 @@ classdef Tubebench < handle
         end
         function onDisconnect(app)
             if isempty(app.Session), return; end
+            closed = app.closedText();                 % from the drivers, e.g. 'generator output off, ...'
             app.disconnect();
-            app.log('Instruments disconnected by the operator (generator output OFF, LAN-XI Idle).');
+            app.log('Instruments disconnected by the operator (%s).', closed);
         end
         function doConnect(app)
             app.Cfg.mode = app.H.mode.Value;
@@ -1925,7 +2163,7 @@ classdef Tubebench < handle
             app.disconnect(true);
             app.setStatus(sprintf('Connecting (%s)…', app.Cfg.mode), 'busy');
             % connection checklist: every step is shown while it runs (the
-            % animated icon keeps turning during the slow LAN-XI setup)
+            % animated icon keeps turning during a slow input setup)
             keys = app.connKeys();                     % the steps of the configured drivers
             if ~isequal(keys, app.ConnList.Keys), app.ConnList.rebuild(keys, app.connLabels()); end
             app.ConnList.reset();
@@ -1948,12 +2186,14 @@ classdef Tubebench < handle
             if app.PendingStop, s.requestStop(); end    % Stop pressed before the session existed
             try
                 s.connect();
+                app.refreshInstruments();              % the identity the instruments reported
                 s.prepareAcquisition();
                 chk = s.signalCheck(1);                % 1 s without excitation: level / fault flags per channel
             catch err
                 % failed or stopped: no half-open session (Connect and the mode selector stay usable)
                 try, s.close(true); catch, end
                 app.Session = [];
+                try, app.refreshInstruments(); catch, end
                 rethrow(err);
             end
             clear opEnd
@@ -2422,7 +2662,7 @@ classdef Tubebench < handle
                 app.H.calText.Text = [htmlText(sprintf(['Press "Run switching calibration…": every step shows here which ' ...
                     'microphone goes into which port. Calibration ports M%d (a) and M%d (b) glow yellow.'], ab(1), ab(2))), ...
                     note(['The empty specimen section (no specimen) is mounted and the tube ends in the absorbing termination. ' ...
-                    'Each microphone stays on its own cable and LAN-XI input; only the microphone bodies are moved.'])];
+                    'Each microphone stays on its own cable and input channel; only the microphone bodies are moved.'])];
             else
                 app.H.calText.Text = ['<b>' htmlText(stepText) ':</b>&nbsp; ' htmlText(msg), ...
                     note(['Yellow: calibration ports a, b  ' char(183) '  colour / label: channel of the microphone ' ...
@@ -2924,7 +3164,8 @@ classdef Tubebench < handle
                 s.log('Closing: %s', done{end});
             end
             if ~isempty(s)
-                app.closingDialog([done, {'Returning the LAN-XI to Idle (2 s time-out per request) ...'}]);
+                closed = 'instruments to their safe state'; try, closed = app.closedText(); catch, end
+                app.closingDialog([done, {sprintf('Closing the connections: %s (2 s time-out per request) ...', closed)}]);
                 try, s.close(true); catch, end
                 app.Session = [];
                 done{end + 1} = 'Instruments disconnected.';
@@ -2946,6 +3187,31 @@ if isfield(c.generator, 'load') && strcmp(c.generator.load, '50')
 else
     t = 'open-circuit peak voltage';
 end
+end
+
+function t = idText(id, long)
+% an identity() as text: short '<model> s/n <serial>' (In use) or long
+% '<vendor> <model>, s/n <serial>, firmware <firmware>' (lamp tooltips);
+% fields the instrument did not report are left out
+f = @(v) strtrim(char(string(v)));
+model = f(id.model); serial = f(id.serial);
+if long
+    parts = {strtrim([f(id.vendor) ' ' model])};
+    if ~isempty(serial), parts{end + 1} = ['s/n ' serial]; end
+    if ~isempty(f(id.firmware)), parts{end + 1} = ['firmware ' f(id.firmware)]; end
+    t = strjoin(parts(~cellfun(@isempty, parts)), ', ');
+else
+    if isempty(model), model = f(id.vendor); end
+    t = model;
+    if ~isempty(serial), t = strtrim([t ' s/n ' serial]); end
+end
+if isempty(t), t = 'no identity reported'; end
+end
+
+function s = orDash(v)
+% table cell: the text, or '–' when empty (not reported / not connected)
+s = strtrim(char(string(v)));
+if isempty(s), s = '–'; end
 end
 
 function op = workArea()
