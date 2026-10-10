@@ -75,6 +75,30 @@ classdef TestInstruments < matlab.unittest.TestCase
             tc.verifyFalse(tr.isOpen());
         end
 
+        function outputGuardOnInterrupt(tc)
+            % session output guard (tim.app.outputGuard): an exit that skips
+            % try/catch (Ctrl+C) switches the output off and disarms; a
+            % dismissed guard sends nothing
+            tr = tim.instr.MockScpiTransport();
+            g = tim.instr.Keysight33220A(tr, 'MaxVpp', 1);
+            g.configureSine(1000, 0.1); g.armOutput(true); g.outputOn();
+            guard = tim.app.outputGuard(g);
+            n = numel(tr.Log);
+            guard.dismiss(); delete(guard);
+            tc.verifyEqual(numel(tr.Log), n, 'a dismissed guard sends nothing');
+            tc.verifyTrue(g.isOutputOn());
+            guard = tim.app.outputGuard(g);
+            delete(guard);                                     % destroyed before it was dismissed
+            tc.verifyFalse(g.isOutputOn(), 'output switched off');
+            tc.verifyFalse(g.OutputArmed, 'output disarmed');
+            % the guard as a local variable of a function that ends without dismissing it
+            g.armOutput(true); g.outputOn();
+            tc.verifyError(@() guardedThenAborted(g), 'test:abort');
+            tc.verifyFalse(g.isOutputOn());
+            tc.verifyFalse(g.OutputArmed);
+            g.close();
+        end
+
         %% ---------------- LAN-XI ----------------
         function lanxiStateMachine(tc)
             [daq, http] = tc.makeDaq();
@@ -177,4 +201,11 @@ classdef TestInstruments < matlab.unittest.TestCase
                 'channels', 1:4, 'detectTeds', true, 'connector', 'BNC', 'names', {{'M1', 'M2', 'M3', 'M4'}});
         end
     end
+end
+
+function guardedThenAborted(gen)
+% an output guard that goes out of scope without dismiss (as on Ctrl+C,
+% where only destructors and onCleanup objects run)
+guard = tim.app.outputGuard(gen); %#ok<NASGU>
+error('test:abort', 'aborted inside the measurement');
 end

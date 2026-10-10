@@ -562,12 +562,16 @@ classdef MeasurementSession < handle
         function [data, info] = guardedAcquire(obj, nTotal, onBlock, what, prevRecords, prevInfos, amplitudeVpp)
             obj.confirmExcitation(amplitudeVpp, what);
             obj.Gen.armOutput(true);       % explicit user start of this measurement
+            % interrupt (Ctrl+C) inside the acquisition: try/catch does not run,
+            % the guard's destructor switches the output off and disarms it
+            guard = tim.app.outputGuard(obj.Gen);
             obj.setStatus(['measuring: ' what]);
             try
                 [data, info] = obj.Daq.acquire(nTotal, onBlock);
             catch err
                 obj.Gen.outputOff();
                 obj.Gen.armOutput(false);
+                guard.dismiss();           % switched off here: no second output-off command
                 partial = struct('records', {prevRecords}, 'infos', {prevInfos}, 'error', err.message);
                 try
                     [pd, pinfo] = obj.Daq.collect();
@@ -587,6 +591,7 @@ classdef MeasurementSession < handle
                     what, regexprep(err.message, '\.$', ''), f);
                 rethrow(err);
             end
+            guard.dismiss();               % normal end: the schedule switched the output off
             obj.setStatus('ready');
         end
 
