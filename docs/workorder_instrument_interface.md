@@ -92,18 +92,20 @@ analysis, changing the calibration method, a standalone executable.
 ## 3. Requirements that follow from the measurement method
 
 Use these to judge whether an instrument can work (Part 2, step 2). "Must" items are hard limits.
+Reworded after the design review of 2026-10-11 (`docs/instrument_interface.md` section 13.2,
+issues 3, 5, 6, 11 and 21).
 
 | Role | Requirement | Why |
 |---|---|---|
 | Acquisition | **Must:** ≥ 4 analog inputs sampled **simultaneously on one clock** | transfer functions between channels; skew is a phase error |
 | Acquisition | **Must:** IEPE/CCLD supply (4 mA) per channel, or an external supply | B&K 4957 microphones |
-| Acquisition | **Must:** sample rate ≥ 2.2 × analysis fMax (4.5 kHz → ≥ 10 kS/s; now 16 384 S/s) with anti-alias filter | spectral analysis to 4.5 kHz |
-| Acquisition | **Must:** continuous gap-free streaming or block acquisition of ≥ 10 s, with gap/overload detection | swept sine with pre/post-roll; integrity check |
-| Acquisition | Should: AC coupling/high-pass ≤ 1 Hz, input range ≤ 10 V peak, ≥ 24 bit, TEDS reading | dynamic range; sensitivities from TEDS |
-| Generator | **Must:** output can be switched off by command and the off state read back | safety rules (output off on connect, error, close) |
-| Generator | **Must:** an amplitude limit that the driver enforces before every level command | loudspeaker/power limit |
-| Generator | **Must:** at least one of logarithmic sweep, stepped sine, noise; frequency 80 Hz–5.5 kHz | excitation signals |
-| Generator | Should: software (bus) trigger, completion query (*OPC? or equivalent) | timing of the sweep in the record |
+| Acquisition | **Must:** sample rate ≥ 2.2 × analysis fMax (4.5 kHz → ≥ 10 kS/s; now 16 384 S/s) with anti-alias filter, run at exactly the configured rate | spectral analysis to 4.5 kHz; a coerced rate mislabels the frequency axis |
+| Acquisition | **Must:** continuous gap-free recording of ≥ 10 s with gap/overload detection, delivering data **while it records** (streaming, or background acquisition with a polling read); a device that delivers only whole blocks works only when it is also the generator (shared clock) | swept sine with pre/post-roll; integrity check; the session switches a separate generator on and off as samples arrive |
+| Acquisition | Should: AC coupling/high-pass ≤ 1 Hz, input range ≤ 10 V peak, ≥ 24 bit, TEDS reading, data in volts (an input in full-scale units with an unknown gain gives levels in dB re FS only, unless its volts per full scale are measured) | dynamic range; sensitivities from TEDS; levels in Pa |
+| Generator | **Must:** output can be switched off by command (no waveform, 0 V or disconnected - an analog output that keeps its last value must be set to 0 V), and its state read back from the instrument or, for the output of a shared-clock device that is also the DAQ, from the device session (task stopped, 0 V written). A generator that cannot report its state is accepted only when the owner allows it explicitly in the configuration (`generator.allowUnconfirmedOff`); the window then says so after every stop | safety rules (output off on connect, error, close) |
+| Generator | **Must:** an amplitude limit that the driver enforces before every level command; an output programmed in full-scale units (audio interface) needs its measured volts per full scale at a fixed knob position (`generator.<driver>.vppAtFullScale`) | loudspeaker/power limit |
+| Generator | **Must:** a single logarithmic swept sine (the switching calibration and Test E always sweep); stepped sine and noise optional; frequency 80 Hz–5.5 kHz | excitation signals; the calibration method does not change |
+| Generator | Should: software (bus) trigger, completion query that waits for the end of the sweep (*OPC? or equivalent, or time-based) | timing of the sweep in the record |
 | Both | No hardware synchronisation between generator and DAQ is needed | the estimator uses channel ratios only (theory.md §4) |
 | Both | One device may take both roles (e.g. a DAQ card with analog output) | factory must allow one object for both roles |
 
