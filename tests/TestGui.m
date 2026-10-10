@@ -393,6 +393,57 @@ classdef TestGui < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function combinedDeviceAppSimulationWorkflow(tc)
+            % WO-001 section 0 change B: the simulated combined device (one object
+            % for generator and DAQ, shared clock, block acquisition, no TEDS)
+            % selected in the configuration only; the hidden window connects,
+            % calibrates and measures with it - its checklist, lamps and cards
+            % come from the driver, the window has no code for it
+            c = tim.app.defaultConfig();
+            c.mode = 'simulation';
+            c.generator.driver = 'simcombined'; c.daq.driver = 'simcombined';
+            c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data');
+            c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 3; c.excitation.sweep.repetitions = 2;
+            c.calibration.repeatConfigI = false;
+            sens = [11.2 11.5 10.9 11.3] * 1e-3;     % no TEDS: certificate sensitivities
+            for i = 1:4, c.mics(i).certificateSensitivity_VperPa = sens(c.mics(i).channel); end
+            file = fullfile(tc.tmp, 'cfg.json');
+            tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            s = app.Session;
+            tc.assertNotEmpty(s, 'connected');
+            tc.verifySameHandle(s.Gen, s.Daq, 'one object in both roles');
+            tc.verifyEqual(app.ConnList.Keys, {'device', 'setup', 'sens', 'settle', 'signal'}, 'the driver''s steps');
+            tc.verifyTrue(all(ismember(app.ConnList.States, {'ok', 'skip'})), strjoin(app.ConnList.States, ' '));
+            P = tim.gui.palette();
+            tc.verifyEqual(vertcat(h.lamp.Color), repmat(P.ok, 6, 1), 'all lamps green');
+            tc.verifyEqual(h.card(3).state.Text, 'OK');
+            tc.verifySubstring(h.connHead.Text, 'all checks passed');
+            feval(h.runCal.ButtonPushedFcn, h.runCal, []);
+            tc.verifyTrue(all(strcmp(app.CalList.States, 'ok')), strjoin(app.CalList.States, ' '));
+            tc.verifySubstring(app.CalList.Details(end - 1).Text, 'passed', 'Test E verdict on the done row');
+            tc.verifySubstring(h.calLabel.Text, 'CAL-');
+            tc.verifyFalse(contains(h.calLabel.Text, 'check'), 'the calibration fits the connected device');
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.verifyNotEmpty(app.LastRes);
+            tc.verifyEqual(app.LastMeas.metadata.daq.driver, 'simcombined');
+            tc.verifyEqual(h.axW(1).YLabel.String, 'ch1 (M1) [Pa]');
+            tc.verifyFalse(s.Gen.isOutputOn());
+            % closing: the output state worded by the read-back kind of the device
+            fig = app.Fig;
+            tim.gui.closeApp(fig, app);
+            tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output stopped (device idle, 0 V).')), ...
+                strjoin(s.LogLines(max(1, end - 4):end), newline));
+            tc.verifyFalse(s.Connected);
+            clear cleanup
+        end
+
         function steppedDisplayShowsStepLevels(tc)
             % regression 2026-10-09: the Spectrum tab showed the PSD of the whole
             % stepped record (line spectrum -> one spike per step). It shows the

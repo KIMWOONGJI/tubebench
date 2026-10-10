@@ -189,12 +189,19 @@ classdef Keysight33220A < tim.instr.SignalSource
 
         function tf = isOutputOn(obj, timeout)
             %ISOUTPUTON Output state read back from the instrument (OUTP?).
-            %   isOutputOn(timeout) waits at most timeout s for the answer.
+            %   isOutputOn(timeout) waits at most timeout s for the answer. An
+            %   answer other than 0 or 1 raises tim:gen:verify (never reported
+            %   as "off").
             if nargin < 2
-                tf = str2double(obj.Transport.query('OUTP?')) == 1;
+                r = obj.Transport.query('OUTP?');
             else
-                tf = str2double(obj.Transport.query('OUTP?', timeout)) == 1;
+                r = obj.Transport.query('OUTP?', timeout);
             end
+            v = str2double(r);
+            if ~(v == 0 || v == 1)
+                error('tim:gen:verify', 'Unexpected answer "%s" to OUTP? (output state unknown).', r);
+            end
+            tf = v == 1;
         end
 
         function triggerSweep(obj)

@@ -1056,11 +1056,11 @@ classdef Tubebench < handle
         end
 
         function tf = sessionActive(app)
-            % a session operation (e.g. a calibration from a script) or a LAN-XI
-            % data stream is running
+            % a session operation (e.g. a calibration from a script) or an
+            % acquisition (data stream) is running
             s = app.Session; tf = false;
             if isempty(s) || ~isvalid(s), return; end
-            tf = s.InOperation || (~isempty(s.Daq) && isvalid(s.Daq) && ~isempty(s.Daq.Stream));
+            tf = s.InOperation || (~isempty(s.Daq) && isvalid(s.Daq) && s.Daq.isAcquiring());
         end
 
         function startStep(app, txt, value)
@@ -1075,13 +1075,31 @@ classdef Tubebench < handle
             tg = uitabgroup(gg);
         end
 
-        function k = connKeys(~)
-            k = {'gen', 'lanxi', 'idle', 'open', 'teds', 'setup', 'sens', 'settle', 'signal'};
+        function k = connKeys(app)
+            % checklist keys: the steps of the configured drivers, then the session's
+            s = app.driverSteps();
+            k = [{s.key}, {'sens', 'settle', 'signal'}];
         end
-        function l = connLabels(~)
-            l = {'Function generator 33220A (SCPI)', 'LAN-XI module (REST)', 'LAN-XI recorder state Idle', ...
-                'Open recorder', 'TEDS transducer detection', 'Channel setup → streaming', ...
-                'Microphone sensitivities', 'Settling (CCLD + high-pass)', 'Signal check (no excitation)'};
+        function l = connLabels(app)
+            [s, settle] = app.driverSteps();
+            l = [{s.label}, {'Microphone sensitivities', settle, 'Signal check (no excitation)'}];
+        end
+        function [s, settle] = driverSteps(app)
+            % connection steps of the drivers configured in app.Cfg (a combined
+            % driver once) and the label of the settling step
+            s = struct('key', {}, 'label', {}, 'role', {}, 'phase', {});
+            settle = 'Settling';
+            try
+                g = tim.instr.driverInfo(app.Cfg.generator.driver);
+                d = tim.instr.driverInfo(app.Cfg.daq.driver);
+            catch
+                return                              % unknown driver (opened folder of another set-up)
+            end
+            s = g.steps(:).';
+            if ~strcmp(g.name, d.name), s = [s, d.steps(:).']; end
+            if ~isempty(d.texts.settle)
+                settle = sprintf('Settling (%s)', strtrim(strrep(d.texts.settle, '%s ', '')));
+            end
         end
 
         function sectionBar(~, parent, row, txt, hint)
@@ -1566,20 +1584,32 @@ classdef Tubebench < handle
         end
 
         function txt = outputOffText(app)
-            % read back OUTP? (1 s time-out): never claim "OFF" without confirmation
-            txt = 'Generator output off (confirmed).';
+            % output state read back from the source (isOutputOn, 1 s time-out),
+            % worded by the driver's read-back kind: never claim "OFF" without
+            % confirmation (docs/instrument_interface.md section 3.2)
             s = app.Session;
             if isempty(s) || isempty(s.Gen)
                 txt = 'Generator not connected.'; app.OutputUnconfirmed = false; return
             end
+            kind = 'instrument';
+            try, kind = s.driverInfo('source').capabilities.source.readback; catch, end
+            unconfirmed = false;
             try
-                if str2double(s.Gen.Transport.query('OUTP?', 1)) ~= 0
+                if s.Gen.isOutputOn(1)
                     txt = 'The generator output could not be switched off. Switch it off at the generator.';
+                    unconfirmed = true;
+                elseif strcmp(kind, 'device')
+                    txt = 'Generator output stopped (device idle, 0 V).';
+                elseif strcmp(kind, 'none')
+                    txt = 'Generator output switched off - this generator cannot report its state; check it at the instrument.';
+                else
+                    txt = 'Generator output off (confirmed).';
                 end
             catch
                 txt = 'The generator output could not be confirmed off. Check the output at the generator.';
+                unconfirmed = true;
             end
-            app.OutputUnconfirmed = ~startsWith(txt, 'Generator output off');
+            app.OutputUnconfirmed = unconfirmed;
         end
 
         function setBusy(app, tf, what)
@@ -1694,13 +1724,13 @@ classdef Tubebench < handle
             lastT = tic;
             try
                 daq = app.Session.Daq;
-                p = daq.Parser;
-                if isempty(p) || p.samplesAvailable() == 0, drawnow('limitrate'); return; end
                 fs = daq.SampleRate; n = round(0.5 * fs);
-                x = p.tail(n, 1:4);
+                [x, nTotal] = daq.recent(n);                            % no I/O
+                if isempty(x), drawnow('limitrate'); return; end
+                x = [nan(n - size(x, 1), size(x, 2)); x];               % fewer samples yet: aligned at the end
                 x = x - mean(x, 1, 'omitnan');                          % volts, slow drift removed
                 t = ((1:n) - n) / fs;                                   % seconds before "now"
-                total = p.samplesAvailable() / fs;
+                total = nTotal / fs;
                 [y, unit, sens] = app.toPressure(x, app.Session.Mics);
                 P = tim.gui.palette(); lv = cell(1, 4);
                 for c = 1:4
@@ -1896,6 +1926,8 @@ classdef Tubebench < handle
             app.setStatus(sprintf('Connecting (%s)…', app.Cfg.mode), 'busy');
             % connection checklist: every step is shown while it runs (the
             % animated icon keeps turning during the slow LAN-XI setup)
+            keys = app.connKeys();                     % the steps of the configured drivers
+            if ~isequal(keys, app.ConnList.Keys), app.ConnList.rebuild(keys, app.connLabels()); end
             app.ConnList.reset();
             app.showTab(app.H.connTab);
             app.H.connHead.Text = sprintf('Connecting (%s mode)…', app.Cfg.mode);
@@ -1958,22 +1990,26 @@ classdef Tubebench < handle
         end
 
         function onProgress(app, key, state, detail)
-            % a connection step started / ended (MeasurementSession.ProgressCallback)
+            % a connection step started / ended (MeasurementSession.ProgressCallback).
+            % The lamp of a role follows the steps of that role's driver (a step
+            % of a combined device drives both lamps); the channel cards are
+            % refreshed when a step of the input setup ends (TEDS).
             app.ConnList.set(key, state, detail);
             col = app.stateColor(state);
-            switch key
-                case 'gen'
-                    app.H.lamp(1).Color = col;
-                case {'lanxi', 'idle', 'open', 'setup'}
-                    app.H.lamp(2).Color = col;
-                case 'teds'
-                    if ~strcmp(state, 'run'), app.refreshCards(); end
+            steps = app.driverSteps();
+            i = find(strcmp({steps.key}, key), 1);
+            if ~isempty(i)
+                role = steps(i).role;
+                lamps = [any(strcmp(role, {'source', 'both'})), any(strcmp(role, {'acquisition', 'both'}))];
+                set(app.H.lamp(lamps), 'Color', col);
+                if strcmp(steps(i).phase, 'prepare') && ~strcmp(state, 'run'), app.refreshCards(); end
             end
             if strcmp(state, 'fail')
-                i = find(strcmp(app.connKeys(), key), 1); lbl = app.connLabels();
-                app.H.connHead.Text = sprintf('Connection FAILED at "%s" - %s', lbl{i}, detail);
+                k = find(strcmp(app.ConnList.Keys, key), 1);
+                lbl = key; if ~isempty(k), lbl = app.ConnList.Labels(k).Text; end
+                app.H.connHead.Text = sprintf('Connection FAILED at "%s" - %s', lbl, detail);
                 app.H.connHead.FontColor = tim.gui.palette().fail;
-                if strcmp(key, 'gen'), app.H.lamp(1).Color = col; else, app.H.lamp(2).Color = col; end
+                if isempty(i), app.H.lamp(2).Color = col; end   % a session step: the inputs
             end
         end
 
@@ -2011,6 +2047,9 @@ classdef Tubebench < handle
                     card.line1.Text = 'no TEDS found'; st = 'warn'; notes{end + 1} = 'no TEDS'; %#ok<AGROW>
                 else
                     card.line1.Text = '';
+                    % no TEDS read (a device without TEDS, or detection off): the
+                    % channel is connected once the inputs are set up
+                    if ~isempty(app.Session) && app.Session.Prepared, st = 'ok'; end
                 end
                 if isfield(m, 'sensitivitySource')
                     card.line2.Text = sprintf('sensitivity %.4g mV/Pa (%s)', 1e3 * m.sensitivity_VperPa, tim.app.MeasurementSession.sourceName(m.sensitivitySource));
