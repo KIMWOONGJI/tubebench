@@ -66,8 +66,9 @@ f = sp.f(:);
 [Hcal, calValid, calInfo, calValidCh] = tim.cal.applyCalibration(f, sp.H, cal, ref);
 res.calibration = struct('applied', ~isempty(cal), 'info', calInfo, 'version', 'none');
 if ~isempty(cal), res.calibration.version = cal.version; end
-% calibration set-up vs this measurement (empty section, port distances, temperature, mode)
-res.calibration.context = tim.cal.calibrationContext(cal, cfg);
+% calibration set-up vs this measurement (empty section, port distances, temperature, mode,
+% DAQ chain: driver, module, input settings - from the measurement's metadata)
+res.calibration.context = tim.cal.calibrationContext(cal, cfg, meas);
 if ~isempty(res.calibration.context.warnings)
     res.diagnostics.warnings = [res.diagnostics.warnings, reshape(res.calibration.context.warnings, 1, [])];
 end

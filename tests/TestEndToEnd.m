@@ -50,6 +50,13 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyTrue(meas.integrityOk);
             tc.verifyFalse(s.Gen.isOutputOn(), 'output must be off after the measurement');
             res = tim.app.processMeasurement(meas, tc.cfg, cal);
+            % the calibration records the DAQ chain; the measurement used the same one
+            id = s.Daq.identity(); ac = cal.meta.acquisition;
+            tc.verifyEqual({ac.driver, ac.model, ac.serial, ac.range, ac.sampleRate}, ...
+                {'lanxi', id.model, id.serial, tc.cfg.acquisition.range, tc.cfg.acquisition.sampleRate});
+            tc.verifyTrue(res.calibration.context.acquisitionMatch);
+            tc.verifyEqual(meas.metadata.daq.driver, 'lanxi');
+            tc.verifyEqual(meas.metadata.generator.identity, s.Gen.identity());
             a = res.analysis; v = a.valid.valid;
             tc.verifyGreaterThan(nnz(v), 0.5 * numel(v));
             truth = s.Rig.trueResponse(a.f).model;

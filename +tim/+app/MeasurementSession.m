@@ -111,6 +111,16 @@ classdef MeasurementSession < handle
             tf = ~isempty(obj.Gen) && ~isempty(obj.Daq) && strcmp(class(obj.Gen), class(obj.Daq)) && obj.Gen == obj.Daq;
         end
 
+        function ch = acquisitionChain(obj)
+            %ACQUISITIONCHAIN The DAQ input chain in use (tim.cal.acquisitionChain):
+            %   driver, display name, model, serial, firmware of the connected
+            %   module and the input settings (sample rate, range, filter, CCLD).
+            %   The switching calibration depends on it (cal.meta.acquisition).
+            md = struct('driver', obj.Cfg.daq.driver);
+            if ~isempty(obj.Daq), md = obj.Daq.metadata(); end
+            ch = tim.cal.acquisitionChain(md, obj.Cfg.acquisition, obj.Cfg.acquisition.sampleRate);
+        end
+
         function d = driverInfo(obj, role)
             %DRIVERINFO Class-level description of the driver of a role
             %   ('source' | 'acquisition'; tim.instr.driverInfo).

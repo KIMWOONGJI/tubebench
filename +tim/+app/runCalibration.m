@@ -9,7 +9,7 @@ function [cal, file, raw] = runCalibration(session, opts)
 %     I   : reference microphone in port a, microphone k in port b -> measure
 %     I'  : (optional) remove and reinsert both, same ports        -> repeat
 %     II  : interchange the two microphones (each keeps its own cable /
-%           preamplifier / LAN-XI input)                           -> measure
+%           preamplifier / DAQ input)                              -> measure
 %   The remaining microphones stay in the other ports (their signals are
 %   recorded but unused). The empty specimen section (lab: 75 mm,
 %   SIT-PT-003, without specimen) is mounted, so the tube is continuous
@@ -20,7 +20,9 @@ function [cal, file, raw] = runCalibration(session, opts)
 %   one sweep with the microphones in their measurement ports is evaluated
 %   as the empty-tube check, Test E (tau = exp(-j k d)), stored in
 %   cal.meta.emptyCheck; cal.meta.tube records the set-up (section, length,
-%   geometry, environment). The last prompt asks to mount the specimen
+%   geometry, environment) and cal.meta.acquisition the DAQ chain the factors
+%   include (driver, module identity, input settings; session.acquisitionChain,
+%   compared by tim.cal.calibrationContext). The last prompt asks to mount the specimen
 %   section again. In simulation the virtual rig models the empty specimen
 %   section (sample 'air') during the calibration and gets its specimen
 %   back afterwards, also after an error or Stop. See docs/calibration_procedure.md.
@@ -130,6 +132,7 @@ meta.tube = struct('specimenSection', 'empty', 'sectionLength_m', dSec, ...
     'specimenThickness_m', g.xRear - g.xFront, 'geometry', g, 'environment', cfg.environment, ...
     'note', ['Calibrated with the empty specimen section mounted (no specimen): ' ...
     'tube continuous, port positions as in the measurement.']);
+meta.acquisition = session.acquisitionChain();   % C_k includes the DAQ inputs: driver, module, input settings
 cal = tim.cal.buildCalibration(sp.I.f, results, ref, meta);
 [willCheck, why] = checkPossible(verify, g, cal);
 % save NOW, before the "return the microphones" step: C_k does not depend on the

@@ -2760,7 +2760,9 @@ classdef Tubebench < handle
                 [geom, env, msgs] = app.readTube();
                 if isempty(msgs), c.geometry = geom; c.environment = env; end
                 if ~isempty(app.Session), c.mode = app.Session.Cfg.mode; end
-                ctx = tim.cal.calibrationContext(cal, c);
+                cur = [];                    % connected: the DAQ module and input settings in use
+                if ~isempty(app.Session) && app.Session.Connected, cur = app.Session.acquisitionChain(); end
+                ctx = tim.cal.calibrationContext(cal, c, cur);
                 if ~isempty(ctx.warnings)
                     txt = [txt '  – check']; col = 0.8 * P.warn;
                     tip = [tip, ctx.warnings];
