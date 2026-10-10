@@ -20,7 +20,7 @@ and the formulas are in `theory.md` and in the **Formula** tab of the window.
 
 ## 2. The window
 
-Starting takes about 25 s. Meanwhile a small start window shows the program name, the version, a
+Starting takes about 25 s. Meanwhile a small start window shows the logo, the program name, the version, a
 progress bar and the current step (control panel, views, 3D tube model, graphs); its turning icon
 keeps moving while MATLAB is busy. It closes by itself when the main window appears; closing it
 earlier does not stop the start.
@@ -536,7 +536,7 @@ criteria; 12 units and level references. The derivations are in `theory.md`.
 * **Help**: User guide, Calibration procedure, Validation procedure, Installation (Windows) – the
   documents of `docs/`, opened in the MATLAB Editor; Source code on GitHub (web browser);
   **About**.
-* **Help > About** shows the program, the software version and release date, the Git commit and
+* **Help > About** shows the logo, the program, the software version and release date, the Git commit and
   branch, the MATLAB release, the repository link
   (<https://github.com/kimwoongji/transfer-impedance-tube-measurement>, private) and the author's
   portfolio (<https://kimwoongji.github.io>). The text can be selected and copied.

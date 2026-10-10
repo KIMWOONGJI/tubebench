@@ -23,6 +23,48 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyTrue(all([info.TransparentColor] > 0), 'transparent background (start window panel)');
         end
 
+        function logoFiles(tc)
+            % user choice 2026-10-10: mark "four ports" - tube with the specimen block,
+            % four microphones in the channel colours; light and reverse SVG (master)
+            % and PNG for the uifigure 'Icon' (R2022b: no SVG there)
+            P = tim.gui.palette();
+            folder = fullfile(tim.app.projectRoot(), 'resources', 'logo');
+            tc.verifyEqual(tim.gui.logo(), fullfile(folder, 'tubebench-mark.svg'));
+            tc.verifyEqual(tim.gui.logo('reverse'), fullfile(folder, 'tubebench-mark-reverse.svg'));
+            hexOf = @(c) upper(sprintf('#%02X%02X%02X', round(255 * c)));
+            for v = {'light', 'reverse'}
+                f = tim.gui.logo(v{1});
+                tc.assertTrue(isfile(f), f);
+                svg = tim.app.readTextUtf8(f);
+                tc.verifySubstring(svg, 'viewBox="0 0 64 64"');
+                lines = regexp(svg, '<line [^>]*stroke="(#[0-9A-F]{6})"', 'tokens');
+                circles = regexp(svg, '<circle [^>]*fill="(#[0-9A-F]{6})"', 'tokens');
+                tc.verifyEqual([lines{:}], [circles{:}], [v{1} ': microphone and its cap in the same colour']);
+                tc.verifyNumElements(lines, 4, v{1});
+                if strcmp(v{1}, 'light')
+                    tc.verifyEqual([lines{:}], arrayfun(@(c) hexOf(P.ch(c, :)), 1:4, 'UniformOutput', false), ...
+                        'light mark: microphones in the channel colours ch1..ch4');
+                    tc.verifySubstring(svg, ['stroke="' hexOf(P.ui.bar) '"'], 'tube in the header colour');
+                else
+                    tc.verifyEqual([lines{:}], {'#5AB0F0', '#F06A9F', '#33C99A', '#E8C547'}, 'reverse mark');
+                    tc.verifySubstring(svg, 'stroke="#FFFFFF"', 'white tube on the dark header');
+                end
+                for n = [16 32 48 256]
+                    f = tim.gui.logo(v{1}, n);
+                    tc.verifyTrue(isfile(f), f);
+                    [img, ~, alpha] = imread(f);
+                    tc.verifySize(img, [n n 3], f);
+                    tc.verifyEqual(size(alpha), [n n], [f ': transparent background']);
+                    tc.verifyEqual(double(alpha([1 end], [1 end])), zeros(2), [f ': corners transparent']);
+                end
+            end
+            icon = tim.gui.logo('icon');
+            tc.verifyEqual(icon, tim.gui.logo('light', 32), 'window icon: light mark, 32 px PNG');
+            [~, ~, ext] = fileparts(icon);
+            tc.verifyEqual(ext, '.png');
+            tc.verifyError(@() tim.gui.logo('dark'), 'tim:gui:logo');
+        end
+
         function startWindowStepsAndClose(tc)
             % user request 2026-10-10: a small start window (name, version, step,
             % progress bar, turning icon) while the main window is built; closing
@@ -37,6 +79,12 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifySubstring(sw.H.version.Text, info.version);
             tc.verifySubstring(sw.H.version.Text, info.released);
             tc.verifyEqual(sw.H.spin.ImageSource, tim.gui.icon('run'), 'turning icon (animated by the window)');
+            % user choice 2026-10-10: the reverse mark on the dark header, 52 px column
+            tc.verifyEqual(tim.gui.StartWindow.LogoFile, tim.gui.logo('reverse'));
+            tc.verifyTrue(isfile(tim.gui.StartWindow.LogoFile));
+            tc.verifyEqual(sw.H.logo.ImageSource, tim.gui.logo('reverse'), 'logo shown (SVG)');
+            tc.verifyEqual(sw.H.logo.Parent.ColumnWidth{1}, 52);
+            tc.verifyEqual(f.Icon, tim.gui.logo('icon'), 'window icon');
             tc.verifyEqual(sw.Step, 'Starting…');
             frac = @() str2double(erase(sw.H.bar.ColumnWidth{1}, 'x')) / ...
                 (str2double(erase(sw.H.bar.ColumnWidth{1}, 'x')) + str2double(erase(sw.H.bar.ColumnWidth{2}, 'x')));
@@ -564,6 +612,11 @@ classdef TestGui < matlab.unittest.TestCase
             % user request 2026-10-09: link to the author's portfolio site
             tc.verifyEqual(app.H.aboutPortfolio.URL, 'https://kimwoongji.github.io');
             tc.verifyEqual(app.H.aboutPortfolio.Text, 'Portfolio – kimwoongji.github.io');
+            % user choice 2026-10-10: the light mark left of the name; window icons
+            tc.verifyEqual(app.H.aboutLogo.ImageSource, tim.gui.logo(), 'About: light mark (SVG)');
+            tc.verifyEqual(app.H.aboutLogo.Parent.ColumnWidth{1}, 46);
+            tc.verifyEqual(fig.Icon, tim.gui.logo('icon'), 'About window icon');
+            tc.verifyEqual(app.Fig.Icon, tim.gui.logo('icon'), 'main window icon');
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
             tc.verifyNumElements(findall(groot, 'Type', 'figure', 'Name', 'About Transfer impedance tube'), 1, 'one About window');
         end

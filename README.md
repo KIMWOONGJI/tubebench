@@ -86,10 +86,11 @@ config/                 user_config.json (lab settings), example_config.json (te
                         emptyState, thickSpecimen, viewText (titles and descriptions)
 +tim/+gui               TubeApp (uifigure window), ViewPage (header + graphs + summary of a view),
                         drawTube3D (3D tube model), equationsPanel (Formula tab), Checklist,
-                        StartWindow (start window with progress), palette, icon, closeApp
+                        StartWindow (start window with progress), palette, icon, logo, closeApp
 +tim/+val               hardware validation procedures (Tests A–E)
 +tim/+cad               readStep (STEP assembly reader used for the tube dimensions)
 resources/icons         status and button icons
+resources/logo          the tubebench mark: SVG (light, reverse) and PNG 16/32/48/256 px (window icon)
 tests/                  matlab.unittest suites + fixtures (real LAN-XI responses and stream)
 examples/               demo_simulation.m, hardware_commissioning.m, bench_test_no_tube.m,
                         output/ (example plots)

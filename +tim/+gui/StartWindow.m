@@ -15,9 +15,9 @@ classdef StartWindow < handle
     %   stop the start-up: update() then only records the step.
 
     properties (Constant)
-        % LOGO (comes later): image file shown left of the program name, e.g.
-        % fullfile(tim.app.projectRoot(), 'resources', 'logo.png'); '' = no logo
-        LogoFile = ''
+        % logo left of the program name: the reverse mark (white tube, light
+        % channel colours) for the dark header, SVG (tim.gui.logo); '' = no logo
+        LogoFile = tim.gui.logo('reverse')
     end
     properties (SetAccess = private)
         Fig = []                % the start window (uifigure)
@@ -42,7 +42,8 @@ classdef StartWindow < handle
             w = 460; hgt = 190; a = opts.Area;
             sw.Fig = uifigure('Name', 'Transfer impedance tube', 'Resize', 'off', 'Visible', opts.Visible, ...
                 'Position', [round(a(1) + (a(3) - w) / 2), round(a(2) + (a(4) - hgt) / 2), w, hgt], ...
-                'Color', P.ui.panel, 'CloseRequestFcn', @(~, ~) sw.close());   % closing never stops the start-up
+                'Color', P.ui.panel, 'Icon', tim.gui.logo('icon'), ...
+                'CloseRequestFcn', @(~, ~) sw.close());   % closing never stops the start-up
             g = uigridlayout(sw.Fig, [2 1], 'RowHeight', {78, '1x'}, 'Padding', [0 0 0 0], 'RowSpacing', 0, ...
                 'BackgroundColor', P.ui.panel);
             % header: (logo), program name, version
@@ -50,8 +51,8 @@ classdef StartWindow < handle
             hd = uigridlayout(g, [4 2], 'RowHeight', {'1x', 28, 20, '1x'}, 'ColumnWidth', {52 * hasLogo, '1x'}, ...
                 'Padding', [22 0 22 0], 'ColumnSpacing', 14 * hasLogo, 'RowSpacing', 2, 'BackgroundColor', P.ui.bar);
             if hasLogo
-                im = uiimage(hd, 'ImageSource', logo, 'ScaleMethod', 'fit');
-                im.Layout.Row = [1 4]; im.Layout.Column = 1;
+                sw.H.logo = uiimage(hd, 'ImageSource', logo, 'ScaleMethod', 'fit');   % 52 x 52 px
+                sw.H.logo.Layout.Row = [1 4]; sw.H.logo.Layout.Column = 1;
             end
             sw.H.title = uilabel(hd, 'Text', 'Transfer impedance tube', 'FontSize', 20, 'FontWeight', 'bold', ...
                 'FontColor', P.ui.barText);
