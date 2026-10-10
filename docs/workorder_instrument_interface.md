@@ -78,7 +78,7 @@ analysis, changing the calibration method, a standalone executable.
   `tim.instr.LanXi` by name (simulation: `MockScpiTransport` + `MockLanXiHttp` on
   `tim.sim.SimulatedRig`).
 - **Device-specific text and settings outside the drivers:** "LAN-XI" appears 17 times in
-  `+tim/+gui/TubeApp.m` and 19 times in `MeasurementSession.m` (connection checklist: LAN-XI
+  `+tim/+gui/Tubebench.m` and 19 times in `MeasurementSession.m` (connection checklist: LAN-XI
   module (REST), recorder state Idle, open recorder, TEDS, channel setup → streaming; lamps
   "Generator", "LAN-XI"). Configuration sections `generator` (host, port, timeout, maxVpp, load)
   and `lanxi` (host, timeout, connector); `acquisition.sampleRate` limited to the 3676 rates,
@@ -151,7 +151,7 @@ Use these to judge whether an instrument can work (Part 2, step 2). "Must" items
 - All existing tests pass; new contract tests pass for both drivers.
 - Bus behaviour unchanged: record the SCPI and REST traffic of a simulated connect, calibration
   and measurement before and after the refactor (mock transports log every command) - identical.
-- `grep -i "lanxi\|lan-xi\|33220"` finds nothing in `MeasurementSession.m` and `TubeApp.m`
+- `grep -i "lanxi\|lan-xi\|33220"` finds nothing in `MeasurementSession.m` and `Tubebench.m`
   outside driver-provided data.
 - An old `user_config.json` and saved measurement folders still load (File > Open measurement).
 
@@ -193,5 +193,5 @@ first; no clicking or typing on the owner's screen; commit, never push unless as
    suite runs. Part 2: small (one skill file, templates, dry run).
 2. Risks: changing the session can break the Stop/close safety paths - keep the existing tests on
    closing, Stop and output-off and add contract tests before refactoring; the start-up work of
-   2026-10-10 (deferred view building) is merged (3e24bc2), so `TubeApp.m` is free.
+   2026-10-10 (deferred view building) is merged (3e24bc2), so `Tubebench.m` is free.
 3. Open questions for the owner: answered on 2026-10-11, see §0.
