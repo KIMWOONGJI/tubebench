@@ -7,8 +7,10 @@ function list = drivers(action, entry)
 %   daq.driver); tim.instr.create checks the selection and builds it. A
 %   driver class implements tim.instr.SignalSource and / or
 %   tim.instr.Acquisition, and describe().name equals its name here
-%   (checked by tests/TestInstrumentContract). Adding a driver means one
-%   line here; see docs/instrument_interface.md.
+%   (checked by tests/TestInstrumentContract). Registering a driver means
+%   one entry here; how to write one: docs/adding_an_instrument.md (the
+%   contract: docs/instrument_interface.md). 'demo' is the guide's worked
+%   example (simulation only).
 %
 %   tim.instr.drivers('add', struct('name', 'mydriver', 'class', 'MyDriver'))
 %   tim.instr.drivers('remove', 'mydriver')
@@ -29,7 +31,7 @@ if nargin >= 1
 end
 
 list = struct( ...
-    'name',  {'keysight33220a',           'lanxi',           'simcombined'}, ...
-    'class', {'tim.instr.Keysight33220A', 'tim.instr.LanXi', 'tim.sim.SimulatedCombined'});
+    'name',  {'keysight33220a',           'lanxi',           'simcombined',               'demo'}, ...
+    'class', {'tim.instr.Keysight33220A', 'tim.instr.LanXi', 'tim.sim.SimulatedCombined', 'tim.instr.DemoSource'});
 list = [list, extra(~ismember({extra.name}, {list.name}))];
 end

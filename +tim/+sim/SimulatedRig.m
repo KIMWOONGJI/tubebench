@@ -5,13 +5,14 @@ classdef SimulatedRig < handle
     %
     %   Signal chain per DAQ channel c (all on the DAQ sample clock):
     %     generator volts x(t)  two ways in (docs/instrument_interface.md section 10):
-    %                           - v = generate(n): the 33220A state from
-    %                             MockScpiTransport (setGeneratorState); own clock
-    %                             with GenClockPpm offset; log sweep emulated as a
-    %                             STEPPED sweep, not an ideal chirp; random
-    %                             BUS-trigger latency;
-    %                           - v = respond(x): any other source gives its
-    %                             output samples x (n x 1 volts) directly, e.g. the
+    %                           - v = generate(n): the state of a separate function
+    %                             generator from its protocol mock (setGeneratorState:
+    %                             MockScpiTransport of the 33220A, MockDemoSource);
+    %                             own clock with GenClockPpm offset; log sweep
+    %                             emulated as a STEPPED sweep, not an ideal chirp;
+    %                             random BUS-trigger latency;
+    %                           - v = respond(x): a source that produces samples
+    %                             gives its output x (n x 1 volts) directly, e.g. the
     %                             simulated combined device (shared clock)
     %     -> loudspeaker (2nd-order high-pass, SourceGain Pa/V incident at xFront)
     %     -> analytic tube field at position MicPosOfChannel(c) (tim.sim.tubeModel)
@@ -99,6 +100,10 @@ classdef SimulatedRig < handle
 
         %% ---- generator coupling -----------------------------------------
         function setGeneratorState(obj, s)
+            %SETGENERATORSTATE State of a separate function generator (its protocol
+            %   mock calls it after every change): OUTP 0/1, FUNC 'SIN'|'NOI',
+            %   FREQ [Hz], VOLT [Vpp], FREQ_STAR, FREQ_STOP [Hz], SWE_SPAC
+            %   'LOG'|'LIN', SWE_TIME [s], SWE_STAT 0/1, TRIG_SOUR.
             obj.Gen = s;
         end
         function generatorTrigger(obj)
@@ -115,7 +120,7 @@ classdef SimulatedRig < handle
         %% ---- signal generation ------------------------------------------
         function v = generate(obj, n)
             %GENERATE Next n samples (n x 4) of microphone output voltage, the
-            %   source being the 33220A state (setGeneratorState).
+            %   source being the generator state (setGeneratorState).
             v = obj.respond(obj.sourceSignal(n));
         end
 
