@@ -3,7 +3,8 @@
 Four-microphone transfer-impedance tube measurement (MATLAB)
 
 Repository: <https://github.com/kimwoongji/tubebench> (private; access by invitation of the owner;
-formerly `transfer-impedance-tube-measurement` - GitHub forwards the old address)
+not created yet - the code has not been pushed). Until 2026-10-10 the program was called
+`transfer-impedance-tube-measurement`; measurements saved before then carry that name.
 
 MATLAB R2022b program "tubebench" for broadband four-microphone impedance-tube
 measurements: Keysight/Agilent **33220A** generator → amplifier → loudspeaker → M1 M2 | specimen |

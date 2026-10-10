@@ -113,10 +113,9 @@ configuration, and its commit is stored with every measurement and calibration.
   opened after the installation (a terminal that was already open needs
   `"C:\Program Files\Git\cmd\git.exe"`).
 * The project folder is a repository on branch `main` (first commit 2026-10-08). Repository:
-  <https://github.com/kimwoongji/tubebench> (private; named `transfer-impedance-tube-measurement`
-  until 2026-10-10 - GitHub forwards the old address). No remote is
-  configured on the lab PC yet; adding it (`git remote add origin <url>`) and pushing are left to
-  the owner.
+  <https://github.com/kimwoongji/tubebench> (private; not created yet). No remote is configured on
+  the lab PC yet; creating the GitHub repository under this name, adding it
+  (`git remote add origin <url>`) and pushing are left to the owner.
 * Daily use, in the project folder:
 
   ```
@@ -134,5 +133,6 @@ configuration, and its commit is stored with every measurement and calibration.
   `winget install --id Git.Git -e`), then
   `git clone https://github.com/kimwoongji/tubebench.git` (needs access to the private
   repository; creates the folder `tubebench`).
-* An existing clone in a folder named `transfer-impedance-tube-measurement` (the name before
-  2026-10-10) keeps working: the program does not depend on the folder name.
+* The program does not depend on the folder name. The project was called
+  `transfer-impedance-tube-measurement` until 2026-10-10 (program and folder); measurements and
+  calibrations saved before then name it and the old folder in their metadata (information only).
