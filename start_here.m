@@ -8,6 +8,8 @@
 %
 % Configuration: config/user_config.json (lab settings, tracked in Git: mode,
 % microphone serials/sensitivities, GEOMETRY, limits). Commit it after changes.
+% It also selects the instrument drivers (generator.driver, daq.driver; default
+% 'keysight33220a' and 'lanxi', docs/instrument_interface.md).
 
 %% 0) Paths and configuration
 root = fileparts(mfilename('fullpath'));
@@ -32,8 +34,8 @@ fprintf('  - %s\n', warn{:});
 
 %% 3) Connect instruments (generator output stays OFF) and prepare acquisition
 s = tim.app.MeasurementSession(cfg);
-s.connect();
-s.prepareAcquisition();          % LAN-XI -> streaming state, TEDS, sensitivities
+s.connect();                     % logs each instrument with the identity it reported
+s.prepareAcquisition();          % DAQ inputs set up (LAN-XI: streaming state), TEDS, sensitivities
 
 %% 4) Electrical check: 2 s without excitation (Test A)
 bg = s.measureBackground(2);
@@ -56,5 +58,5 @@ figs = tim.app.plotResults(res, meas);
 folder = tim.app.saveMeasurement(meas, res, cfg, 'my_sample', figs);
 fprintf('Saved to %s\n', folder);
 
-%% 8) Disconnect (output off, LAN-XI back to Idle)
+%% 8) Disconnect (output off, DAQ stopped - LAN-XI: back to Idle)
 s.close();

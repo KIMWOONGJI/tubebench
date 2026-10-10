@@ -19,7 +19,9 @@ report = struct('date', char(datetime('now')), 'software', tim.app.softwareVersi
 s = tim.app.MeasurementSession(cfg);
 s.connect();
 s.prepareAcquisition();
-report.H0 = struct('generator', s.Gen.Identity, 'lanxi', rmfield(s.Daq.Info, 'raw'), 'teds', {s.Daq.Teds}, ...
+% the drivers' metadata: driver, display name, the identity each instrument
+% reported (vendor, model, serial number, firmware) and its settings
+report.H0 = struct('generator', s.Gen.metadata(), 'daq', s.Daq.metadata(), 'teds', {s.Daq.Teds}, ...
     'mics', s.Mics);
 disp(struct2table(s.Mics(:)));
 
