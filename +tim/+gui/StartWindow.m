@@ -72,14 +72,15 @@ classdef StartWindow < handle
                 'Padding', [0 0 0 0], 'ColumnSpacing', 0, 'BackgroundColor', [0.84 0.87 0.92]);
             sw.H.bar.Layout.Row = 3; sw.H.bar.Layout.Column = [1 2];
             sw.H.fill = uilabel(sw.H.bar, 'Text', '', 'BackgroundColor', P.ui.accent);
-            % last row: note on the left, the author's site on the right (plain text)
+            % last row: note on the left, the author's site on the right (link, opens the browser)
             nr = uigridlayout(bd, [1 2], 'ColumnWidth', {'1x', 'fit'}, 'RowHeight', {'1x'}, ...
                 'Padding', [0 0 0 0], 'ColumnSpacing', 8, 'BackgroundColor', P.ui.panel);
             nr.Layout.Row = 4; nr.Layout.Column = [1 2];
             sw.H.note = uilabel(nr, 'Text', 'The main window opens by itself when it is ready.', 'FontSize', 11, ...
                 'FontColor', P.ui.muted);
-            sw.H.site = uilabel(nr, 'Text', regexprep(tim.app.portfolioUrl(), '^https?://', ''), 'FontSize', 11, ...
-                'FontColor', P.ui.muted, 'HorizontalAlignment', 'right');
+            u = tim.app.portfolioUrl();
+            sw.H.site = uihyperlink(nr, 'Text', regexprep(u, '^https?://', ''), 'URL', u, 'FontSize', 11, ...
+                'HorizontalAlignment', 'right', 'Tooltip', 'portfolio of the author - opens in the web browser');
             sw.update('Starting…', 0);
             % wait until the window is on the screen (about 0.3 s; at most 10 s, e.g.
             % right after MATLAB has started): drawnow does not wait for a new
