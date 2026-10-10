@@ -555,7 +555,7 @@ classdef Tubebench < handle
             % on the lab screen (1920 x 1080: about 985 px); Scrollable stays on
             % as a fallback for small screens.
             bar = 26; rw = 24; sp = 4;
-            rowH = {bar, 26, 22, 22, 30, ...                %  1- 5 INSTRUMENTS: bar, mode + connect, status, lamps, in use
+            rowH = {bar, 26, 22, 22, 45, ...                %  1- 5 INSTRUMENTS: bar, mode + connect, status, lamps, in use (3 lines)
                 sp, bar, rw, 16, rw, 30, ...                %  6-11 IMPEDANCE TUBE: spacer, bar, D/T/p, names, distances, info
                 sp, bar, rw, rw, rw, rw, rw, rw, rw, 30, ...% 12-21 EXCITATION: spacer, bar, 7 field rows, drive
                 sp, bar, 22, 28, ...                        % 22-25 CALIBRATION: spacer, bar, status, buttons
