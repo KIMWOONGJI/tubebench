@@ -387,13 +387,13 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             c.generator.load = '50'; c.amplifier.model = 'none (direct drive)';
             tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load');
             c.generator.load = '75';
-            tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load');
+            tc.verifyError(@() tim.app.validateConfig(c, 'instruments'), 'tim:config:load');
             % review analysis-6: exact values only (the 33220A driver and the GUI
             % compare the raw text)
             c.amplifier.model = 'power amplifier';
             for ld = {'inf', ' 50', 'INF '}
                 c.generator.load = ld{1};
-                tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load', ld{1});
+                tc.verifyError(@() tim.app.validateConfig(c, 'instruments'), 'tim:config:load', ld{1});
             end
             % review analysis-5: the session setter is validated as well
             c.generator.load = '50'; c.amplifier.inputImpedance_ohm = 50;
@@ -465,7 +465,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             function t = errText(cfg)
                 t = '';
                 try
-                    tim.app.validateConfig(cfg);
+                    tim.app.validateConfig(cfg, 'instruments');      % the driver limits are errors at Connect
                 catch err
                     t = err.message;
                 end

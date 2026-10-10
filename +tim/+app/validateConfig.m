@@ -13,10 +13,13 @@ function report = validateConfig(cfg, scope)
 %   sweep times and frequencies, sample rate, analysis band, input range,
 %   filter and CCLD. A configuration with the old instrument keys
 %   (formatVersion 1, built in code) is read through tim.app.migrateConfig.
-%   An unknown driver name gives the warning tim:config:driver and skips that
-%   driver's limits, so the configuration of a measurement folder from
-%   another set-up still loads; with 'instruments' (the measurement session,
-%   i.e. Connect) it is an error.
+%   Without 'instruments' (loading a file: tim.app.loadConfig, File > Open
+%   measurement, Load configuration) the instrument checks only warn, so a
+%   file that an older version or another set-up wrote still loads: an
+%   unknown driver name gives the warning tim:config:driver and skips that
+%   driver's limits; a value outside the limits of the selected driver gives
+%   its tim:config:* identifier as a warning. With 'instruments' (the
+%   measurement session, i.e. Connect, and its setters) they are errors.
 
 if nargin < 2, scope = ''; end
 cfg = tim.app.migrateConfig(cfg);
@@ -145,7 +148,9 @@ end
 
 function report = checkDrivers(cfg, required)
 % the selected drivers check their part of the configuration (a combined
-% driver once); an unknown name is a warning, or an error when required
+% driver once). An unknown name, a driver in a role it does not have and a
+% value outside the driver's limits are errors when required; otherwise
+% warnings, also returned in the report (the window logs them as checks)
 report = {};
 sections = {'generator', 'daq'};
 roles = {'source', 'acquisition'};
@@ -159,17 +164,37 @@ for k = 1:2
         got = name; if ~ischar(got), got = mat2str(got); end
         msg = sprintf(['Unknown instrument driver "%s" (%s.driver; registered: %s): the instrument settings of this ' ...
             'configuration are not checked and it cannot connect.'], got, sections{k}, strjoin(registered, ', '));
-        if required, error('tim:config:driver', '%s', msg); end
-        warning('tim:config:driver', '%s', msg);
+        report = notRequired(report, required, 'tim:config:driver', msg);
         continue
     end
     d = tim.instr.driverInfo(name);
     if ~any(strcmp(roles{k}, d.capabilities.roles))
-        error('tim:config:driver', 'The %s (%s.driver "%s") cannot be the %s.', d.displayName, sections{k}, name, roleText{k});
+        msg = sprintf('The %s (%s.driver "%s") cannot be the %s.', d.displayName, sections{k}, name, roleText{k});
+        report = notRequired(report, required, 'tim:config:driver', msg);
+        continue
     end
     if any(strcmp(name, checked)), continue; end          % one driver for both roles
-    r = feval([d.class '.checkConfig'], cfg);
-    report = [report, reshape(r, 1, [])]; %#ok<AGROW>
     checked{end+1} = name; %#ok<AGROW>
+    try
+        r = feval([d.class '.checkConfig'], cfg);
+    catch err
+        % a file of 1.1.0 or of another set-up may hold values the driver does
+        % not accept (e.g. a level below its minimum): it loads, Connect refuses it
+        if ~startsWith(err.identifier, 'tim:config:'), rethrow(err); end
+        report = notRequired(report, required, err.identifier, err.message);
+        continue
+    end
+    report = [report, reshape(r, 1, [])]; %#ok<AGROW>
 end
+end
+
+function report = notRequired(report, required, id, msg)
+% a failed instrument check: an error when the instruments are required,
+% otherwise a warning with the same identifier, also added to the report
+if required, error(id, '%s', msg); end
+if ~endsWith(msg, 'cannot connect.')
+    msg = sprintf('%s The instruments cannot connect with this configuration until it is changed.', msg);
+end
+warning(id, '%s', msg);
+report{end+1} = msg;
 end

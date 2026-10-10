@@ -1699,7 +1699,11 @@ classdef Tubebench < handle
                 error('tim:gui:geometry', 'IMPEDANCE TUBE: %s.', strjoin(msgs, '; '));
             end
             app.Cfg.geometry = geom; app.Cfg.environment = env;
-            rep = tim.app.validateConfig(app.Cfg);
+            % connected: the limits of the drivers are errors (the fields stay as
+            % they were); otherwise warnings, so that an older file can be saved again
+            scope = '';
+            if ~isempty(app.Session) && isvalid(app.Session), scope = 'instruments'; end
+            rep = tim.app.validateConfig(app.Cfg, scope);
             txt = strjoin(rep, ' | ');
             if ~strcmp(txt, app.LastCheck)
                 for i = 1:numel(rep), app.log('CHECK: %s', rep{i}); end

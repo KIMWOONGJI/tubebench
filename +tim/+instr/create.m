@@ -27,7 +27,9 @@ function obj = create(role, cfg, ctx, other)
 %     6. hardware mode: a source without output read-back only with
 %        generator.allowUnconfirmedOff = true               tim:instr:readback
 %     7. the drivers' checkConfig(cfg)                      tim:config:*
-%   (4-7 for the driver of each role, a combined driver once.)
+%   (4-7 for the driver of each role, a combined driver once.) Settings of
+%   the driver in a section it does not read (generator.<d> of a driver that
+%   takes both roles) give the warning tim:config:misplacedSettings.
 %   Then the driver's fromConfig(cfg, ctx) connects, identifies and puts the
 %   instrument in its safe state; ctx.roles and ctx.settings (the driver
 %   sub-struct merged onto describe().defaults.settings) are filled in, and
@@ -110,6 +112,10 @@ else
     ctx.roles = {role};
 end
 ctx.settings = tim.instr.Instrument.settingsFrom(cfg, section, d.name, d.defaults.settings);
+[msg, drv] = tim.instr.Instrument.misplacedSettings(cfg);   % settings of this driver that it does not read
+for i = find(strcmp(drv, d.name))
+    warning('tim:config:misplacedSettings', '%s', msg{i});
+end
 obj = feval([cls '.fromConfig'], cfg, ctx);
 if ~isempty(ctx.progress), obj.ProgressFcn = ctx.progress; end
 end

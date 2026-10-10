@@ -192,7 +192,9 @@ classdef TestConfiguration < matlab.unittest.TestCase
         end
 
         function driversCheckTheirPart(tc)
-            % the limits of the selected drivers (static checkConfig)
+            % the limits of the selected drivers (static checkConfig): errors
+            % where the instruments are needed (the session, i.e. Connect);
+            % warnings, also in the report, when a file is only loaded
             c0 = tim.app.defaultConfig();
             cases = {
                 'generator.keysight33220a.port', 0, 'tim:config:port'
@@ -206,9 +208,89 @@ classdef TestConfiguration < matlab.unittest.TestCase
                 'daq.driver', 'keysight33220a', 'tim:config:driver'};
             for i = 1:size(cases, 1)
                 c = setPath(c0, cases{i, 1}, cases{i, 2});
-                tc.verifyError(@() tim.app.validateConfig(c), cases{i, 3}, cases{i, 1});
+                tc.verifyError(@() tim.app.validateConfig(c, 'instruments'), cases{i, 3}, cases{i, 1});
+                tc.verifyError(@() tim.app.MeasurementSession(c), cases{i, 3}, cases{i, 1});
+                rep = tc.verifyWarning(@() tim.app.validateConfig(c), cases{i, 3}, cases{i, 1});
+                tc.verifyTrue(any(contains(rep, 'connect')), [cases{i, 1} ': named in the report']);
             end
             tc.verifyEmpty(tim.app.validateConfig(setPath(c0, 'geometry', c0.simulation.Geometry)));
+        end
+
+        function filesOfVersion110StillLoad(tc)
+            % values that 1.1.0 accepted and wrote (its window's amplitude went
+            % down to 0.005 Vpk = 0.01 Vpp, written into all three signals;
+            % generator.maxVpp up to 20 Vpp at any load; any sweep time; LAN-XI
+            % connector '') still load. A level below the generator minimum
+            % matters only for the swept sine (calibration, Test E) and the
+            % selected signal; Connect refuses what the driver cannot do.
+            u0 = tc.fixtureStruct('config_formatVersion1.json');
+            u0.mode = 'simulation';
+            cases = {   % path, value, warning when loaded ('' = none), error at Connect ('' = connects)
+                'excitation.stepped.amplitudeVpp', 0.01, '', ''
+                'excitation.noise.amplitudeVpp', 0.015, '', ''
+                'excitation.sweep.amplitudeVpp', 0.01, 'tim:config:amplitude', 'tim:config:amplitude'
+                'generator.maxVpp', 15, 'tim:config:maxVpp', 'tim:config:maxVpp'
+                'excitation.sweep.duration', 600, 'tim:config:sweep', 'tim:config:sweep'
+                'lanxi.connector', '', '', ''};
+            for i = 1:size(cases, 1)
+                u = setPath(u0, cases{i, 1}, cases{i, 2});
+                if strcmp(cases{i, 1}, 'generator.maxVpp')         % 1.1.0: maxVpp up to 20 Vpp, also at load 50
+                    u.generator.load = '50'; u.amplifier.model = 'power amplifier'; u.amplifier.inputImpedance_ohm = 50;
+                end
+                file = tc.writeJson(u, sprintf('v110_%d.json', i));
+                if isempty(cases{i, 3})
+                    c = tc.verifyWarningFree(@() tim.app.loadConfig(file), cases{i, 1});
+                else
+                    c = tc.verifyWarning(@() tim.app.loadConfig(file), cases{i, 3}, cases{i, 1});
+                end
+                if isempty(cases{i, 4})
+                    s = tc.verifyWarningFree(@() tim.app.MeasurementSession(c), cases{i, 1});
+                    s.close();
+                else
+                    tc.verifyError(@() tim.app.MeasurementSession(c), cases{i, 4}, cases{i, 1});
+                end
+            end
+            % connector '': no ConnectorSelect is sent, the module keeps its own setting (as 1.1.0)
+            c = tim.app.loadConfig(tc.writeJson(setPath(u0, 'lanxi.connector', ''), 'connector.json'));
+            s = tim.app.MeasurementSession(c);
+            tc.addTeardown(@() s.close());
+            s.connect(); s.Daq.Verbose = false; s.prepareAcquisition();
+            tc.verifyEqual(s.Daq.metadata().connector, '');
+            % the noise level below the minimum is refused when it is played (before any level command)
+            u = setPath(u0, 'excitation.noise.amplitudeVpp', 0.01);
+            c = tim.app.loadConfig(tc.writeJson(u, 'noise.json'));
+            s2 = tim.app.MeasurementSession(c);
+            tc.addTeardown(@() s2.close());
+            ex = c.excitation; ex.mode = 'noise';
+            tc.verifyError(@() s2.setExcitation(ex), 'tim:config:amplitude', 'selected: checked by the session');
+        end
+
+        function misplacedDriverSettingsWarn(tc)
+            % a device in both roles reads its settings from daq.<driver>: the
+            % same settings in the generator section are never used - a warning
+            % when the file is loaded and when the driver connects
+            u = tc.fixtureStruct('config_formatVersion2.json');
+            u.mode = 'simulation';
+            u.generator.driver = 'simcombined'; u.daq.driver = 'simcombined';
+            u.generator.simcombined = struct('blockSamples', 4096, 'serial', 'MISPLACED');
+            file = tc.writeJson(u, 'misplaced.json');
+            c = tc.verifyWarning(@() tim.app.loadConfig(file), 'tim:config:misplacedSettings');
+            ctx = struct('mode', 'simulation', 'rig', tim.sim.SimulatedRig(c), 'progress', []);
+            dev = tc.verifyWarning(@() tim.instr.create('source', c, ctx), 'tim:config:misplacedSettings');
+            tc.addTeardown(@() dev.close());
+            tc.verifyEqual(dev.metadata().settings.serial, 'SIM-0001', 'generator.simcombined is not read');
+            % in daq.<driver>: used, no warning
+            u.daq.simcombined = u.generator.simcombined; u.generator = rmfield(u.generator, 'simcombined');
+            c = tc.verifyWarningFree(@() tim.app.loadConfig(tc.writeJson(u, 'placed.json')));
+            ctx.rig = tim.sim.SimulatedRig(c);
+            dev2 = tc.verifyWarningFree(@() tim.instr.create('source', c, ctx));
+            tc.addTeardown(@() dev2.close());
+            tc.verifyEqual(dev2.metadata().settings.serial, 'MISPLACED');
+            % settings of a driver in a section of a role it does not have
+            m = tim.instr.Instrument.misplacedSettings(setPath(tim.app.defaultConfig(), 'generator.lanxi', struct('host', 'x')));
+            tc.verifyNumElements(m, 1);
+            tc.verifySubstring(m{1}, 'daq.lanxi');
+            tc.verifyEmpty(tim.instr.Instrument.misplacedSettings(tim.app.defaultConfig()));
         end
 
         function driveEstimateUsesTheDriversSourceImpedance(tc)

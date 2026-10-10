@@ -53,7 +53,9 @@ classdef (Abstract) SignalSource < tim.instr.Instrument
             %   generator.load and generator.maxVpp against the driver's loads
             %   and per-load maximum; a swept sine with the configured spacing
             %   (the switching calibration and Test E are sweeps);
-            %   excitation.mode; amplitudes at least the per-load minimum;
+            %   excitation.mode; the amplitude of the swept sine and of the
+            %   selected signal at least the per-load minimum (another level is
+            %   checked by configure* when it is played, tim:gen:amplitude);
             %   sweep duration and frequencies within the source limits.
             report = {};
             s = c.source; g = cfg.generator;
@@ -83,6 +85,7 @@ classdef (Abstract) SignalSource < tim.instr.Instrument
             what = {'sweep', 'swept sine'; 'stepped', 'stepped sine'; 'noise', 'random noise'};
             for i = 1:size(what, 1)
                 if ~any(strcmp(wave.(what{i, 1}), s.waveforms)), continue; end
+                if ~any(strcmp(what{i, 1}, {'sweep', ex.mode})), continue; end   % not played now
                 v = ex.(what{i, 1}).amplitudeVpp;
                 if v < s.minVpp(k)
                     error('tim:config:amplitude', ['Generator amplitude of the %s, %.3g Vpp, is below the minimum of the %s at ' ...

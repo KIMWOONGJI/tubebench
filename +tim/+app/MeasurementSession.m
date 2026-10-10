@@ -410,7 +410,7 @@ classdef MeasurementSession < handle
             % load '50' is refused here, not only at the next setExcitation
             % (review analysis-5)
             c = obj.Cfg; c.amplifier = a;
-            tim.app.validateConfig(c);
+            tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
             obj.ConfirmedExcitation = '';
             if isfinite(gainFactor)
@@ -437,14 +437,14 @@ classdef MeasurementSession < handle
             c = obj.Cfg;
             c.loudspeaker.impedance_ohm = impedance_ohm;
             c.loudspeaker.maxPower_W = maxPower_W;
-            tim.app.validateConfig(c);
+            tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
         end
 
         function setGeometryEnvironment(obj, geometry, environment)
             %SETGEOMETRYENVIRONMENT Update tube geometry / air conditions (metadata).
             c = obj.Cfg; c.geometry = geometry; c.environment = environment;
-            tim.app.validateConfig(c);
+            tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
         end
 
@@ -474,7 +474,7 @@ classdef MeasurementSession < handle
         function setExcitation(obj, ex)
             %SETEXCITATION Change excitation settings between measurements (validated).
             c = obj.Cfg; c.excitation = ex;
-            tim.app.validateConfig(c);
+            tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
         end
 

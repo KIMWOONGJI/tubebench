@@ -16,9 +16,13 @@ function cfg = loadConfig(file)
 %   after a registered driver (generator.<driver>, daq.<driver>) is merged
 %   onto that driver's defaults and kept also when another driver is
 %   selected; the sub-struct of an unknown driver is kept as it is (warning
-%   tim:config:driver from tim.app.validateConfig). acquisition.sampleRate,
-%   range, filter and ccld that the file leaves out (or sets to null / '')
-%   take the default of the selected DAQ driver.
+%   tim:config:driver from tim.app.validateConfig). A sub-struct in a section
+%   its driver never reads (generator.<d> of a driver that takes both roles,
+%   which reads daq.<d>) gives the warning tim:config:misplacedSettings.
+%   Values outside the limits of the selected drivers give warnings
+%   (tim.app.validateConfig): the file loads, Connect refuses it.
+%   acquisition.sampleRate, range, filter and ccld that the file leaves out
+%   (or sets to null / '') take the default of the selected DAQ driver.
 
 cfg = tim.app.defaultConfig();
 if nargin < 1 || isempty(file), return; end
@@ -32,6 +36,9 @@ if ~isempty(unknown)
 end
 cfg = tim.app.migrateConfig(cfg);
 cfg.configFile = file;
+for m = tim.instr.Instrument.misplacedSettings(cfg)       % e.g. generator.<d> of a combined driver
+    warning('tim:config:misplacedSettings', '%s', m{1});
+end
 tim.app.validateConfig(cfg);
 end
 

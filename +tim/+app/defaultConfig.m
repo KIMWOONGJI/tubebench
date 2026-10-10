@@ -46,7 +46,8 @@ cfg.amplifier = struct('model', '', ...
 % power) from generator amplitude x amplifier gain, and to REFUSE excitation
 % above maxPower_W (sine/sweep mean power, P = Vpk^2 / (2 Z)).
 cfg.loudspeaker = struct('impedance_ohm', 8, 'ratedPower_W', 25, 'maxPower_W', 1.0);
-% LAN-XI: daq.lanxi.connector 'BNC' | 'LEMO' (the 3676 supports both; must match the cabling)
+% LAN-XI: daq.lanxi.connector 'BNC' | 'LEMO' (the 3676 supports both; must match the cabling);
+% '' (files of 1.1.0) sends no ConnectorSelect: the module keeps its own setting
 daq = tim.instr.driverInfo('lanxi');
 cfg.daq = struct('driver', daq.name, daq.name, daq.defaults.settings);
 

@@ -104,6 +104,46 @@ classdef (Abstract) Instrument < handle
             end
         end
 
+        function [msg, drv] = misplacedSettings(cfg)
+            %MISPLACEDSETTINGS Driver settings in a section their driver never reads.
+            %   [msg, drv] = tim.instr.Instrument.misplacedSettings(cfg)   % cellstr, {} = none
+            %   A driver reads generator.<driver> when it is the source alone
+            %   and daq.<driver> when it is the acquisition or takes both roles
+            %   (tim.instr.create). One message per sub-struct named after a
+            %   registered driver that sits in a section that driver does not
+            %   read: generator.<d> of a driver that is no source or works only
+            %   in both roles, daq.<d> of a driver that is no acquisition, and
+            %   generator.<d> when the configuration selects d for both roles;
+            %   drv names the driver of each message. tim.app.loadConfig and
+            %   tim.instr.create warn tim:config:misplacedSettings.
+            msg = {}; drv = {};
+            names = {tim.instr.drivers().name};
+            sel = {char(string(cfg.generator.driver)), char(string(cfg.daq.driver))};
+            for k = 1:numel(names)
+                n = names{k};
+                inGen = isfield(cfg.generator, n) && isstruct(cfg.generator.(n));
+                inDaq = isfield(cfg.daq, n) && isstruct(cfg.daq.(n));
+                if ~inGen && ~inDaq, continue; end
+                d = tim.instr.driverInfo(n); c = d.capabilities;
+                both = all(strcmp(sel, n)) && all(ismember({'source', 'acquisition'}, c.roles));
+                if inGen && (~any(strcmp('source', c.roles)) || c.rolesTogether || both)
+                    if any(strcmp('acquisition', c.roles))
+                        where = sprintf('its settings belong in daq.%s', n);
+                    else
+                        where = 'it is no signal source';
+                    end
+                    msg{end+1} = sprintf(['The settings generator.%s are not used: the %s reads no settings from ' ...
+                        'the generator section (%s).'], n, d.displayName, where); %#ok<AGROW>
+                    drv{end+1} = n; %#ok<AGROW>
+                end
+                if inDaq && ~any(strcmp('acquisition', c.roles))
+                    msg{end+1} = sprintf(['The settings daq.%s are not used: the %s is no acquisition (its settings ' ...
+                        'belong in generator.%s).'], n, d.displayName, n); %#ok<AGROW>
+                    drv{end+1} = n; %#ok<AGROW>
+                end
+            end
+        end
+
         function reportStep(ctx, key, state, detail)
             %REPORTSTEP Report a 'connect' step through ctx.progress (if any).
             %   Errors of the callback (operator Stop: tim:session:stopped)

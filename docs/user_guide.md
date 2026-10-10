@@ -656,14 +656,20 @@ driver keeps its own settings in a sub-struct named after it:
    Instruments table of Setup > Connection shows the same values in its tooltip.
 2. **Name it** in `generator.driver` and / or `daq.driver`. A driver that takes both roles (one
    device with output and inputs) is named in both sections and reads its settings from
-   `daq.<driver>`.
+   `daq.<driver>` only; settings of it in `generator.<driver>` are not used (warning
+   `tim:config:misplacedSettings` when the file is loaded and at Connect).
 3. **Its own settings** (address, time-out, connector, …) go into `generator.<driver>` or
    `daq.<driver>`; keys left out take the driver's defaults. A file may keep the settings of
    several drivers and switch with `driver`.
 4. **The generic settings** (`generator.maxVpp`, `generator.load`, the excitation levels and sweep
    durations, the `acquisition` section) mean the same for every driver, but their allowed values
-   come from the selected driver, which checks them when the file is loaded (File > Load
-   configuration…, `tim.app.loadConfig`) and names any value it does not support.
+   come from the selected driver, which checks them and names any value it does not support.
+   Loading a file (File > Load configuration…, File > Open measurement…, start-up,
+   `tim.app.loadConfig`) only **warns** about such a value - a file written by tubebench 1.1.0 or
+   on another set-up still loads; the EXCITATION fields start within the driver's limits (e.g. at
+   the generator's smallest level). **Connect** refuses it with the message (window: "Check the
+   settings"). The smallest level of the generator is checked for the swept sine (calibration,
+   Test E) and the selected signal; another level is refused when it is played.
    `acquisition.sampleRate`, `range`, `filter` and `ccld` left out, `null` or `""` take the
    driver's default.
 5. **Connect.** Before connecting the window shows the display names of the selected drivers,
@@ -703,7 +709,7 @@ still be opened and reprocessed; Connect then reports the error.
 | `loudspeaker.maxPower_W` | 1.0 | loudspeaker power limit (field Power limit [W]) |
 | `loudspeaker.ratedPower_W` | 25 | rated power: a power limit above it is flagged |
 | `daq.driver` | `"lanxi"` | acquisition (DAQ) driver |
-| `daq.lanxi.host`, `timeout`, `connector` | 169.254.64.156, 10 s, `"BNC"` | LAN-XI module; `"BNC"` or `"LEMO"`, whichever the microphones use; old layout: `lanxi.host`, `timeout`, `connector` |
+| `daq.lanxi.host`, `timeout`, `connector` | 169.254.64.156, 10 s, `"BNC"` | LAN-XI module; `"BNC"` or `"LEMO"`, whichever the microphones use (`""`, possible in files of 1.1.0: the module keeps its own setting); old layout: `lanxi.host`, `timeout`, `connector` |
 | `acquisition.sampleRate` | 16384 (driver default) | a rate of the DAQ driver; LAN-XI 3676: 4096, 8192, 16384, 32768 or 65536 S/s |
 | `acquisition.range`, `filter` | `"10 Vpeak"`, `"0.7 Hz"` (driver defaults) | input range and high-pass filter, values of the DAQ driver |
 | `acquisition.settleTime` | 3 | seconds of CCLD / high-pass settling after the channel setup (hardware) |

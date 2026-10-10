@@ -269,6 +269,30 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.CalDrawCount, 1, 'no redraw when nothing changed');
         end
 
+        function fileOfVersion110WithLevelsBelowTheMinimum(tc)
+            % the window of 1.1.0 went down to 0.005 Vpk and wrote 0.01 Vpp into
+            % all three signals: such a file still opens the window (a warning:
+            % below the 33220A minimum of 20 mVpp at load INF), the amplitude
+            % field starts at the generator's smallest level, and Connect then
+            % works with the levels of the fields
+            c = tim.app.defaultConfig(); c.mode = 'simulation';
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            u = jsondecode(tim.app.readTextUtf8(file));
+            for s = {'sweep', 'stepped', 'noise'}, u.excitation.(s{1}).amplitudeVpp = 0.01; end
+            fid = fopen(file, 'w', 'n', 'UTF-8'); fwrite(fid, unicode2native(jsonencode(u), 'UTF-8')); fclose(fid);
+            app = tc.verifyWarning(@() tim.gui.Tubebench(file, 'Visible', 'off'), 'tim:config:amplitude');
+            tc.addTeardown(@() delete(app));
+            tc.verifyEqual(app.H.amp.Value, 0.01, 'AbsTol', 1e-12, 'the smallest level of the generator, in Vpk');
+            feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
+            s = app.Session;
+            tc.assertNotEmpty(s, 'connected');
+            tc.verifyTrue(s.Connected);
+            ex = s.Cfg.excitation;
+            tc.verifyEqual([ex.sweep.amplitudeVpp ex.stepped.amplitudeVpp ex.noise.amplitudeVpp], [0.02 0.02 0.02], ...
+                'AbsTol', 1e-12, 'the levels of the fields');
+        end
+
         function closeShowsStepsAndDisconnects(tc)
             % user request 2026-10-09: closing was slow without feedback. The
             % window disappears at once, a small window shows the steps, the

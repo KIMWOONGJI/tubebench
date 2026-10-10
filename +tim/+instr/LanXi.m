@@ -510,8 +510,11 @@ classdef LanXi < tim.instr.Acquisition
             if ~(isscalar(st.timeout) && st.timeout > 0)
                 error('tim:config:timeout', 'LAN-XI time-out (daq.%s.timeout) must be greater than 0 s.', d.name);
             end
-            if ~any(strcmp(st.connector, {'BNC', 'LEMO'}))
-                error('tim:config:connector', 'LAN-XI connector (daq.%s.connector) must be ''BNC'' or ''LEMO''.', d.name);
+            % '' (allowed before 1.2.0): no ConnectorSelect is sent, the module keeps its own setting
+            con = st.connector; if isstring(con) && isscalar(con), con = char(con); end
+            if ~(ischar(con) && (isempty(con) || any(strcmp(con, {'BNC', 'LEMO'}))))
+                error('tim:config:connector', ['LAN-XI connector (daq.%s.connector) must be ''BNC'' or ''LEMO'' ' ...
+                    '(or '''': the module''s own setting).'], d.name);
             end
             report = tim.instr.Acquisition.checkAcquisitionConfig(cfg, tim.instr.LanXi.capabilities(), d);
         end
