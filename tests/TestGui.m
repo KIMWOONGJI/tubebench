@@ -85,6 +85,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(sw.H.logo.ImageSource, tim.gui.logo('reverse'), 'logo shown (SVG)');
             tc.verifyEqual(sw.H.logo.Parent.ColumnWidth{1}, 52);
             tc.verifyEqual(f.Icon, tim.gui.logo('icon'), 'window icon');
+            tc.verifyEqual(sw.H.site.Text, 'kimwoongji.github.io', 'author site (user request 2026-10-10)');
             tc.verifyEqual(sw.Step, 'Starting…');
             frac = @() str2double(erase(sw.H.bar.ColumnWidth{1}, 'x')) / ...
                 (str2double(erase(sw.H.bar.ColumnWidth{1}, 'x')) + str2double(erase(sw.H.bar.ColumnWidth{2}, 'x')));
@@ -608,6 +609,8 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual({app.H.measTabs.Children.Title}, {'Time signals', 'Spectrum', 'Transfer functions'});
             tc.verifyEqual({app.H.resTabs.Children.Title}, {'Reflection and transmission', 'Transmission loss', ...
                 'Transfer impedance', 'Validity'});
+            nAbout = @() numel(findall(groot, 'Type', 'figure', 'Name', 'About tubebench'));
+            n0 = nAbout();                     % About windows of other app instances (e.g. one the user has open)
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
             fig = app.AboutFig; tc.addTeardown(@() delete(fig));
             tc.verifyEqual(fig.Name, 'About tubebench');
@@ -615,17 +618,19 @@ classdef TestGui < matlab.unittest.TestCase
             [~, info] = tim.app.softwareVersion();
             tc.verifySubstring(txt, info.version);
             tc.verifySubstring(txt, info.commit);
-            tc.verifyEqual(app.H.aboutLink.URL, tim.app.repositoryUrl());
-            % user request 2026-10-09: link to the author's portfolio site
+            % user request 2026-10-09: link to the author's portfolio site; 2026-10-10:
+            % only the address, and no repository link (it is in Help > Source code on GitHub)
             tc.verifyEqual(app.H.aboutPortfolio.URL, 'https://kimwoongji.github.io');
-            tc.verifyEqual(app.H.aboutPortfolio.Text, 'Portfolio – kimwoongji.github.io');
+            tc.verifyEqual(app.H.aboutPortfolio.Text, 'kimwoongji.github.io');
+            tc.verifyFalse(isfield(app.H, 'aboutLink'), 'no repository link in About');
+            tc.verifyNumElements(findall(fig, 'Type', 'uihyperlink'), 1);
             % user choice 2026-10-10: the light mark left of the name; window icons
             tc.verifyEqual(app.H.aboutLogo.ImageSource, tim.gui.logo(), 'About: light mark (SVG)');
             tc.verifyEqual(app.H.aboutLogo.Parent.ColumnWidth{1}, 46);
             tc.verifyEqual(fig.Icon, tim.gui.logo('icon'), 'About window icon');
             tc.verifyEqual(app.Fig.Icon, tim.gui.logo('icon'), 'main window icon');
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
-            tc.verifyNumElements(findall(groot, 'Type', 'figure', 'Name', 'About tubebench'), 1, 'one About window');
+            tc.verifyEqual(nAbout(), n0 + 1, 'one About window per app');
         end
 
         function deferredViewsBuiltWhenOpened(tc)

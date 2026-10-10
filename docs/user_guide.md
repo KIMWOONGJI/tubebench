@@ -28,8 +28,9 @@ the **Formula** tab of the window.
 
 The main window appears about 16 s after a double-click on `start_tubebench.bat` (about 11 s
 after MATLAB has started; in a MATLAB that is already running about 6–9 s). Meanwhile a small
-start window shows the logo, the program name, the version, a progress bar and the current step
-(control panel, Connection view, settings); its turning icon keeps moving while MATLAB is busy.
+start window shows the logo, the program name, the version, the author's site, a progress bar
+and the current step (control panel, Connection view, settings); its turning icon keeps moving
+while MATLAB is busy.
 It closes by itself when the main window appears; closing it earlier does not stop the start.
 
 The main window can be used at once: the menus, the control panel, the Messages pane, every tab
@@ -563,10 +564,9 @@ criteria; 12 units and level references. The derivations are in `theory.md`.
 * **Help**: User guide, Calibration procedure, Validation procedure, Installation (Windows) – the
   documents of `docs/`, opened in the MATLAB Editor; Source code on GitHub (web browser);
   **About**.
-* **Help > About** shows the logo, the program, the software version and release date, the Git commit and
-  branch, the MATLAB release, the repository link
-  (<https://github.com/kimwoongji/tubebench>, private) and the author's
-  portfolio (<https://kimwoongji.github.io>). The text can be selected and copied.
+* **Help > About** shows the logo, the program, the software version and release date, the Git
+  commit and branch, the MATLAB release and the author's site (<https://kimwoongji.github.io>).
+  The text can be selected and copied. The repository is opened with Help > Source code on GitHub.
 
 The version, the repository and the commit are stored with every measurement (`metadata.json`,
 field `softwareInfo`, and `README.txt`) and calibration (`cal.meta.softwareInfo`). The commit is

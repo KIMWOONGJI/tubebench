@@ -2793,17 +2793,17 @@ classdef TubeApp < handle
 
         function fig = showAbout(app)
             % Help > About: the mark, program, version, release date, Git commit,
-            % MATLAB release, the repository and the author's portfolio
-            % (selectable text: can be copied)
+            % MATLAB release and the author's portfolio (selectable text: can be
+            % copied; the repository is in Help > Source code on GitHub)
             if ~isempty(app.AboutFig) && isvalid(app.AboutFig)
                 figure(app.AboutFig); fig = app.AboutFig; return
             end
             [~, info] = tim.app.softwareVersion();
-            p = app.Fig.Position; w = 500; hgt = 276;
+            p = app.Fig.Position; w = 500; hgt = 248;
             fig = uifigure('Name', 'About tubebench', 'Resize', 'off', 'Visible', app.Fig.Visible, ...
                 'Position', [p(1) + (p(3) - w) / 2, p(2) + (p(4) - hgt) / 2, w, hgt], 'Icon', tim.gui.logo('icon'));
             app.AboutFig = fig;
-            gl = uigridlayout(fig, [5 2], 'RowHeight', {52, '1x', 22, 22, 30}, 'ColumnWidth', {'1x', 90}, ...
+            gl = uigridlayout(fig, [4 2], 'RowHeight', {52, '1x', 22, 30}, 'ColumnWidth', {'1x', 90}, ...
                 'Padding', [16 12 16 12], 'RowSpacing', 6);
             % header: the mark (light version, 46 px) left of the name and the subtitle
             hd = uigridlayout(gl, [2 2], 'RowHeight', {28, 22}, 'ColumnWidth', {46, '1x'}, 'Padding', [0 0 0 0], ...
@@ -2823,18 +2823,13 @@ classdef TubeApp < handle
             ta = uitextarea(gl, 'Value', lines, 'Editable', 'off', 'FontName', 'Consolas', 'FontSize', 11);
             ta.Layout.Row = 2; ta.Layout.Column = [1 2];
             app.H.aboutText = ta;
-            short = @(u) regexprep(u, '^https?://', '');
-            lk = uihyperlink(gl, 'Text', ['Source code – ' short(info.repository)], 'URL', info.repository, ...
-                'Tooltip', 'opens in the web browser - private repository: sign in with an account that has access');
-            lk.Layout.Row = 3; lk.Layout.Column = [1 2];
-            app.H.aboutLink = lk;
             u = tim.app.portfolioUrl();
-            lk = uihyperlink(gl, 'Text', ['Portfolio – ' short(u)], 'URL', u, ...
+            lk = uihyperlink(gl, 'Text', regexprep(u, '^https?://', ''), 'URL', u, ...
                 'Tooltip', 'portfolio of the author - opens in the web browser');
-            lk.Layout.Row = 4; lk.Layout.Column = [1 2];
+            lk.Layout.Row = 3; lk.Layout.Column = [1 2];
             app.H.aboutPortfolio = lk;
             b = uibutton(gl, 'Text', 'OK', 'ButtonPushedFcn', @(~, ~) delete(fig));
-            b.Layout.Row = 5; b.Layout.Column = 2;
+            b.Layout.Row = 4; b.Layout.Column = 2;
         end
 
         function progressDialog(app, title, msg, value)
