@@ -2,6 +2,10 @@
 % (protocol mocks, recorded by tim.instr.mockBusLog). One entry per line: "SCPI > command",
 % "SCPI < response", "REST METHOD path [body]", "STREAM open|close", "# section".
 % Recorded 2026-10-11 with commit d49e98db58246307c7758503552cdd13ad990ba2. Regenerate: TestBusTraffic.writeFixture('faults')
+% WO-001 stage B (edited by hand, nothing else changed): the session closes the acquisition with the contract
+% close(), so closing the window inside a sweep now ends the measurement with tim:instr:closed
+% (docs/instrument_interface.md Appendix B) instead of MATLAB:structRefFromNonStruct from the next
+% stream read, and the status request the old code sent after that error (module already Idle) is gone.
 # connect + prepareAcquisition
 SCPI > *IDN?
 SCPI < Agilent Technologies,33220A,MOCK0001,2.02-2.02-22-2
@@ -228,6 +232,5 @@ REST PUT /rest/rec/finish
 REST GET /rest/rec/onchange
 REST PUT /rest/rec/close
 REST GET /rest/rec/onchange
-REST GET /rest/rec/onchange
-# -> error MATLAB:structRefFromNonStruct
+# -> error tim:instr:closed
 # close (session already closed)

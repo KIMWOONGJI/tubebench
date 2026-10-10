@@ -432,7 +432,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             s = tim.app.MeasurementSession(tc.cfg);
             cleanup = onCleanup(@() s.close());
             s.connect(); s.prepareAcquisition();
-            s.Http.StreamOptions = struct('StopAfterSamples', 40000);   % stream dies mid-sweep
+            s.Daq.Http.StreamOptions = struct('StopAfterSamples', 40000);   % stream dies mid-sweep
             tc.verifyError(@() s.measure('sweep'), 'tim:lanxi:streamStalled');
             tc.verifyFalse(s.Gen.isOutputOn(), 'output must be switched off after an error');
             tc.verifyFalse(s.Gen.OutputArmed);
@@ -732,9 +732,9 @@ classdef TestEndToEnd < matlab.unittest.TestCase
         end
 
         function connectionFailureMarksStep(tc)
-            % an error inside a step marks exactly that step as failed
-            c = tc.cfg; c.acquisition.filter = 'no such filter';
-            s = tim.app.MeasurementSession(c);
+            % an error inside a step marks exactly that step as failed (here the
+            % channel setup request fails at the module)
+            s = tim.app.MeasurementSession(tc.cfg);
             cleanup = onCleanup(@() s.close());
             ev = cell(0, 3);
             function record(k, st, d)
@@ -742,12 +742,24 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             end
             s.ProgressCallback = @record;
             s.connect();
-            tc.verifyError(@() s.prepareAcquisition(), 'tim:lanxi:filter');
+            s.Daq.Http.FailPath = '/rest/rec/channels/input';
+            tc.verifyError(@() s.prepareAcquisition(), 'tim:lanxi:network');
             failed = ev(strcmp(ev(:, 2), 'fail'), :);
             tc.verifyEqual(size(failed, 1), 1);
             tc.verifyEqual(failed{1, 1}, 'setup');
-            tc.verifySubstring(failed{1, 3}, 'no such filter');
+            tc.verifySubstring(failed{1, 3}, 'mock network error');
             clear cleanup
+            % a setting the selected driver does not support is refused before
+            % any instrument is opened (the driver's checkConfig)
+            c = tc.cfg; c.acquisition.filter = 'no such filter';
+            tc.verifyError(@() connectSession(c), 'tim:config:filter');
         end
     end
+end
+
+function connectSession(cfg)
+% a session on cfg, connected and closed again (errors propagate)
+s = tim.app.MeasurementSession(cfg);
+cleanup = onCleanup(@() s.close()); %#ok<NASGU>
+s.connect();
 end

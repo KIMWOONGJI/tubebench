@@ -3,31 +3,40 @@ classdef MeasurementSession < handle
     %
     %   s = tim.app.MeasurementSession(cfg);
     %   s.connect();                  % generator output stays OFF
-    %   s.prepareAcquisition();       % LAN-XI -> RecorderStreaming, TEDS, sensitivities
+    %   s.prepareAcquisition();       % DAQ inputs set up (channels, TEDS), sensitivities
     %   meas = s.measure();           % USER START: arms output, runs cfg.excitation.mode
     %   s.close();
     %
-    %   cfg.mode = 'simulation' uses MockScpiTransport / MockLanXiHttp coupled
-    %   by a tim.sim.SimulatedRig; 'hardware' uses the real instruments.
+    %   The instruments are the drivers the configuration selects
+    %   (generator.driver, daq.driver), built by the registry tim.instr.create
+    %   (contract: docs/instrument_interface.md): s.Gen is the signal source,
+    %   s.Daq the acquisition; a driver that takes both roles is ONE object in
+    %   both. cfg.mode = 'simulation' runs the drivers on a tim.sim.SimulatedRig
+    %   (s.Rig) - over their protocol mocks or, for a contract-level simulated
+    %   driver, directly; 'hardware' uses the real instruments. The checklist
+    %   steps and their texts come from the drivers (connectionSteps).
     %
-    %   SCHEDULING WITHOUT SHARED CLOCK: every action (output on, trigger,
+    %   SCHEDULING ON THE RECEIVED SAMPLES: every action (output on, trigger,
     %   frequency step, output off) is scheduled on the number of samples
-    %   already RECEIVED from the LAN-XI. The true acoustic timing differs by
-    %   the network/stream latency and the generator trigger latency; the
-    %   design only requires that the excitation happens inside the recorded
-    %   window (verified afterwards by tim.dsp.detectExcitation) - the
-    %   relative microphone responses do not depend on it.
+    %   already RECEIVED from the acquisition. Without a shared clock the true
+    %   acoustic timing differs by the network/stream latency and the
+    %   generator trigger latency; the design only requires that the
+    %   excitation happens inside the recorded window (verified afterwards by
+    %   tim.dsp.detectExcitation) - the relative microphone responses do not
+    %   depend on it. A device that takes both roles on one sample clock runs
+    %   the same schedule first as a planning pass (s.Daq.isPlanning()), so the
+    %   actions fall sample-exactly on its timeline, and then plays and records.
     %
     %   SAFETY: generator output is armed only inside measure*(); any error
     %   switches the output off, stops the acquisition, preserves the data
-    %   received so far (s.LastPartial, and an emergency file) and rethrows.
+    %   received so far (s.LastPartial, and an emergency file) and rethrows;
+    %   an interrupt (Ctrl+C) switches it off through tim.app.outputGuard.
 
     properties (SetAccess = private)
         Cfg struct
-        Gen = []
-        Daq = []
-        Rig = []
-        Http = []
+        Gen = []                 % signal source (tim.instr.SignalSource)
+        Daq = []                 % acquisition (tim.instr.Acquisition); == Gen for a combined device
+        Rig = []                 % tim.sim.SimulatedRig (simulation mode)
         Mics struct
         Status char = 'disconnected'
         LastPartial = []
@@ -48,7 +57,7 @@ classdef MeasurementSession < handle
         StopRequested logical = false
         InOperation logical = false  % inside a multi-measurement operation (calibration)
         ProgressCallback = []    % @(key, state, detail): connection checklist (GUI). keys:
-                                 % gen, lanxi, idle, open, teds, setup, sens, settle, signal;
+                                 % the drivers' connectionSteps(), then sens, settle, signal;
                                  % state: run | ok | warn | fail | skip
     end
     properties (Access = private)
@@ -70,56 +79,55 @@ classdef MeasurementSession < handle
 
         %% ---- connection -------------------------------------------------
         function connect(obj)
+            %CONNECT Build the selected drivers through the registry: the
+            %   whole selection is checked before any I/O, then each driver
+            %   connects, identifies itself and puts its instrument in the safe
+            %   state (output off), reporting its checklist steps.
             c = obj.Cfg;
             obj.log('Connecting (%s mode)…', c.mode);
-            sim = strcmp(c.mode, 'simulation');
+            ctx = struct('mode', c.mode, 'rig', [], 'progress', @(key, state, detail) obj.progress(key, state, detail));
             try
-                obj.progress('gen', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated generator', ...
-                    sprintf('%s:%d (SCPI over TCP)', c.generator.host, c.generator.port)));
-                switch c.mode
-                    case 'simulation'
-                        obj.Rig = tim.sim.SimulatedRig(c);
-                        tr = tim.instr.MockScpiTransport(obj.Rig);
-                        obj.Http = tim.instr.MockLanXiHttp(obj.Rig);
-                        http = obj.Http;
-                        factory = @(h, p) tim.instr.RecordingStream(http.openStream(h, p));
-                    case 'hardware'
-                        tr = tim.instr.ScpiTcpTransport(c.generator.host, c.generator.port, c.generator.timeout);
-                        obj.Http = tim.instr.LanXiHttp(c.lanxi.host, c.lanxi.timeout);
-                        factory = @(h, p) tim.instr.RecordingStream(tim.instr.LanXiTcpStream(h, p));
+                if strcmp(c.mode, 'simulation')
+                    obj.Rig = tim.sim.SimulatedRig(c);
+                    ctx.rig = obj.Rig;
                 end
-                obj.Gen = tim.instr.Keysight33220A(tr, 'MaxVpp', c.generator.maxVpp, 'Load', c.generator.load);
-                obj.log('Generator: %s (output off)', obj.Gen.Identity.raw);
-                obj.progress('gen', 'ok', sprintf('%s – output off', obj.Gen.Identity.raw));
-                obj.progress('lanxi', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated LAN-XI module', ...
-                    sprintf('%s (REST, Open API)', c.lanxi.host)));
-                obj.Daq = tim.instr.LanXi(obj.Http, factory, 'Host', c.lanxi.host);
-                info = obj.Daq.moduleInfo();
-                obj.log('LAN-XI module: %s, s/n %d, firmware %s, state %s', info.model, info.serial, info.firmware, info.moduleState);
-                obj.progress('lanxi', 'ok', sprintf('%s  s/n %d  firmware %s', info.model, info.serial, info.firmware));
-                obj.progress('idle', 'run', sprintf('state %s', info.moduleState));
-                if ~strcmp(info.moduleState, 'Idle')
-                    obj.log('LAN-XI module not in state Idle (%s): returning it to Idle.', info.moduleState);
-                    obj.Daq.shutdown();
-                    obj.progress('idle', 'ok', sprintf('was %s – returned to Idle', info.moduleState));
-                else
-                    obj.progress('idle', 'ok', 'Idle');
-                end
+                obj.Gen = tim.instr.create('source', c, ctx);
+                obj.Daq = tim.instr.create('acquisition', c, ctx, obj.Gen);
             catch err
                 obj.progressFailed(err);
                 rethrow(err);
             end
+            obj.logInstruments();
             obj.Connected = true;
             obj.setStatus('connected');
+        end
+
+        function tf = isCombined(obj)
+            %ISCOMBINED One device takes both roles (s.Gen and s.Daq are the same object).
+            tf = ~isempty(obj.Gen) && ~isempty(obj.Daq) && strcmp(class(obj.Gen), class(obj.Daq)) && obj.Gen == obj.Daq;
+        end
+
+        function d = driverInfo(obj, role)
+            %DRIVERINFO Class-level description of the driver of a role
+            %   ('source' | 'acquisition'; tim.instr.driverInfo).
+            if strcmp(role, 'source')
+                name = 'keysight33220a';
+                if isfield(obj.Cfg.generator, 'driver'), name = obj.Cfg.generator.driver; end
+            else
+                name = 'lanxi';
+                if isfield(obj.Cfg, 'daq') && isfield(obj.Cfg.daq, 'driver'), name = obj.Cfg.daq.driver; end
+            end
+            d = tim.instr.driverInfo(name);
         end
 
         function prepareAcquisition(obj)
             obj.requireConnected();
             a = obj.Cfg.acquisition;
             micsCh = tim.app.MeasurementSession.micsByChannel(obj.Cfg.mics);   % element c = channel c
+            % driver-specific input settings (e.g. the connector) come from the
+            % driver's own settings, captured when it was created
             dc = struct('sampleRate', a.sampleRate, 'range', a.range, 'filter', a.filter, ...
                 'ccld', a.ccld, 'channels', 1:4, 'detectTeds', a.detectTeds, ...
-                'connector', obj.Cfg.lanxi.connector, ...
                 'names', {arrayfun(@(m) sprintf('M%d', m.position), micsCh, 'UniformOutput', false)});
             try
                 obj.Daq.ProgressFcn = @(key, state, detail) obj.progress(key, state, detail);
@@ -140,11 +148,15 @@ classdef MeasurementSession < handle
                     end
                 end
                 obj.progress('sens', state, ['mV/Pa: ' strjoin(parts, ',  ')]);
-                if strcmp(obj.Cfg.mode, 'hardware') && a.settleTime > 0
-                    obj.log('Waiting %.1f s for the CCLD supply and high-pass filter to settle…', a.settleTime);
-                    obj.progress('settle', 'run', sprintf('%.1f s (CCLD + %s high-pass)', a.settleTime, a.filter));
+                settle = obj.driverInfo('acquisition').texts.settle;   % what the inputs settle from ('' = nothing)
+                if strcmp(obj.Cfg.mode, 'hardware') && a.settleTime > 0 && ~isempty(settle)
+                    what = sprintf(settle, a.filter);
+                    obj.log('Waiting %.1f s for the inputs to settle (%s)…', a.settleTime, what);
+                    obj.progress('settle', 'run', sprintf('%.1f s (%s)', a.settleTime, what));
                     pause(a.settleTime);
                     obj.progress('settle', 'ok', sprintf('%.1f s', a.settleTime));
+                elseif strcmp(obj.Cfg.mode, 'hardware')
+                    obj.progress('settle', 'skip', 'not needed');
                 else
                     obj.progress('settle', 'skip', 'not needed (simulation)');
                 end
@@ -160,6 +172,10 @@ classdef MeasurementSession < handle
             %SIGNALCHECK Short recording WITHOUT excitation: level and fault
             %   flags per channel (connection check). chk(c): channel, spl_dB,
             %   peak_V, state ('ok' | 'fail'), text. Never drives the loudspeaker.
+            %   Faults come from the acquisition's integrity report: the device
+            %   flags of each input in the driver's words (channelFaults), a
+            %   constant signal, and a peak of 99 % of the input range or more
+            %   (peakFractionOfRange).
             if nargin < 2, duration = 1; end
             obj.progress('signal', 'run', sprintf('%.1f s recording, no excitation', duration));
             try
@@ -168,26 +184,27 @@ classdef MeasurementSession < handle
                 obj.progressFailed(err);
                 rethrow(err);
             end
-            x = m.records{1}; info = m.channelInfo{1};
-            rangeV = sscanf(obj.Cfg.acquisition.range, '%f');
-            q = info.qualityEvents;
-            ids = 1:size(x, 2); if isfield(info, 'signalIds'), ids = info.signalIds; end
+            x = m.records{1}; g = m.channelInfo{1}.integrity;
             chk = struct('channel', {}, 'spl_dB', {}, 'peak_V', {}, 'state', {}, 'text', {});
             for c = 1:size(x, 2)
                 v = x(:, c) - mean(x(:, c));
                 s = obj.Mics([obj.Mics.channel] == c).sensitivity_VperPa;   % record column c = channel c
-                spl = 20 * log10(sqrt(mean(v.^2)) / s / 2e-5);
+                if strcmp(m.unit, 'V')
+                    spl = 20 * log10(sqrt(mean(v.^2)) / s / 2e-5); level = sprintf('%.1f dB SPL', spl);
+                else
+                    spl = NaN; level = sprintf('%.1f dB re FS', 20 * log10(sqrt(mean(v.^2))));   % input scale unknown
+                end
                 pk = max(abs(x(:, c)));
                 flags = {};
-                if ~isempty(q)
-                    mine = [q.signalId] == ids(c);
-                    if any([q(mine).invalid]), flags{end+1} = 'LAN-XI flag INVALID (cable or CCLD fault)'; end %#ok<AGROW>
-                    if any([q(mine).clipped]), flags{end+1} = 'clipped (LAN-XI flag)'; end %#ok<AGROW>
+                if isfield(g, 'channelFaults') && numel(g.channelFaults) >= c
+                    flags = reshape(cellstr(g.channelFaults{c}), 1, []);
                 end
                 if std(x(:, c)) == 0, flags{end+1} = 'no signal (constant value)'; end %#ok<AGROW>
-                if ~isempty(rangeV) && pk >= 0.99 * rangeV, flags{end+1} = 'overload (≥ 99 % of input range)'; end %#ok<AGROW>
+                if isfield(g, 'peakFractionOfRange') && numel(g.peakFractionOfRange) >= c && g.peakFractionOfRange(c) >= 0.99
+                    flags{end+1} = 'overload (≥ 99 % of input range)'; %#ok<AGROW>
+                end
                 if isempty(flags)
-                    st = 'ok'; txt = sprintf('%.1f dB SPL', spl);
+                    st = 'ok'; txt = level;
                 else
                     st = 'fail'; txt = strjoin(flags, ', ');
                 end
@@ -202,8 +219,10 @@ classdef MeasurementSession < handle
         function progress(obj, key, state, detail)
             %PROGRESS Report a connection step to ProgressCallback (GUI checklist).
             %   A STOP requested meanwhile aborts the connection at the start of
-            %   the next step (own steps; steps reported by LanXi.prepare
-            %   cannot throw through its callback guard).
+            %   the next step: the session's own steps and the drivers' connect
+            %   steps (a driver then releases what it opened); a driver may
+            %   ignore the error during its prepare steps - the session's next
+            %   own step stops.
             if nargin < 4, detail = ''; end
             if strcmp(state, 'run') && obj.StopRequested
                 obj.ProgressKey = '';
@@ -238,6 +257,7 @@ classdef MeasurementSession < handle
             obj.requirePrepared();
             fs = obj.Cfg.acquisition.sampleRate;
             [data, info] = obj.Daq.acquire(round(duration * fs));
+            info = obj.checkRate(info);
             meas = obj.packMeasurement('background', {data}, {info}, struct('duration', duration), {});
         end
 
@@ -261,7 +281,7 @@ classdef MeasurementSession < handle
                     obj.Gen.triggerSweep();
                     ev.triggerSample = n;
                 elseif ~isnan(ev.triggerSample) && isnan(ev.offSample) && n >= ev.triggerSample + nSweep
-                    ev.opcOk = obj.Gen.waitComplete(5);   % *OPC? returns when the sweep is complete
+                    ev.opcOk = obj.Gen.waitComplete(5);   % true when the sweep has ended, never earlier
                     obj.Gen.outputOff();
                     ev.offSample = n;
                 end
@@ -510,27 +530,26 @@ classdef MeasurementSession < handle
         end
 
         function close(obj, fast)
-            %CLOSE Generator output off + local, LAN-XI back to Idle. close(true)
-            %   uses short time-outs (2 s) so that closing the app never waits
-            %   long for an instrument that does not answer (switched off).
+            %CLOSE Instruments to their safe state and released: the source
+            %   first (output off), then the acquisition (stopped, idle); the
+            %   drivers' close() never throws. close(true) first shortens the
+            %   I/O time-outs to 2 s, so that closing the app never waits long
+            %   for an instrument that does not answer (switched off). Called
+            %   during an acquisition (closing the window), the acquisition
+            %   ends with tim:instr:closed; the data received stay available.
             if nargin < 2, fast = false; end
             if obj.Closed, return; end         % e.g. the destructor of an already closed session
             obj.Closed = true;
+            devices = {obj.Gen};
+            if ~obj.isCombined(), devices{end+1} = obj.Daq; end
+            devices = devices(~cellfun(@isempty, devices));
             if fast
-                for h = {obj.Http, obj.Gen}
-                    try
-                        t = h{1};
-                        if isa(t, 'tim.instr.Keysight33220A'), t = t.Transport; end
-                        if ~isempty(t) && ismethod(t, 'setTimeout'), t.setTimeout(2); end
-                    catch
-                    end
+                for i = 1:numel(devices)
+                    try, devices{i}.setTimeout(2); catch, end
                 end
             end
-            if ~isempty(obj.Gen)
-                try, obj.Gen.close(); catch, end
-            end
-            if ~isempty(obj.Daq)
-                try, obj.Daq.shutdown(); catch, end
+            for i = 1:numel(devices)
+                try, devices{i}.close(); catch, end
             end
             obj.Connected = false; obj.Prepared = false;
             obj.setStatus('disconnected');
@@ -552,6 +571,17 @@ classdef MeasurementSession < handle
     end
 
     methods (Access = private)
+        function logInstruments(obj)
+            % one log line per instrument: role, display name and the identity it reported
+            line = @(o) sprintf('%s – %s', o.metadata().displayName, o.identity().raw);
+            if obj.isCombined()
+                obj.log('Signal source and acquisition: %s (output off)', line(obj.Gen));
+            else
+                obj.log('Signal source: %s (output off)', line(obj.Gen));
+                obj.log('Acquisition: %s', line(obj.Daq));
+            end
+        end
+
         function progressFailed(obj, err)
             % the running checklist step failed
             if ~isempty(obj.ProgressKey)
@@ -579,9 +609,8 @@ classdef MeasurementSession < handle
                 catch
                 end
                 try
-                    if ~isempty(obj.Daq.LastStream) && isa(obj.Daq.LastStream, 'tim.instr.RecordingStream')
-                        partial.rawStream = obj.Daq.LastStream.bytes();
-                    end
+                    b = obj.Daq.rawBytes();             % undecoded bytes, if the driver keeps them
+                    if ~isempty(b), partial.rawStream = b; end
                 catch
                 end
                 obj.LastPartial = partial;
@@ -592,15 +621,29 @@ classdef MeasurementSession < handle
                 rethrow(err);
             end
             guard.dismiss();               % normal end: the schedule switched the output off
+            info = obj.checkRate(info);
             obj.setStatus('ready');
+        end
+
+        function info = checkRate(obj, info)
+            % data at another rate than the configured one would shift the
+            % frequency axis: a fatal integrity problem for every driver
+            fs = obj.Cfg.acquisition.sampleRate;
+            if ~isfield(info, 'fs') || ~isfield(info, 'integrity') || all(abs(info.fs - fs) <= 1e-9 * fs), return; end
+            if ~any(contains(lower(info.integrity.fatal), 'sample rate'))     % not reported by the driver already
+                info.integrity.fatal{end+1} = sprintf('Sample rate of the data %s S/s differs from the configured %g S/s.', ...
+                    mat2str(info.fs), fs);
+            end
+            info.integrity.ok = false;
         end
 
         function meas = packMeasurement(obj, kind, records, infos, settings, events)
             meas = struct();
             meas.kind = kind;
-            meas.records = records;          % RAW volts, never modified
+            meas.records = records;          % RAW data (volts), never modified
             meas.fs = obj.Cfg.acquisition.sampleRate;
-            meas.unit = 'V';
+            meas.unit = 'V';                 % 'V', or 'FS' from a driver with an unknown input scale
+            if ~isempty(infos) && isfield(infos{1}, 'dataUnit'), meas.unit = infos{1}.dataUnit; end
             meas.channelInfo = infos;
             meas.settings = settings;
             meas.events = events;
@@ -608,8 +651,9 @@ classdef MeasurementSession < handle
             meas.timestamp = char(datetime('now'), 'yyyy-MM-dd HH:mm:ss.SSS');
             meas.metadata = tim.app.collectMetadata(obj);
             raw = {};
-            if obj.Cfg.output.saveRawStream && ~isempty(obj.Daq.LastStream) && isa(obj.Daq.LastStream, 'tim.instr.RecordingStream')
-                raw = {obj.Daq.LastStream.bytes()};   % last repetition's undecoded bytes
+            if obj.Cfg.output.saveRawStream
+                b = obj.Daq.rawBytes();      % last repetition's undecoded bytes (empty: the driver keeps none)
+                if ~isempty(b), raw = {b}; end
             end
             meas.rawStreamLast = raw;
             meas.integrityOk = all(cellfun(@(i) i.integrity.ok, infos));
@@ -688,7 +732,7 @@ classdef MeasurementSession < handle
         function m = micsByChannel(m)
             %MICSBYCHANNEL Microphone list sorted by DAQ channel (element c =
             %   channel c = record column c). validateConfig accepts cfg.mics in
-            %   any order; consumers that index by column (sensitivities, LAN-XI
+            %   any order; consumers that index by column (sensitivities, DAQ
             %   channel names, GUI live display) need channel order (review plots-11).
             if ~isempty(m) && isfield(m, 'channel')
                 [~, i] = sort([m.channel]);
