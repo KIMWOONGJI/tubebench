@@ -120,6 +120,7 @@ data/, calibration/     measurement and calibration output (never overwritten)
 | `docs/hardware_status.md` | verified vs pending, observations from the hardware sessions |
 | `docs/assumptions_and_limitations.md` | assumptions, limitations, future work |
 | `docs/ref_33220A_scpi.md`, `docs/ref_lanxi_openapi.md` | verified instrument protocol references |
+| `docs/instrument_interface.md` | contract for instrument drivers (design of WO-001 for 1.2.0, not implemented yet) |
 
 ## References
 
