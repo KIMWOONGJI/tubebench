@@ -3,14 +3,14 @@
 | | |
 |---|---|
 | Work order | WO-001 Part 1 (`docs/workorder_instrument_interface.md`; its §0 decides over older text) |
-| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). **Software-verified in simulation only**; the owner's hardware check (WO §0.3) is pending, and `AbortFcn` is not yet set by the session (D24, awaits the owner's approval). Part 2 (guide, templates, skill) follows. |
+| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). Part 2 (stage 6, section 14): the guide `docs/adding_an_instrument.md`, the templates `templates/instrument/` (tested by `tests/TestInstrumentTemplates.m`), the skill `.claude/skills/add-instrument/`, and the demo source `demo` made by following the guide. **Software-verified in simulation only**; the owner's hardware check (WO §0.3) is pending, and `AbortFcn` is not yet set by the session (D24, awaits the owner's approval). |
 | Applies to | `tim.app.MeasurementSession`, `tim.gui.Tubebench`, `+tim/+app`, `+tim/+cal`, `+tim/+val`, the drivers in `+tim/+instr` and `+tim/+sim` |
 
 This document is the contract between the measurement program and an instrument driver. A
 driver that follows it can be selected in the configuration without any change to the session,
 the window, the configuration code or the tests. It is written for a person who adds a driver
-(with or without Claude Code); `docs/adding_an_instrument.md` (WO-001 Part 2) will give the
-step-by-step procedure.
+(with or without Claude Code); `docs/adding_an_instrument.md` (WO-001 Part 2) gives the
+step-by-step procedure, `templates/instrument/` the starting files.
 
 Units throughout: frequencies in Hz, times in s, sample counts per channel, sample rates in S/s,
 generator amplitudes in **Vpp as programmed** (see `generator.load`; a source programmed in
@@ -32,7 +32,9 @@ the same object as `s.Gen` and `s.Daq`.
 ```
 tim.instr.Instrument            (abstract handle)   members common to both roles
 ├── tim.instr.SignalSource      (abstract)          output role
-│     └── tim.instr.Keysight33220A                  driver 'keysight33220a'
+│     ├── tim.instr.Keysight33220A                  driver 'keysight33220a'
+│     └── tim.instr.DemoSource                      driver 'demo' (worked example of the guide,
+│                                                   simulation only)
 ├── tim.instr.Acquisition       (abstract)          input role
 │     └── tim.instr.LanXi                           driver 'lanxi'
 └── tim.sim.SimulatedCombined   < tim.instr.SignalSource & tim.instr.Acquisition
@@ -74,7 +76,7 @@ are static and must not do any I/O.
 
 | Member | Returns / does |
 |---|---|
-| `d = describe()` | `name` (registry name, lower case, = `generator.driver` / `daq.driver`); `displayName` (e.g. `'Keysight/Agilent 33220A function generator'`, shown in the window and stored in the metadata); `labels` (struct, one short lamp label per role, e.g. `source: 'Generator'`, `acquisition: 'LAN-XI'`); `defaults.settings` (default driver settings = the sub-struct `generator.<name>` / `daq.<name>`); `defaults.acquisition` (acquisition drivers: the values `acquisition.sampleRate`, `range`, `filter` and `ccld` take when the configuration leaves them empty, section 9.2); `texts.settle` (what the settling step after `prepare` waits for, `sprintf` format with the filter, e.g. `'CCLD + %s high-pass'`; `''` = no settling needed); `texts.noun` (the instrument in a sentence of the window, lower case unless a name: `'generator'`, `'LAN-XI module'`, `'simulated device'`); `texts.closed` (the state `close()` leaves it in, read after the noun: `'output off'`, `'back to Idle'`, `'stopped, output at 0 V'`) - section 7.1; `simulation` (`'protocol'`: real driver that runs on its protocol mock in simulation mode; `'only'`: contract-level simulated driver, simulation mode only) |
+| `d = describe()` | `name` (registry name, lower case, = `generator.driver` / `daq.driver`); `displayName` (e.g. `'Keysight/Agilent 33220A function generator'`, shown in the window and stored in the metadata); `labels` (struct, one short lamp label per role, e.g. `source: 'Generator'`, `acquisition: 'LAN-XI'`); `defaults.settings` (default driver settings = the sub-struct `generator.<name>` / `daq.<name>`); `defaults.acquisition` (acquisition drivers: the values `acquisition.sampleRate`, `range`, `filter` and `ccld` take when the configuration leaves them empty, section 9.2); `texts.settle` (what the settling step after `prepare` waits for, `sprintf` format with the filter, e.g. `'CCLD + %s high-pass'`; `''` = no settling needed); `texts.noun` (the instrument in a sentence of the window, lower case unless a name: `'generator'`, `'LAN-XI module'`, `'simulated device'`); `texts.closed` (the state `close()` leaves it in, read after the noun: `'output off'`, `'back to Idle'`, `'stopped, output at 0 V'`) - section 7.1; `simulation` (`'protocol'`: real driver that runs on its protocol mock in simulation mode; `'only'`: a driver without a real instrument - the contract-level `simcombined`, the guide's demo source on its own mock -, simulation mode only) |
 | `c = capabilities()` | section 5 (roles, shared clock, pairing, products, source and acquisition limits) |
 | `s = connectionSteps()` | struct array `key`, `label`, `role` (`'source'`, `'acquisition'` or `'both'`), `phase` (`'connect'`: reported by `fromConfig`; `'prepare'`: reported by `prepare`) - section 6 |
 | `report = checkConfig(cfg)` | validates the driver's part of the configuration (its sub-struct and the role settings it constrains, section 9.2); errors `tim:config:*`, returns warnings (cellstr) |
@@ -248,43 +250,46 @@ because the LAN-XI `info.unit` already is a per-signal cell stored in saved meas
 
 `capabilities()` (static) returns:
 
-| Field | Meaning | 33220A | LAN-XI 3676 | simcombined |
-|---|---|---|---|---|
-| `roles` | `{'source'}`, `{'acquisition'}` or both | source | acquisition | both |
-| `sharedClock` | output and inputs of this object run on one sample clock | false | false | true |
-| `rolesTogether` | a combined driver that works only when it takes both roles (section 9.1) | false | false | true |
-| `products` | struct array `name` (as listed by `ver`) and `feature` (license key, e.g. `Data_Acq_Toolbox`) of the MATLAB products needed beyond MATLAB + Signal Processing Toolbox; checked in hardware mode only | none | none | none |
-| `source.waveforms` | subset of `{'sine','sweep','noise'}`; `'sweep'` is required (section 9.2) | all | - | all |
-| `source.sweepSpacing` | subset of `{'LOG','LIN'}` | both | - | both |
-| `source.frequencyRange` | [fMin fMax] Hz (`Inf`: limited by the sample rate only) | [1e-6 20e6] | - | [1 Inf] |
-| `source.bandFraction` | highest frequency as a fraction of the sample rate (shared clock), `NaN` for an own clock | NaN | - | 0.45 |
-| `source.loads` | accepted `generator.load` values: `'INF'` = programmed value is the open-circuit voltage, `'50'` = the voltage into 50 Ω | INF, 50 | - | INF |
-| `source.maxVpp` | largest programmable level per entry of `loads`; `generator.maxVpp` must not exceed it | 20, 10 | - | 10 |
-| `source.minVpp` | smallest programmable level per entry of `loads` | 0.02, 0.01 | - | 0.001 |
-| `source.sweepTime` | [min max] sweep duration [s] | [0.001 500] | - | [0.1 300] |
-| `source.noiseCrest` | crest factor of the noise (Vpp / 2 / rms) | 3.3 | - | 3.3 |
-| `source.outputImpedance_ohm` | source impedance (loudspeaker drive estimate, operator texts) | 50 | - | 0 |
-| `source.trigger` | how `triggerSweep` starts the sweep: `'bus'`, `'software'`, `'clock'` (sample-exact on the shared clock) | bus | - | clock |
-| `source.readback` | kind of `isOutputOn` (section 3.2): `'instrument'`, `'device'`, `'none'` | instrument | - | device |
-| `source.levelKnown` | the driver programs absolute volts (section 3.4) | true | - | true |
-| `acquisition.channels` | analog inputs (≥ 4) | - | 4 | 4 |
-| `acquisition.simultaneous` | all inputs sampled at the same instant on one clock (must be true) | - | true | true |
-| `acquisition.sampleRates` | supported rates [S/s], or `[]` with a `sampleRateRange` | - | 4096 ... 65536 | 4096 ... 65536 |
-| `acquisition.sampleRateRange` | [min max] of a continuous range (`checkConfig` and `prepare` refuse rates the device cannot run exactly) | - | [] | [] |
-| `acquisition.bandFraction` | usable band / sample rate (anti-alias filter); limits `analysis.fMax` and the stop frequencies | - | 0.45 | 0.45 |
-| `acquisition.ranges` | values of `acquisition.range` | - | `'1 Vpeak'`, `'10 Vpeak'` | `'10 Vpeak'` |
-| `acquisition.filters` | values of `acquisition.filter` (high-pass / coupling) | - | `'DC'`, `'0.7 Hz'`, ... (module list) | `'0.7 Hz'` |
-| `acquisition.ccld` | switchable CCLD/IEPE supply per input | - | true | true (modelled) |
-| `acquisition.teds` | reads TEDS | - | true | false |
-| `acquisition.dataUnit` | `'V'`, or `'FS'` when the input scale is unknown (section 4.2) | - | V | V |
-| `acquisition.mode` | `'streaming'` (data arrive while recording) or `'block'` (recorded in blocks) | - | streaming | block |
-| `acquisition.needsOwnSource` | the driver cannot call `onBlock` as data arrive: usable only when it is also the source (planned, section 8.3) | - | false | true |
+| Field | Meaning | 33220A | LAN-XI 3676 | simcombined | demo |
+|---|---|---|---|---|---|
+| `roles` | `{'source'}`, `{'acquisition'}` or both | source | acquisition | both | source |
+| `sharedClock` | output and inputs of this object run on one sample clock | false | false | true | false |
+| `rolesTogether` | a combined driver that works only when it takes both roles (section 9.1) | false | false | true | false |
+| `products` | struct array `name` (as listed by `ver`) and `feature` (license key, e.g. `Data_Acq_Toolbox`) of the MATLAB products needed beyond MATLAB + Signal Processing Toolbox; checked in hardware mode only | none | none | none | none |
+| `source.waveforms` | subset of `{'sine','sweep','noise'}`; `'sweep'` is required (section 9.2) | all | - | all | sine, sweep |
+| `source.sweepSpacing` | subset of `{'LOG','LIN'}` | both | - | both | both |
+| `source.frequencyRange` | [fMin fMax] Hz (`Inf`: limited by the sample rate only) | [1e-6 20e6] | - | [1 Inf] | [0.1 1e5] |
+| `source.bandFraction` | highest frequency as a fraction of the sample rate (shared clock), `NaN` for an own clock | NaN | - | 0.45 | NaN |
+| `source.loads` | accepted `generator.load` values: `'INF'` = programmed value is the open-circuit voltage, `'50'` = the voltage into 50 Ω | INF, 50 | - | INF | INF |
+| `source.maxVpp` | largest programmable level per entry of `loads`; `generator.maxVpp` must not exceed it | 20, 10 | - | 10 | 10 |
+| `source.minVpp` | smallest programmable level per entry of `loads` | 0.02, 0.01 | - | 0.001 | 0.002 |
+| `source.sweepTime` | [min max] sweep duration [s] | [0.001 500] | - | [0.1 300] | [0.01 300] |
+| `source.noiseCrest` | crest factor of the noise (Vpp / 2 / rms) | 3.3 | - | 3.3 | 3.3 (no noise) |
+| `source.outputImpedance_ohm` | source impedance (loudspeaker drive estimate, operator texts) | 50 | - | 0 | 50 |
+| `source.trigger` | how `triggerSweep` starts the sweep: `'bus'`, `'software'`, `'clock'` (sample-exact on the shared clock) | bus | - | clock | bus |
+| `source.readback` | kind of `isOutputOn` (section 3.2): `'instrument'`, `'device'`, `'none'` | instrument | - | device | instrument |
+| `source.levelKnown` | the driver programs absolute volts (section 3.4) | true | - | true | true |
+| `acquisition.channels` | analog inputs (≥ 4) | - | 4 | 4 | - |
+| `acquisition.simultaneous` | all inputs sampled at the same instant on one clock (must be true) | - | true | true | - |
+| `acquisition.sampleRates` | supported rates [S/s], or `[]` with a `sampleRateRange` | - | 4096 ... 65536 | 4096 ... 65536 | - |
+| `acquisition.sampleRateRange` | [min max] of a continuous range (`checkConfig` and `prepare` refuse rates the device cannot run exactly) | - | [] | [] | - |
+| `acquisition.bandFraction` | usable band / sample rate (anti-alias filter); limits `analysis.fMax` and the stop frequencies | - | 0.45 | 0.45 | - |
+| `acquisition.ranges` | values of `acquisition.range` | - | `'1 Vpeak'`, `'10 Vpeak'` | `'10 Vpeak'` | - |
+| `acquisition.filters` | values of `acquisition.filter` (high-pass / coupling) | - | `'DC'`, `'0.7 Hz'`, ... (module list) | `'0.7 Hz'` | - |
+| `acquisition.ccld` | switchable CCLD/IEPE supply per input | - | true | true (modelled) | - |
+| `acquisition.teds` | reads TEDS | - | true | false | - |
+| `acquisition.dataUnit` | `'V'`, or `'FS'` when the input scale is unknown (section 4.2) | - | V | V | - |
+| `acquisition.mode` | `'streaming'` (data arrive while recording) or `'block'` (recorded in blocks) | - | streaming | block | - |
+| `acquisition.needsOwnSource` | the driver cannot call `onBlock` as data arrive: usable only when it is also the source (planned, section 8.3) | - | false | true | - |
 
 The static values describe what the driver supports; a driver may still refuse a value the
 connected device reports as unsupported (LAN-XI: `tim:lanxi:rate` from `module/info`). The
 simcombined values are those of `tim.sim.SimulatedCombined` (as implemented in stage B); its settings
 (`daq.simcombined`) are `blockSamples` (2048), `serial` and `seed` (noise output), its lamp labels
-"Output" and "Inputs".
+"Output" and "Inputs". The demo values are those of the imaginary DEMO-SG1
+(`docs/ref_demo_source.md`; driver `tim.instr.DemoSource`, the worked example of
+`docs/adding_an_instrument.md`, simulation only); its settings (`generator.demo`) are `host`
+(the documentation address 192.0.2.10, never used), `port` and `timeout`.
 
 ## 6. Connection steps (checklist of Setup > Connection)
 
@@ -298,6 +303,7 @@ signal check without excitation).
 | keysight33220a | `gen`: Function generator 33220A (SCPI), source, connect |
 | lanxi | `lanxi`: LAN-XI module (REST), acquisition, connect; `idle`: LAN-XI recorder state Idle, acquisition, connect; `open`: Open recorder, acquisition, prepare; `teds`: TEDS transducer detection, acquisition, prepare; `setup`: Channel setup → streaming, acquisition, prepare |
 | simcombined | `device`: Simulated device (output + 4 inputs), both, connect; `setup`: Channel setup, acquisition, prepare |
+| demo | `demo`: Demo generator DEMO-SG1 (SCPI, simulated), source, connect |
 
 Rules:
 
@@ -580,24 +586,29 @@ the current format). Software 1.1.0 cannot read a formatVersion 2 file (not requ
 |---|---|---|
 | `keysight33220a` + `lanxi` (default) | the **real drivers** over their protocol mocks (`MockScpiTransport`, `MockLanXiHttp` / `MockLanXiStream`) on one `tim.sim.SimulatedRig` | end-to-end coverage of every SCPI command, REST request and the stream parser; the bus-traffic tests; the GUI and end-to-end tests |
 | `simcombined` for both roles | `tim.sim.SimulatedCombined`: the contract implemented directly on the rig; shared clock (`GenClockPpm = 0`, no trigger latency), planned block acquisition (section 8.3), no TEDS, no recorder states | proves that the contract is not shaped like 33220A + LAN-XI (§0 change B); runs calibration and measurement through the session and the hidden window; model for a real combined driver |
+| `demo` + `lanxi` | the demo source `tim.instr.DemoSource` over its own protocol mock `MockDemoSource` (an imaginary SCPI generator) on the rig, the LAN-XI driver on its mocks | the worked example of `docs/adding_an_instrument.md`: a driver made from the templates, in the contract tests, `tests/TestDemoSource.m` and the window |
 
 The rig couples a source to the microphones in one of two ways:
 
-* `setGeneratorState(s)` - **only for the 33220A mock**: the rig synthesises the waveform from the
-  33220A state (`FUNC`, `FREQ`, `VOLT` in Vpp, `FREQ_STAR`, `FREQ_STOP`, `SWE_SPAC`, `SWE_TIME`,
-  `SWE_STAT`, `OUTP`), with its stepped sweep, the bus-trigger latency and `GenClockPpm`.
-* `y = respond(x)` - **for every other source**: `x` n x 1 excitation volts in, n x 4 microphone
-  volts out, through the same FIR, noise and clock path. A protocol mock of an NI DAQ or an audio
-  driver holds a sample buffer (the planned output), not a generator state, so it calls `respond`;
-  `simcombined` does too. `generate(n)` becomes `respond(sourceSignal(n))` internally, so the
-  33220A path, its random-number order and its bus traffic stay unchanged.
+* `setGeneratorState(s)` - **for the mock of a separate function generator** (own clock): the
+  33220A mock, the demo's `MockDemoSource`, the template `MockTemplateSource`. The rig synthesises
+  the waveform from the generator state (`FUNC` `'SIN'` / `'NOI'`, `FREQ`, `VOLT` in Vpp,
+  `FREQ_STAR`, `FREQ_STOP`, `SWE_SPAC`, `SWE_TIME`, `SWE_STAT`, `OUTP`, `TRIG_SOUR`), with a
+  stepped sweep, the bus-trigger latency (`generatorTrigger()`) and `GenClockPpm`; a separate DAQ
+  mock reads the microphones with `generate(n)`. (Until stage 6: "only for the 33220A mock"; D44.)
+* `y = respond(x)` - **for a source that produces samples**: `x` n x 1 excitation volts in, n x 4
+  microphone volts out, through the same FIR, noise and clock path. A protocol mock of an NI DAQ or
+  an audio interface holds a sample buffer (the planned output), not a generator state, so it calls
+  `respond`; `simcombined` and the template `MockTemplateCombined` do too. `generate(n)` becomes
+  `respond(sourceSignal(n))` internally, so the 33220A path, its random-number order and its bus
+  traffic stay unchanged.
 
 The rig keeps an `OutputLog` filled by both paths, one row per output block
 `[firstSample nSamples peak_V last_V]` (sample index on the rig's timeline; `respond(zeros(0, 1))`
 adds a row `[n 0 0 0]`: the output was set to 0 V), so the contract tests can check generically
 what was really played (section 11.3); `markTrigger(n)` records a sweep start of a shared-clock
-source in `TriggerLog`. A new real driver brings its own protocol mock (WO-001 Part 2) and runs in
-simulation mode like the two existing ones.
+source in `TriggerLog`. A new real driver brings its own protocol mock (`docs/adding_an_instrument.md`
+step 5, from the templates) and runs in simulation mode like the two lab drivers.
 
 ## 11. Safety duties (checked by `tests/TestInstrumentContract.m`)
 
@@ -684,6 +695,16 @@ within one block, an `onBlock` error after `outputOn` leaves the output off, the
 value is 0 after a normal plan, a Stop in either pass, an `onBlock` error and `close` during
 `acquire`, and `estimateSweepLaw` of the played sweep is within tolerance.
 
+The configuration of the contract cases (`config(role, name)`) selects the driver for its role and
+keeps the default driver of the other; since stage 6 an acquisition driver gets **its own input
+defaults** (`describe().defaults.acquisition`, as a configuration file that only names the driver),
+not the LAN-XI values of `tim.app.defaultConfig`, and a source without the load `'INF'` gets its
+first load (D46; for the lab drivers and `simcombined` the values are the same as before).
+`tests/TestInstrumentTemplates.m` copies the driver templates of `templates/instrument/` into a
+temporary package folder, registers them for that test only and runs every parameterised case of
+`TestInstrumentContract` with the templates as its parameters (`ExternalParameters`), plus their
+own driver tests (D42).
+
 ## 12. Error identifiers
 
 | Identifier | Raised by | Meaning |
@@ -756,6 +777,12 @@ value is 0 after a normal plan, a Stop in either pass, an `onBlock` error and `c
 | D39 | Window texts from two short driver texts, `texts.noun` and `texts.closed` (stage C) | compose the sentences from the display names (stage plan); from the lamp labels | the display names are long and name the protocol ("HBK LAN-XI module (Open API)"), the lamp labels are capitalised or plural ("Inputs"); with a noun and a closed state the operating-mode, Connect and Disconnect tooltips read exactly as before for the two lab drivers (the closing dialog and the Disconnect log line nearly so: "Closing the connections: generator output off, LAN-XI module back to Idle …") and correctly for a combined device |
 | D40 | Identity display: an "In use" row in INSTRUMENTS (one line per instrument) and an Instruments table in Setup > Connection, plus the lamp tooltips; "(simulated)" in simulation mode | tooltips only; an identity panel in place of the checklist | visible at a glance without hovering, the table has room for vendor, firmware and the settings; the LAN-XI mock reports the lab module's real serial number, which must not look like a connected instrument. The control panel still fits the 1920 × 1080 lab screen (about 900 px of content, limit 930) |
 | D41 | GUI limits of the EXCITATION fields from `capabilities()`; no sample-rate or range control in the window | keep 0.45 × sample rate and 0.005 Vpk; add selectors for sample rate and range | one rule for the window and `checkConfig`, so the window no longer accepts a level the source refuses only at measure time (33220A: 0.02 Vpp at `INF`); the input settings stay in the configuration (the window shows them and the allowed values, section 7.1) |
+| D42 | Templates are complete drivers of imaginary instruments that pass the contract tests on their own mocks (`tests/TestInstrumentTemplates`); every instrument fact is a line marked `TODO` | skeletons with empty methods; templates that are not run | a person starts from code that is known to meet the contract, and only replaces facts; a template that is never run breaks unnoticed; the `TODO` markers and the guide's "no `TODO` left" check make every placeholder visible (stage 6) |
+| D43 | The demo source `demo` stays registered, simulation only (`describe().simulation = 'only'`) | remove it after the dry run; keep it in `tests/support` | the guide's worked example stays checked by the contract tests and visible in the registry; `'only'` keeps it out of hardware mode (registry check 4) |
+| D44 | The mock of a separate function generator couples to the rig through `setGeneratorState` (the rig's function-generator model); `respond(x)` for sample-producing sources (revises D27's "only for the 33220A mock") | a new rig coupling for every separate source | `generate(n)` already models a separate generator on its own clock (stepped sweep, trigger latency, clock offset) with generic quantities (function, frequency, Vpp, sweep, output); no change to the rig, the 33220A path or its bus traffic |
+| D45 | A driver's defaults only in `describe().defaults` (settings and inputs), not in `tim.app.defaultConfig` | WO §5.3 "defaults in `defaultConfig`" | as built since stage B (D6, D32): `defaultConfig` holds the default drivers' sub-structs; `loadConfig` / `migrateConfig` merge any registered driver's sub-struct onto its own defaults |
+| D46 | The contract tests give an acquisition driver its own input defaults | keep the LAN-XI input values of `defaultConfig` | found while running the acquisition template: a DAQ without `'10 Vpeak'` / `'0.7 Hz'` failed `checkConfig` before any duty was tested - the test, not the contract, was shaped like the LAN-XI |
+| D47 | Acquisition and combined templates talk to the device through a small device-session object (`identify`, `configure`, `start`, `read` / `playRecord`, `stop`, `writeZero`, `close`) - a thin hardware class around the vendor interface, or the mock | the vendor interface (`daq`, `audioPlayerRecorder`) called directly in the driver | the driver reads the same on the hardware and on the mock; the mock emulates a few methods instead of a toolbox object; the toolbox is needed only by the hardware class (D9) |
 
 ### 13.2 Design review of 2026-10-11 (stage 2)
 
@@ -916,8 +943,35 @@ The plan of stage C:
    configuration, identity display), installation guide (products per driver), README structure
    and test count, operator texts in `tim.app.msg` ("LAN-XI inputs" → the DAQ inputs).
 
-Part 2 (guide with the full-scale and 0 V rules, templates, skill, dry run) and the owner's
-hardware check (§0.3) follow stage C.
+**Part 2 - guide, templates, skill, dry run (WO §5, §0 change A).** Done on `wo-001` (stage 6 of
+the work order):
+
+* `docs/adding_an_instrument.md`: the step-by-step guide for a person without Claude Code - facts,
+  suitability (the requirements table of WO §3, copied), templates, driver, protocol mock,
+  settings, reference document, registry, offline tests, the hardware ladder (a)-(d) with the
+  owner, documents, the safety rules, the worked example and a checklist. It carries the
+  full-scale (`vppAtFullScale`) and 0 V rules of sections 3.1 and 3.4.
+* `templates/instrument/`: driver templates for a source (request / response), an acquisition
+  (streaming) and a combined block device, one protocol mock and one driver test for each, a
+  reference document and a configuration snippet; outside the package folders and not on the
+  path. They run as they are and pass the contract tests on their mocks
+  (`tests/TestInstrumentTemplates`, D42, D47).
+* `.claude/skills/add-instrument/SKILL.md`: runs the guide and repeats the rules of WO §5; it holds
+  nothing the guide lacks.
+* Dry run: the demo source (`demo`: `tim.instr.DemoSource`, `MockDemoSource`,
+  `tests/TestDemoSource.m`, `docs/ref_demo_source.md`) was made by following the guide literally;
+  it passes the contract tests (also the version before stage 6) without a change to the session or
+  the window (`git diff --stat`: the new files and one line in `drivers.m`), and runs a
+  calibration and a measurement in the hidden window. The guide and the templates were corrected
+  where the dry run found them unclear or wrong (guide section 13).
+* Found on the way: the contract tests gave every acquisition driver the LAN-XI input values
+  (D46); the rig's generator coupling is documented for any separate generator mock (D44).
+
+Verified at the end of Part 2 (simulation only): full suite 291 / 291 in batch MATLAB (21 test
+classes: `TestDemoSource` and `TestInstrumentTemplates` new, 11 contract cases for `demo`); both
+bus-traffic fixtures unchanged; the templates and the demo files give only the Code Analyzer's
+"extra comma" messages of the one-line `try` (the project's style). The owner's hardware check
+(§0.3) follows.
 
 ## Appendix A - Inventory of the instrument-specific code before WO-001 (commit 8ff47f3)
 

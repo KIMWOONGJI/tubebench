@@ -48,11 +48,13 @@ $p.ExitCode; Get-Content $log -Encoding UTF8
 **Session layer.** `tim.app.MeasurementSession` owns the instruments (`s.Gen` signal source,
 `s.Daq` acquisition; one object when a device takes both roles) and runs every acquisition. The
 configuration names a driver per role (`generator.driver`, `daq.driver`: `keysight33220a`,
-`lanxi`, or `simcombined` for both); `connect` builds them through the registry
-`tim.instr.create` (list in `+tim/+instr/drivers.m`). Drivers implement the contract
-`tim.instr.SignalSource` / `tim.instr.Acquisition` (`docs/instrument_interface.md`), so the
-session and the window name no instrument (a test greps for it). `cfg.mode` chooses what each
-driver talks to:
+`lanxi`, `simcombined` for both, or the guide's simulation-only example `demo`); `connect` builds
+them through the registry `tim.instr.create` (list in `+tim/+instr/drivers.m`). Drivers implement
+the contract `tim.instr.SignalSource` / `tim.instr.Acquisition` (`docs/instrument_interface.md`),
+so the session and the window name no instrument (a test greps for it). A new instrument gets a
+driver by `docs/adding_an_instrument.md` (templates in `templates/instrument/`, checked by
+`TestInstrumentTemplates`; skill `.claude/skills/add-instrument`), never by a change to the session
+or the window. `cfg.mode` chooses what each driver talks to:
 
 - `'hardware'`: its transport - `ScpiTcpTransport` (33220A); `LanXiHttp`, `LanXiTcpStream` →
   `LanXiStreamParser` (LAN-XI).

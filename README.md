@@ -18,9 +18,12 @@ generator and the LAN-XI module.
 Supported instruments: the generator and the acquisition module are **drivers chosen in the
 configuration** (`generator.driver`, `daq.driver`): today the 33220A (`keysight33220a`) and the
 LAN-XI 3676 (`lanxi`), plus a simulated combined device with one output and four inputs on one
-clock (`simcombined`, simulation only). Another instrument needs a driver that follows the
-contract in `docs/instrument_interface.md`. The window has no instrument selector; it shows the
-instruments in use and the model, serial number and firmware they report.
+clock (`simcombined`) and the demo signal generator of the driver guide (`demo`), both
+simulation only. Another instrument needs a driver that follows the contract in
+`docs/instrument_interface.md`; `docs/adding_an_instrument.md` is the step-by-step procedure (with
+templates in `templates/instrument/`; in Claude Code the skill `add-instrument`). The window has no
+instrument selector; it shows the instruments in use and the model, serial number and firmware
+they report.
 
 ## Quick start
 
@@ -53,7 +56,7 @@ or configuration.
 
 ## Status (2026-10-10)
 
-* **Software**: complete. 270 automated tests in 19 test classes (simulation and recorded hardware
+* **Software**: complete. 291 automated tests in 21 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -88,7 +91,9 @@ config/                 user_config.json (lab settings), example_config.json (te
                         drivers (one line per driver), driverInfo, create, checkProducts;
                         drivers Keysight33220A ('keysight33220a', with ScpiTcpTransport) and
                         LanXi ('lanxi', with LanXiHttp, LanXiTcpStream, LanXiStreamParser,
-                        RecordingStream); their protocol mocks Mock* (simulation), mockBusLog
+                        RecordingStream); their protocol mocks Mock* (simulation), mockBusLog;
+                        DemoSource ('demo', with MockDemoSource: the worked example of the
+                        driver guide, simulation only)
 +tim/+acq               checkIntegrity, basicIntegrity, voltsToPascal
 +tim/+dsp               sweepResponse, sineResponse, welchResponse, detectExcitation, estimateSweepLaw
 +tim/+cal               switchingCorrection, buildCalibration, interpolateCalibration,
@@ -118,9 +123,13 @@ resources/logo          the tubebench mark: SVG (light, reverse) and PNG 16/32/4
 tests/                  matlab.unittest suites + fixtures (real LAN-XI responses and stream,
                         bus traffic of simulated sessions, normal and fault paths:
                         TestBusTraffic); TestInstrumentContract (every registered driver);
-                        TestConfiguration (layout and migration); TestGui (hidden window, also
-                        with the simulated combined device; identity display); support/
-                        (test-only drivers)
+                        TestInstrumentTemplates (the driver templates); TestConfiguration (layout
+                        and migration); TestGui (hidden window, also with the simulated combined
+                        device; identity display); support/ (test-only drivers)
+templates/instrument    starting files for a new driver (source, acquisition, combined device,
+                        their protocol mocks and tests, reference document, configuration
+                        snippet); not on the path (docs/adding_an_instrument.md)
+.claude/skills          add-instrument: the Claude Code skill that runs the driver guide
 examples/               demo_simulation.m, hardware_commissioning.m, bench_test_no_tube.m,
                         output/ (example plots)
 docs/                   see below
@@ -139,7 +148,8 @@ data/, calibration/     measurement and calibration output (never overwritten)
 | `docs/hardware_status.md` | verified vs pending, observations from the hardware sessions |
 | `docs/assumptions_and_limitations.md` | assumptions, limitations, future work |
 | `docs/ref_33220A_scpi.md`, `docs/ref_lanxi_openapi.md` | verified instrument protocol references |
-| `docs/instrument_interface.md` | contract for instrument drivers, as built (WO-001 for 1.2.0, stages A–C: contract classes, drivers, registry, contract tests, configuration by driver name, session through the registry, simulated combined device, the window from the drivers); software-verified, hardware check pending |
+| `docs/instrument_interface.md` | contract for instrument drivers, as built (WO-001 for 1.2.0, stages A–C: contract classes, drivers, registry, contract tests, configuration by driver name, session through the registry, simulated combined device, the window from the drivers; Part 2: guide, templates, skill, demo); software-verified, hardware check pending |
+| `docs/adding_an_instrument.md` | how to add a driver for another instrument, step by step (facts, suitability, templates, mock, tests, hardware verification with the owner, safety rules); worked example: the demo source, `docs/ref_demo_source.md` |
 
 ## References
 

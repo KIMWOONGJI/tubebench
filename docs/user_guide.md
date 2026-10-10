@@ -647,11 +647,13 @@ driver keeps its own settings in a sub-struct named after it:
 
 1. **Find the driver.** `tim.instr.drivers()` lists the registered drivers; today
    `keysight33220a` (Keysight/Agilent 33220A function generator), `lanxi` (HBK LAN-XI module,
-   Open API) and `simcombined` (a simulated device with one output and four inputs on one sample
-   clock, for both roles, simulation mode only). `d = tim.instr.driverInfo('lanxi')` shows its
-   display name, its roles (`d.capabilities.roles`), its default settings (`d.defaults.settings`)
-   and what it allows (`d.capabilities`: sample rates, input ranges, filters, loads, levels,
-   sweep times). The Instruments table of Setup > Connection shows the same values in its tooltip.
+   Open API), `simcombined` (a simulated device with one output and four inputs on one sample
+   clock, for both roles, simulation mode only) and `demo` (the demo signal generator DEMO-SG1,
+   an imaginary instrument: the worked example of `docs/adding_an_instrument.md`, simulation mode
+   only). `d = tim.instr.driverInfo('lanxi')` shows its display name, its roles
+   (`d.capabilities.roles`), its default settings (`d.defaults.settings`) and what it allows
+   (`d.capabilities`: sample rates, input ranges, filters, loads, levels, sweep times). The
+   Instruments table of Setup > Connection shows the same values in its tooltip.
 2. **Name it** in `generator.driver` and / or `daq.driver`. A driver that takes both roles (one
    device with output and inputs) is named in both sections and reads its settings from
    `daq.<driver>`.
@@ -671,11 +673,12 @@ driver keeps its own settings in a sub-struct named after it:
    identities (`metadata.json`: `generator`, `daq`); a calibration records the acquisition module
    and its input settings, and the CALIBRATION line warns when the measurement uses another one.
 
-An instrument without a driver needs one first: `docs/instrument_interface.md` is the contract a
-driver implements (the procedure for adding one follows with WO-001 Part 2). A file of the older
-layout (`formatVersion` 1: `generator.host` / `port` / `timeout` and a `lanxi` section, as
-`config/user_config.json` still is) loads with the same settings; File > Save configuration…
-writes the new layout. A driver name this installation does not know (a measurement folder from
+An instrument without a driver needs one first: `docs/adding_an_instrument.md` is the
+step-by-step procedure (with the templates of `templates/instrument/`; in Claude Code the skill
+`add-instrument` runs it), `docs/instrument_interface.md` the contract a driver implements. A file
+of the older layout (`formatVersion` 1: `generator.host` / `port` / `timeout` and a `lanxi`
+section, as `config/user_config.json` still is) loads with the same settings; File > Save
+configuration… writes the new layout. A driver name this installation does not know (a measurement folder from
 another set-up) loads with a warning and is shown as `unknown driver "<name>"`, so the data can
 still be opened and reprocessed; Connect then reports the error.
 
