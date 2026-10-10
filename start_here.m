@@ -1,6 +1,6 @@
-%% START HERE - transfer-impedance-tube-measurement
+%% START HERE - tubebench
 % Four-microphone impedance tube: Keysight 33220A + HBK LAN-XI 3676 + 4x B&K 4957.
-% Repository: https://github.com/kimwoongji/transfer-impedance-tube-measurement (private)
+% Repository: https://github.com/kimwoongji/tubebench (private)
 %
 % Run this file section by section (Ctrl+Enter in the MATLAB Editor).
 % Nothing here switches the generator output on until a section that
@@ -24,8 +24,8 @@ fprintf('Mode: %s\n', upper(cfg.mode));
 fprintf('  - %s\n', warn{:});
 
 %% 1) (optional) Graphical interface instead of the sections below
-% tubeapp          % real instruments (config/user_config.json)
-% tubeapp sim      % virtual tube (practice)
+% tubebench        % real instruments (config/user_config.json)  (old name: tubeapp)
+% tubebench sim    % virtual tube (practice)
 
 %% 2) Self-test of the software (simulation only, ~3 min)
 % results = run_tests();

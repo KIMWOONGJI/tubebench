@@ -1,9 +1,10 @@
 # Measurement user guide
 
-This guide describes the program "Transfer impedance tube": the window (`tubeapp`), the safety
-behaviour, the configuration file and the script interface. The switching calibration has its
-own document (`calibration_procedure.md`), the hardware tests theirs (`validation_procedure.md`),
-and the formulas are in `theory.md` and in the **Formula** tab of the window.
+This guide describes the program **tubebench** (four-microphone transfer-impedance tube
+measurement): the window (`tubebench`), the safety behaviour, the configuration file and the
+script interface. The switching calibration has its own document (`calibration_procedure.md`),
+the hardware tests theirs (`validation_procedure.md`), and the formulas are in `theory.md` and in
+the **Formula** tab of the window.
 
 ## 1. First steps
 
@@ -12,9 +13,11 @@ and the formulas are in `theory.md` and in the **Formula** tab of the window.
    Create it from `config\example_config.json` only if it does not exist. Commit it after
    changes, so that the history keeps the measured geometry.
 3. Start the window:
-   * double-click `start_tubeapp.bat` (real instruments, `config\user_config.json`), or
-     `start_tubeapp.bat sim` (virtual tube for practice, `config\sim_thin_screen.json`);
-   * or type `tubeapp` / `tubeapp sim` / `tubeapp myconf.json` in MATLAB.
+   * double-click `start_tubebench.bat` (real instruments, `config\user_config.json`), or
+     `start_tubebench.bat sim` (virtual tube for practice, `config\sim_thin_screen.json`);
+   * or type `tubebench` / `tubebench sim` / `tubebench myconf.json` in MATLAB.
+
+   The old names `start_tubeapp.bat` and `tubeapp` still work.
 
    For script-based use, run `start_here.m` section by section (section 11).
 
@@ -25,7 +28,7 @@ progress bar and the current step (control panel, views, 3D tube model, graphs);
 keeps moving while MATLAB is busy. It closes by itself when the main window appears; closing it
 earlier does not stop the start.
 
-The window title is "Transfer impedance tube". It opens as a normal window as large as the screen without the taskbar (it can be moved and resized) and has four parts:
+The window title is "tubebench". It opens as a normal window as large as the screen without the taskbar (it can be moved and resized) and has four parts:
 
 * the **menu bar** (File, Help; section 7);
 * the **control panel** on the left, in workflow order: INSTRUMENTS, IMPEDANCE TUBE, EXCITATION,
@@ -538,7 +541,7 @@ criteria; 12 units and level references. The derivations are in `theory.md`.
   **About**.
 * **Help > About** shows the logo, the program, the software version and release date, the Git commit and
   branch, the MATLAB release, the repository link
-  (<https://github.com/kimwoongji/transfer-impedance-tube-measurement>, private) and the author's
+  (<https://github.com/kimwoongji/tubebench>, private) and the author's
   portfolio (<https://kimwoongji.github.io>). The text can be selected and copied.
 
 The version, the repository and the commit are stored with every measurement (`metadata.json`,
@@ -761,7 +764,7 @@ Simulated measurements are labelled "SIMULATED DATA" in `README.txt` and in the 
 stored separately in `data\simulation\` and `calibration\simulation\`, so they cannot be confused
 with real measurements and calibrations.
 
-**Practising without hardware**: `tubeapp sim` (or
+**Practising without hardware**: `tubebench sim` (or
 `app = tim.gui.TubeApp('config/sim_thin_screen.json')`) opens the window on a virtual tube with a
 thin resistive screen (Z_t = 400 + jω·0.05 Pa·s/m). Press Connect, Run switching calibration…,
 then Start measurement. The Transfer impedance and Transmission loss views show the results.

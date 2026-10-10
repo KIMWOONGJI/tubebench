@@ -1,5 +1,5 @@
 classdef TubeApp < handle
-    %TUBEAPP Graphical interface (uifigure, R2022b) of the transfer-impedance tube.
+    %TUBEAPP Main window of tubebench (uifigure, R2022b) for the transfer-impedance tube.
     %
     %   app = tim.gui.TubeApp();                      % default / example config
     %   app = tim.gui.TubeApp('config/user_config.json');
@@ -351,7 +351,7 @@ classdef TubeApp < handle
             % Position is the inside of the window; a uifigure cannot set OuterPosition
             % (R2022b), so the title bar, menu bar and top border (53 px on Windows 11
             % at 100 % scaling, measured on a screen capture) are subtracted
-            app.Fig = uifigure('Name', 'Transfer impedance tube', 'Position', [op(1) op(2) op(3) op(4) - 53], ...
+            app.Fig = uifigure('Name', 'tubebench', 'Position', [op(1) op(2) op(3) op(4) - 53], ...
                 'Visible', 'off', 'Color', P.ui.panel, 'Icon', tim.gui.logo('icon'), ...   % title-bar icon: the mark (PNG)
                 'CloseRequestFcn', @(src, ~) tim.gui.closeApp(src, app));   % never gets stuck
             h = struct();
@@ -2393,7 +2393,7 @@ classdef TubeApp < handle
             end
             [~, info] = tim.app.softwareVersion();
             p = app.Fig.Position; w = 500; hgt = 276;
-            fig = uifigure('Name', 'About Transfer impedance tube', 'Resize', 'off', 'Visible', app.Fig.Visible, ...
+            fig = uifigure('Name', 'About tubebench', 'Resize', 'off', 'Visible', app.Fig.Visible, ...
                 'Position', [p(1) + (p(3) - w) / 2, p(2) + (p(4) - hgt) / 2, w, hgt], 'Icon', tim.gui.logo('icon'));
             app.AboutFig = fig;
             gl = uigridlayout(fig, [5 2], 'RowHeight', {52, '1x', 22, 22, 30}, 'ColumnWidth', {'1x', 90}, ...
@@ -2404,7 +2404,7 @@ classdef TubeApp < handle
             hd.Layout.Row = 1; hd.Layout.Column = [1 2];
             app.H.aboutLogo = uiimage(hd, 'ImageSource', tim.gui.logo(), 'ScaleMethod', 'fit');
             app.H.aboutLogo.Layout.Row = [1 2]; app.H.aboutLogo.Layout.Column = 1;
-            l = uilabel(hd, 'Text', 'Transfer impedance tube', 'FontSize', 17, 'FontWeight', 'bold');
+            l = uilabel(hd, 'Text', 'tubebench', 'FontSize', 17, 'FontWeight', 'bold');
             l.Layout.Row = 1; l.Layout.Column = 2;
             l = uilabel(hd, 'Text', 'Four-microphone transfer-impedance tube measurement (MATLAB)', 'FontColor', [0.35 0.35 0.35]);
             l.Layout.Row = 2; l.Layout.Column = 2;
@@ -2458,7 +2458,7 @@ classdef TubeApp < handle
             app.ClosingLog = [app.ClosingLog, msg(:).'];
             if isempty(app.Fig) || ~isvalid(app.Fig) || ~strcmp(app.Fig.Visible, 'on'), return; end
             if isempty(app.ClosingWin) || ~isvalid(app.ClosingWin)
-                app.ClosingWin = uiprogressdlg(app.Fig, 'Title', 'Closing Transfer impedance tube', ...
+                app.ClosingWin = uiprogressdlg(app.Fig, 'Title', 'Closing tubebench', ...
                     'Message', msg, 'Indeterminate', 'on', 'Icon', 'info');
             else
                 app.ClosingWin.Message = msg;

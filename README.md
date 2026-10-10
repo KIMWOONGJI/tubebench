@@ -1,9 +1,11 @@
-# transfer-impedance-tube-measurement
+# tubebench
 
-Repository: <https://github.com/kimwoongji/transfer-impedance-tube-measurement> (private; access by
-invitation of the owner)
+Four-microphone transfer-impedance tube measurement (MATLAB)
 
-MATLAB R2022b program "Transfer impedance tube" for broadband four-microphone impedance-tube
+Repository: <https://github.com/kimwoongji/tubebench> (private; access by invitation of the owner;
+formerly `transfer-impedance-tube-measurement` - GitHub forwards the old address)
+
+MATLAB R2022b program "tubebench" for broadband four-microphone impedance-tube
 measurements: Keysight/Agilent **33220A** generator → amplifier → loudspeaker → M1 M2 | specimen |
 M3 M4 → termination, with four **B&K 4957** microphones on an **HBK LAN-XI Light 3676** (Open API).
 
@@ -14,19 +16,21 @@ generator and the LAN-XI module.
 
 ## Quick start
 
-Get the code by cloning `https://github.com/kimwoongji/transfer-impedance-tube-measurement.git`
-(private repository: your GitHub account needs access) or by copying the project folder.
-Double-click **`start_tubeapp.bat`**, which starts MATLAB and opens the window with
-`config/user_config.json`. `start_tubeapp.bat sim` opens it on a virtual tube. From the MATLAB
+Get the code by cloning `https://github.com/kimwoongji/tubebench.git` (folder `tubebench`;
+private repository: your GitHub account needs access) or by copying the project folder.
+Double-click **`start_tubebench.bat`**, which starts MATLAB and opens the window with
+`config/user_config.json`. `start_tubebench.bat sim` opens it on a virtual tube. From the MATLAB
 command window:
 
 ```matlab
-tubeapp                     % window, real instruments (config/user_config.json)
-tubeapp sim                 % window, virtual tube for practice
+tubebench                   % window, real instruments (config/user_config.json)
+tubebench sim               % window, virtual tube for practice
 results = run_tests();      % self-test in simulation (no hardware needed)
 edit start_here.m           % step-by-step script entry point (no window)
 run examples/demo_simulation.m   % full simulated workflow + example plots
 ```
+
+The old names `tubeapp` and `start_tubeapp.bat` still work (they call `tubebench`).
 
 The window guides through Connect → tube geometry → excitation → switching calibration → Start
 measurement → Save measurement; `docs/user_guide.md` describes every control and view (also in
@@ -39,9 +43,9 @@ template (simulation mode, no geometry) - never copy it over `user_config.json`.
 software commit does not see uncommitted local changes - commit before measuring with edited code
 or configuration.
 
-## Status (2026-10-09)
+## Status (2026-10-10)
 
-* **Software**: complete. 194 automated tests in 16 test classes (simulation and recorded hardware
+* **Software**: complete. 196 automated tests in 16 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -61,9 +65,12 @@ or configuration.
 
 ## Structure
 
+The code is the MATLAB package `+tim` (tim = transfer-impedance measurement, the internal package
+of tubebench); its package and class names (`tim.gui.TubeApp`, …) did not change with the program name.
+
 ```
 start_here.m            entry point (sections)        run_tests.m   automated tests
-tubeapp.m, start_tubeapp.bat   start the window
+tubebench.m, start_tubebench.bat   start the window (old names tubeapp.m, start_tubeapp.bat)
 config/                 user_config.json (lab settings), example_config.json (template),
                         sim_thin_screen.json (virtual tube)
 +tim/+instr             Keysight33220A, ScpiTcpTransport, LanXi, LanXiHttp, LanXiTcpStream,

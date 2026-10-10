@@ -154,7 +154,7 @@ classdef TestPlotsSaved < matlab.unittest.TestCase
                 tc.verifyEqual(ttl, TestPlotsSaved.Titles{i});
                 tc.verifyEqual(TestPlotsSaved.plain(findall(fig, 'Tag', 'timHeaderDescription').String), ...
                     TestPlotsSaved.plain(desc), fig.Name);
-                tc.verifySubstring(findall(fig, 'Tag', 'timFooter').String, 'transfer-impedance-tube-measurement');
+                tc.verifySubstring(findall(fig, 'Tag', 'timFooter').String, 'tubebench');
                 info = getappdata(fig, 'timViewInfo');
                 tc.verifyTrue(isstruct(info) && isfield(info, 'summary'), fig.Name);
             end

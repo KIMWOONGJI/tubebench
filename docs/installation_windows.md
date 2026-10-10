@@ -1,4 +1,4 @@
-# Windows installation and set-up guide
+# Windows installation and set-up guide (tubebench)
 
 ## 1. Summary: what is required
 
@@ -61,13 +61,15 @@ Possible issues and remedies (each requires **your** decision; the software neve
 
 ## 3. Installing this software
 
-1. Clone the repository (section 6) or copy the folder `transfer-impedance-tube-measurement` to
-   any location, e.g. `C:\Users\<you>\Desktop\wj\transfer-impedance-tube-measurement`. Do not
-   rename the `+tim` folder.
+1. Clone the repository (section 6) or copy the project folder `tubebench` to any location,
+   e.g. `C:\Users\<you>\Desktop\wj\tubebench`. Do not rename the `+tim` folder.
 2. Start MATLAB R2022b, `cd` into the folder and run `addpath(pwd)` (done automatically by
    `start_here.m` and `run_tests.m`). The `+tim` package needs only the project root on the path.
 3. Check `config/user_config.json` (lab settings, part of the repository; see the user guide).
    On a set-up other than the lab tube, create it from `config/example_config.json`.
+4. Start the program: double-click `start_tubebench.bat` in the project folder, or type
+   `tubebench` (`tubebench sim`: virtual tube for practice) in MATLAB. The old names
+   `start_tubeapp.bat` and `tubeapp` still work.
 
 ## 4. Verification
 
@@ -111,7 +113,8 @@ configuration, and its commit is stored with every measurement and calibration.
   opened after the installation (a terminal that was already open needs
   `"C:\Program Files\Git\cmd\git.exe"`).
 * The project folder is a repository on branch `main` (first commit 2026-10-08). Repository:
-  <https://github.com/kimwoongji/transfer-impedance-tube-measurement> (private). No remote is
+  <https://github.com/kimwoongji/tubebench> (private; named `transfer-impedance-tube-measurement`
+  until 2026-10-10 - GitHub forwards the old address). No remote is
   configured on the lab PC yet; adding it (`git remote add origin <url>`) and pushing are left to
   the owner.
 * Daily use, in the project folder:
@@ -129,5 +132,7 @@ configuration, and its commit is stored with every measurement and calibration.
   autosave files. Archive raw data separately.
 * Another PC: install Git for Windows (https://git-scm.com/download/win, default options, or
   `winget install --id Git.Git -e`), then
-  `git clone https://github.com/kimwoongji/transfer-impedance-tube-measurement.git` (needs access
-  to the private repository).
+  `git clone https://github.com/kimwoongji/tubebench.git` (needs access to the private
+  repository; creates the folder `tubebench`).
+* An existing clone in a folder named `transfer-impedance-tube-measurement` (the name before
+  2026-10-10) keeps working: the program does not depend on the folder name.

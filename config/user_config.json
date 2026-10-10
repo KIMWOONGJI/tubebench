@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "mode": "hardware",
-  "projectName": "transfer-impedance-tube-measurement",
+  "projectName": "tubebench",
   "ui": {
     "language": "en"
   },

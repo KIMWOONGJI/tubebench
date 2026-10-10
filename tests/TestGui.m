@@ -71,11 +71,11 @@ classdef TestGui < matlab.unittest.TestCase
             % it by the user does not stop the start-up
             sw = tim.gui.StartWindow('Visible', 'off'); tc.addTeardown(@() delete(sw));
             f = sw.Fig;
-            tc.verifyEqual(f.Name, 'Transfer impedance tube');
+            tc.verifyEqual(f.Name, 'tubebench');   % program name since 2026-10-10
             tc.verifyEqual(f.Position(3:4), [460 190]);
             tc.verifyFalse(logical(f.Resize));
             [~, info] = tim.app.softwareVersion();
-            tc.verifyEqual(sw.H.title.Text, 'Transfer impedance tube');
+            tc.verifyEqual(sw.H.title.Text, 'tubebench');
             tc.verifySubstring(sw.H.version.Text, info.version);
             tc.verifySubstring(sw.H.version.Text, info.released);
             tc.verifyEqual(sw.H.spin.ImageSource, tim.gui.icon('run'), 'turning icon (animated by the window)');
@@ -587,7 +587,7 @@ classdef TestGui < matlab.unittest.TestCase
             app = tim.gui.TubeApp('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
             tc.verifyEqual(numel(findall(groot, 'Type', 'figure')), n0 + 1, 'hidden window: no start window');
             tc.verifyEmpty(app.StartSteps);
-            tc.verifyEqual(app.Fig.Name, 'Transfer impedance tube', 'no hyphen in the window name');
+            tc.verifyEqual(app.Fig.Name, 'tubebench', 'program name (user decision 2026-10-10)');
             top = findall(app.Fig, 'Type', 'uimenu', 'Parent', app.Fig);
             tc.verifyEqual(sort({top.Text}), {'File', 'Help'});
             file = top(strcmp({top.Text}, 'File'));
@@ -603,7 +603,7 @@ classdef TestGui < matlab.unittest.TestCase
                 'Transfer impedance', 'Validity'});
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
             fig = app.AboutFig; tc.addTeardown(@() delete(fig));
-            tc.verifyEqual(fig.Name, 'About Transfer impedance tube');
+            tc.verifyEqual(fig.Name, 'About tubebench');
             txt = strjoin(app.H.aboutText.Value, newline);
             [~, info] = tim.app.softwareVersion();
             tc.verifySubstring(txt, info.version);
@@ -618,7 +618,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(fig.Icon, tim.gui.logo('icon'), 'About window icon');
             tc.verifyEqual(app.Fig.Icon, tim.gui.logo('icon'), 'main window icon');
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
-            tc.verifyNumElements(findall(groot, 'Type', 'figure', 'Name', 'About Transfer impedance tube'), 1, 'one About window');
+            tc.verifyNumElements(findall(groot, 'Type', 'figure', 'Name', 'About tubebench'), 1, 'one About window');
         end
     end
 end

@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "mode": "simulation",
-  "projectName": "transfer-impedance-tube-measurement",
+  "projectName": "tubebench",
   "generator": {
     "host": "169.254.2.20",
     "port": 5025,

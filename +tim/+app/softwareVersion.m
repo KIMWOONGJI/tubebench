@@ -1,14 +1,14 @@
 function [v, info] = softwareVersion()
-%SOFTWAREVERSION Version of this measurement software.
+%SOFTWAREVERSION Version of this measurement software (tubebench).
 %
 %   v = tim.app.softwareVersion()
-%     'transfer-impedance-tube-measurement 1.1.0 (2026-10-09) commit 8a37e6b'
+%     'tubebench 1.1.0 (2026-10-09) commit 8a37e6b'
 %     (no commit part when the code is not a Git working copy)
 %   [v, info] = tim.app.softwareVersion()
 %     info.name, .version, .released, .repository (GitHub URL),
 %     .commit (40 hex or 'unknown'), .branch - stored with every measurement.
 
-name = 'transfer-impedance-tube-measurement';
+name = 'tubebench';                     % until 2026-10-10: transfer-impedance-tube-measurement
 number = '1.1.0'; released = '2026-10-09';
 [commit, branch] = tim.app.gitCommit();
 v = sprintf('%s %s (%s)', name, number, released);

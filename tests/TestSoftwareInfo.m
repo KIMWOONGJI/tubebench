@@ -14,16 +14,36 @@ classdef TestSoftwareInfo < matlab.unittest.TestCase
 
     methods (Test)
         function repositoryAddress(tc)
-            tc.verifyEqual(tim.app.repositoryUrl(), 'https://github.com/kimwoongji/transfer-impedance-tube-measurement');
+            tc.verifyEqual(tim.app.repositoryUrl(), 'https://github.com/kimwoongji/tubebench');
             [v, info] = tim.app.softwareVersion();
             tc.verifyClass(v, 'char');
-            tc.verifySubstring(v, 'transfer-impedance-tube-measurement');   % project name unchanged
+            tc.verifySubstring(v, 'tubebench');   % program name (until 2026-10-10: transfer-impedance-tube-measurement)
+            tc.verifyEqual(info.name, 'tubebench');
+            tc.verifyEqual(tim.app.defaultConfig().projectName, 'tubebench');
             tc.verifyEqual(info.repository, tim.app.repositoryUrl());
             if strcmp(info.commit, 'unknown')
                 tc.verifyEmpty(strfind(v, 'commit'));
             else
                 tc.verifyMatches(info.commit, '^[0-9a-f]{40}$');
                 tc.verifySubstring(v, ['commit ' info.commit(1:7)]);
+            end
+        end
+
+        function launchersAndProjectName(tc)
+            % user decision 2026-10-10: program renamed to tubebench; tubebench.m /
+            % start_tubebench.bat start it, the old tubeapp / start_tubeapp.bat still work
+            root = tim.app.projectRoot();
+            tc.verifyEqual(which('tubebench'), fullfile(root, 'tubebench.m'));
+            tc.verifyEqual(which('tubeapp'), fullfile(root, 'tubeapp.m'));
+            tc.verifyError(@() tubebench('no_such_config.json'), 'tubebench:config');
+            tc.verifyError(@() tubeapp('no_such_config.json'), 'tubebench:config', 'tubeapp calls tubebench');
+            bat = tim.app.readTextUtf8(fullfile(root, 'start_tubebench.bat'));
+            tc.verifySubstring(bat, '-r "tubebench(''%MODE%'')"');
+            bat = tim.app.readTextUtf8(fullfile(root, 'start_tubeapp.bat'));
+            tc.verifySubstring(bat, 'call "%~dp0start_tubebench.bat" %*', 'old .bat calls the new one');
+            for f = {'user_config.json', 'example_config.json', 'sim_thin_screen.json'}
+                cfg = jsondecode(tim.app.readTextUtf8(fullfile(root, 'config', f{1})));
+                tc.verifyEqual(cfg.projectName, 'tubebench', f{1});
             end
         end
 

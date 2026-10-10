@@ -9,7 +9,7 @@ function cfg = defaultConfig()
 cfg = struct();
 cfg.formatVersion = 1;
 cfg.mode = 'simulation';                % 'simulation' | 'hardware'
-cfg.projectName = 'transfer-impedance-tube-measurement';
+cfg.projectName = 'tubebench';
 cfg.ui = struct('language', 'en');      % operator prompts and confirmations (tim.app.msg): 'en' (default) | 'ko'
 
 % ---------------- instruments ----------------
