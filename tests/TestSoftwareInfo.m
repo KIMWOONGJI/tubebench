@@ -39,6 +39,11 @@ classdef TestSoftwareInfo < matlab.unittest.TestCase
             tc.verifyError(@() tubeapp('no_such_config.json'), 'tubebench:config', 'tubeapp calls tubebench');
             bat = tim.app.readTextUtf8(fullfile(root, 'start_tubebench.bat'));
             tc.verifySubstring(bat, '-r "tubebench(''%MODE%'')"');
+            % user choice 2026-10-10 ("D"): MATLAB without its desktop (faster start);
+            % MATLAB is not quit automatically (no exit after tubebench)
+            tc.verifySubstring(bat, '-nodesktop -nosplash -sd "%ROOT%"');
+            tc.verifyFalse(contains(regexp(bat, '-r "[^"]*"', 'match', 'once'), 'exit'), ...
+                'MATLAB keeps running after the program is closed');
             bat = tim.app.readTextUtf8(fullfile(root, 'start_tubeapp.bat'));
             tc.verifySubstring(bat, 'call "%~dp0start_tubebench.bat" %*', 'old .bat calls the new one');
             for f = {'user_config.json', 'example_config.json', 'sim_thin_screen.json'}

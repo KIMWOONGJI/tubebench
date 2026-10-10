@@ -14,7 +14,10 @@ the **Formula** tab of the window.
    changes, so that the history keeps the measured geometry.
 3. Start the window:
    * double-click `start_tubebench.bat` (real instruments, `config\user_config.json`), or
-     `start_tubebench.bat sim` (virtual tube for practice, `config\sim_thin_screen.json`);
+     `start_tubebench.bat sim` (virtual tube for practice, `config\sim_thin_screen.json`). It
+     starts MATLAB without its desktop (faster); a small MATLAB command window stays open behind
+     the program, also after the program is closed: type `tubebench` there to open the program
+     again, and `exit` (or close that window) to quit MATLAB;
    * or type `tubebench` / `tubebench sim` / `tubebench myconf.json` in MATLAB.
 
    The old names `start_tubeapp.bat` and `tubeapp` still work.
@@ -813,3 +816,4 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | Few valid frequency lines | Results > Validity: "no valid calibration" (load or run a calibration), low coherence / low SNR (amplitude, repetitions), termination not anechoic (τ, TL), velocity mismatch (thick specimen: thin-element Z_t not applicable) |
 | Transfer impedance view empty, "Thin-element model not applicable" | the specimen is thick (k·d > 1): use Reflection and transmission and Transmission loss |
 | A view shows "Preparing the view…" | the views are prepared in the background during the first half minute after the start (section 2); after a running action it is prepared first. "This view could not be prepared" names the cause in Messages: close and start the program again |
+| A MATLAB command window stays open after the program was closed | `start_tubebench.bat` starts MATLAB without its desktop: type `tubebench` there to open the program again, or `exit` to quit MATLAB |

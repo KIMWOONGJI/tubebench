@@ -19,9 +19,9 @@ generator and the LAN-XI module.
 
 Get the code by cloning `https://github.com/kimwoongji/tubebench.git` (folder `tubebench`;
 private repository: your GitHub account needs access) or by copying the project folder.
-Double-click **`start_tubebench.bat`**, which starts MATLAB and opens the window with
-`config/user_config.json`. `start_tubebench.bat sim` opens it on a virtual tube. From the MATLAB
-command window:
+Double-click **`start_tubebench.bat`**, which starts MATLAB (without its desktop) and opens the
+window with `config/user_config.json`; `start_tubebench.bat sim` opens it on a virtual tube. A
+small MATLAB command window stays open behind the program. In it, or in the MATLAB command window:
 
 ```matlab
 tubebench                   % window, real instruments (config/user_config.json)
