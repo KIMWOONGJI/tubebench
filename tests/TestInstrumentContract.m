@@ -965,6 +965,43 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyNotEmpty(acq.identity().model, 'runs on its mock without the product');
         end
 
+        function sourceWithoutReadBackNeedsTheOwnersConsent(tc)
+            % audit 2026-10-11 (safety gate, section 9.1 check 6): a source that
+            % cannot report whether its output is off is refused in hardware mode
+            % before any I/O unless generator.allowUnconfirmedOff = true; in
+            % simulation it is built (test driver tests/support/FakeNoReadbackSource,
+            % which never connects to an instrument)
+            tc.applyFixture(matlab.unittest.fixtures.PathFixture( ...
+                fullfile(fileparts(mfilename('fullpath')), 'support')));
+            tim.instr.drivers('add', struct('name', 'fakenoreadback', 'class', 'FakeNoReadbackSource'));
+            tc.addTeardown(@() tim.instr.drivers('remove', 'fakenoreadback'));
+            d = tim.instr.driverInfo('fakenoreadback');
+            tc.assertEqual(d.capabilities.source.readback, 'none');
+            cfg = tim.app.defaultConfig();
+            cfg.generator.driver = 'fakenoreadback';
+            cfg.generator.fakenoreadback = struct('host', '127.0.0.1');   % never an instrument address
+            cfg.generator.keysight33220a.host = '127.0.0.1';
+            cfg.daq.lanxi.host = '127.0.0.1';
+            hardware = struct('mode', 'hardware', 'rig', [], 'progress', []);
+            tc.assertFalse(cfg.generator.allowUnconfirmedOff, 'default: not accepted');
+            try
+                tim.instr.create('source', cfg, hardware);
+                tc.verifyFail('a source without read-back must be refused in hardware mode');
+            catch err
+                tc.verifyEqual(err.identifier, 'tim:instr:readback');
+                tc.verifySubstring(err.message, d.displayName);
+                tc.verifySubstring(err.message, 'allowUnconfirmedOff');
+            end
+            cfg.generator.allowUnconfirmedOff = true;   % the owner accepts it: the registry lets it through
+            tc.verifyError(@() tim.instr.create('source', cfg, hardware), 'tim:test:hardware', ...
+                'past every registry check (the test driver itself refuses to connect)');
+            cfg.generator.allowUnconfirmedOff = false;
+            sim = struct('mode', 'simulation', 'rig', tim.sim.SimulatedRig(cfg), 'progress', []);
+            src = tim.instr.create('source', cfg, sim);
+            tc.addTeardown(@() src.close());
+            tc.verifyFalse(src.isOutputOn(), 'simulation: built on its mock');
+        end
+
         function productCheck(tc)
             tim.instr.checkProducts(struct('name', 'MATLAB', 'feature', 'MATLAB'), 'test device');
             tim.instr.checkProducts(struct('name', {}, 'feature', {}), 'test device');

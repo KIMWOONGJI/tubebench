@@ -8,7 +8,8 @@ the **Formula** tab of the window.
 
 ## 1. First steps
 
-1. Read `installation_windows.md`, then run `run_tests` once. All tests must pass.
+1. Read `installation_windows.md`, then run `run_tests` once. All tests must pass
+   (`run_tests('fast')` leaves out TestEndToEnd and the two hidden-window app runs).
 2. Check `config\user_config.json` (tracked in Git; it holds the lab settings, see section 9).
    Create it from `config\example_config.json` only if it does not exist. Commit it after
    changes, so that the history keeps the measured geometry.

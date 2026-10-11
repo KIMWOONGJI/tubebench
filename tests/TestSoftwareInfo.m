@@ -53,6 +53,21 @@ classdef TestSoftwareInfo < matlab.unittest.TestCase
             end
         end
 
+        function fastSuiteLeavesOutTheLongRuns(tc)
+            % run_tests('fast') (README, CLAUDE.md): without TestEndToEnd and
+            % without every hidden-window app run - audit 2026-10-11: the filter was
+            % case-sensitive and kept TestGui/combinedDeviceAppSimulationWorkflow
+            full = run_tests('all', 'select'); full = {full.Name};
+            fast = run_tests('fast', 'select'); fast = {fast.Name};
+            apps = full(endsWith(lower(full), 'appsimulationworkflow'));
+            tc.verifyEqual(sort(apps), sort({'TestGui/appSimulationWorkflow', 'TestGui/combinedDeviceAppSimulationWorkflow'}));
+            tc.verifyEmpty(intersect(fast, apps), 'no hidden-window app run in the fast suite');
+            tc.verifyFalse(any(startsWith(fast, 'TestEndToEnd')), 'no TestEndToEnd in the fast suite');
+            tc.verifyEqual(sort(fast), sort(full(~startsWith(full, 'TestEndToEnd') & ~ismember(full, apps))), ...
+                'everything else is in the fast suite');
+            tc.verifyTrue(any(strcmp(fast, 'TestSoftwareInfo/fastSuiteLeavesOutTheLongRuns')));
+        end
+
         function commitFromLooseRef(tc)
             h = repmat('a1', 1, 20);
             mk(tc.tmp, '.git/HEAD', sprintf('ref: refs/heads/main\n'));

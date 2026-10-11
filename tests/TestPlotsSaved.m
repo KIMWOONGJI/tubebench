@@ -374,15 +374,23 @@ classdef TestPlotsSaved < matlab.unittest.TestCase
         end
 
         function descriptionsAsInTheGui(tc)
-            % one source for the view headers: the GUI view pages either call
-            % tim.plots.viewText or hold exactly its texts
-            src = tim.app.readTextUtf8(fullfile(tim.app.projectRoot(), '+tim', '+gui', 'Tubebench.m'));
-            if contains(src, 'tim.plots.viewText'), return; end
-            src = regexprep(src, '''\s*\.\.\.[^\n]*\n\s*''', '');          % join continued string literals
+            % one source for the view headers: every view page of the window and
+            % its tab show the title and description of tim.plots.viewText, as the
+            % saved figures do. The built (hidden) window is compared, not the
+            % source text (audit 2026-10-11: a check of the source returned before
+            % any assertion)
+            app = tim.gui.Tubebench('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            pages = {'wave', 'spec', 'tf', 'refl', 'tl', 'zt', 'valid'};        % in the order of Fields
             for i = 1:numel(TestPlotsSaved.Fields)
                 [ttl, desc] = tim.plots.viewText(TestPlotsSaved.Fields{i});
-                tc.verifySubstring(src, ['''' ttl ''', [''' desc ''']'], ...
-                    sprintf('Tubebench view page "%s": same description as tim.plots.viewText', ttl));
+                tc.assertTrue(isfield(app.Pages, pages{i}), pages{i});
+                p = app.Pages.(pages{i});
+                tc.verifyEqual(p.Title.Text, ttl, sprintf('view page "%s": title of tim.plots.viewText', pages{i}));
+                tc.verifyEqual(p.Description.Text, desc, sprintf('view page "%s": description of tim.plots.viewText', pages{i}));
+                tab = ancestor(p.Grid, 'uitab');
+                tc.verifyEqual(tab.Title, ttl, sprintf('tab of the view page "%s"', pages{i}));
+                F = getappdata(tc.figs.(TestPlotsSaved.Fields{i}), 'timSavedFrame');
+                tc.verifyEqual(F.title, ttl, 'saved figure: the same title');
             end
         end
 

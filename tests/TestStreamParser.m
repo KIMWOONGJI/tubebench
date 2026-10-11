@@ -170,8 +170,13 @@ classdef TestStreamParser < matlab.unittest.TestCase
                 n = randi([1 3000]); p2.feed(S.raw(pos:min(end, pos + n - 1))); pos = pos + n;
             end
             tc.verifyEqual(p2.getData(1:4), d);
-            % the recording had INVALID flags (no microphones / CCLD fault) -> must be reported
+            % the recording had INVALID flags (no microphones / CCLD fault) -> must be reported:
+            % one DataQuality message per signal (an empty list would pass all([]))
+            tc.verifyNumElements(info.qualityEvents, 4);
             tc.verifyTrue(all([info.qualityEvents.invalid]));
+            r = tim.acq.checkIntegrity(d, info, 16384, '10 Vpeak');
+            tc.verifyFalse(r.ok, 'INVALID flags fail the integrity check');
+            tc.verifyTrue(any(contains(r.fatal, 'INVALID')), strjoin(r.fatal, ' | '));
         end
     end
 end
