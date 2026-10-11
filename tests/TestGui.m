@@ -974,6 +974,59 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyFalse(app.Busy);
         end
 
+        function stopBeforeTheSessionExists(tc)
+            % audit 2026-10-11 (gui-5, PendingStop): Stop pressed after Connect but
+            % before the window has created the session. The window keeps the
+            % request and the new session stops at its first connection step: no
+            % instrument is contacted. A close request at that point closes the
+            % window once the connection has stopped. The test-only hook TestHook
+            % acts exactly at that point (owner decision 2026-10-11; a timer
+            % fired before the window was busy and the test was flaky).
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            seen = struct('point', '', 'busy', false, 'session', true, 'pending', false);
+            app.TestHook = @(point) pressStop(point);
+            tim.instr.mockBusLog('start'); tc.addTeardown(@() tim.instr.mockBusLog('stop'));
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertEqual(seen.point, 'connect:beforeSession', 'the hook ran');
+            tc.verifyTrue(seen.busy, 'Stop pressed while Connect was running');
+            tc.verifyFalse(seen.session, 'before the session existed');
+            tc.verifyTrue(seen.pending, 'the window kept the request');
+            tc.verifyEmpty(app.Session, 'not connected');
+            tc.verifyEmpty(tim.instr.mockBusLog('lines'), 'no instrument was contacted');
+            log = strjoin(cellstr(h.log.Value), newline);
+            tc.verifySubstring(log, 'Stop requested by the operator.');
+            tc.verifySubstring(log, 'Connection stopped by the operator: Connection stopped by the operator.');
+            first = app.ConnList.Keys{1};
+            tc.verifyEqual(app.ConnList.state(first), 'fail', 'the first step stopped');
+            tc.verifyEqual(app.ConnList.Details(1).Text, 'stopped by the operator');
+            tc.verifyFalse(app.Busy);
+            tc.verifySubstring(h.status.Text, 'Not connected');
+            % the request belonged to that connection: Connect again connects
+            app.TestHook = [];
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertNotEmpty(app.Session, 'connected the second time');
+            tc.verifyTrue(app.Session.Prepared);
+            tc.verifyNotEmpty(tim.instr.mockBusLog('lines'), 'the instruments were contacted this time');
+            % close request at the same point: the connection stops, then the window closes
+            app2 = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app2));
+            fig2 = app2.Fig;
+            app2.TestHook = @(~) tim.gui.closeApp(fig2, app2);
+            tim.instr.mockBusLog('start');
+            feval(app2.H.connect.ButtonPushedFcn, app2.H.connect, []);
+            tc.verifyFalse(isvalid(app2), 'closed after the stopped connection');
+            tc.verifyFalse(isvalid(fig2));
+            tc.verifyEmpty(tim.instr.mockBusLog('lines'), 'no instrument was contacted');
+            function pressStop(point)
+                seen.point = point; seen.busy = app.Busy; seen.session = ~isempty(app.Session);
+                feval(h.stop.ButtonPushedFcn, h.stop, []);
+                seen.pending = app.PendingStop;
+            end
+        end
+
         function outputNotConfirmedOffIsShown(tc)
             % audit 2026-10-11 (safety display): Stop while measuring and the
             % generator link lost at the same moment - the read-back cannot

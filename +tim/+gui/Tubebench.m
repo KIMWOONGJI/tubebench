@@ -118,6 +118,10 @@ classdef Tubebench < handle
         ConfirmUnsaved logical = true   % ask before an unsaved measurement is replaced or lost
         PromptInSimulation logical = false  % practice: the calibration bar asks at every step in simulation too
     end
+    properties (Hidden)
+        TestHook = []   % TEST ONLY (tests/TestGui): @(point) called at a fixed point of an action
+                        % ('connect:beforeSession'); empty in normal use, then nothing is called
+    end
 
     methods
         function app = Tubebench(cfgFile, opts)
@@ -477,6 +481,12 @@ classdef Tubebench < handle
     end
 
     methods (Hidden)
+        function testPoint(app, point)
+            % TEST ONLY: calls TestHook at a fixed point of an action (a Stop
+            % pressed exactly there, deterministically); nothing when it is empty
+            if ~isempty(app.TestHook), app.TestHook(point); end
+        end
+
         function setBuildingFlag(app, p)
             % (restoreBuilding: end of an on-demand preparation, also on an error)
             app.Building = p;
@@ -2223,6 +2233,7 @@ classdef Tubebench < handle
             app.H.connHead.Text = sprintf('Connecting (%s mode)…', app.Cfg.mode);
             app.H.connHead.FontColor = [0.1 0.1 0.1];
             app.refreshCards();
+            app.testPoint('connect:beforeSession');    % (tests: a Stop / close here finds no session yet)
             try
                 s = tim.app.MeasurementSession(app.Cfg);
             catch err
