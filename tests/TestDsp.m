@@ -123,6 +123,50 @@ classdef TestDsp < matlab.unittest.TestCase
             tc.verifyLessThan(max(rel(good, :), [], 'all'), 3e-2);
         end
 
+        function sweepLinesAreCentredOnTheirFrequency(tc)
+            % audit 2026-10-11, owner approval: every frequency line is the band
+            % [f - df/2, f + df/2] symmetric about f, an FFT bin exactly on an
+            % edge counting half in both lines that share it. The former
+            % half-open band [f - df/2, f + df/2) was centred at f - delta/2
+            % (delta = fs/nfft = 0.25 Hz here): for a pure delay tau the phase
+            % of H was off by pi*tau*delta = 7.9e-3 rad on every line; the
+            % symmetric line: at most 1.8e-4 rad. The log chirp starts at 40 Hz
+            % with 50 ms fades, so the ripple of its onset spectrum (which
+            % weights the band average) stays below the band.
+            fs = 16384; d = 164; tau = d / fs;   % integer delay, 10.01 ms
+            t = (0:round(3 * fs) - 1).' / fs;
+            s = 0.1 * chirp(t, 40, 3, 5500, 'logarithmic');
+            nf = round(0.05 * fs); fade = 0.5 * (1 - cos(pi * (0:nf - 1).' / nf));
+            s(1:nf) = s(1:nf) .* fade; s(end - nf + 1:end) = s(end - nf + 1:end) .* flipud(fade);
+            x1 = [zeros(fs, 1); s; zeros(round(1.2 * fs), 1)];
+            x2 = 0.8 * [zeros(d, 1); x1(1:end - d)];
+            rs = RandStream('mt19937ar', 'Seed', 5);
+            x = [x1 x2] + 1e-6 * randn(rs, numel(x1), 2);
+            sp = tim.dsp.sweepResponse({x}, fs, struct('fRange', [120 4500], 'df', 2, 'preRoll', 1, ...
+                'excitationBand', [40 5500]));
+            Htrue = 0.8 * exp(-2j * pi * sp.f * tau);
+            tc.verifyLessThan(max(abs(angle(sp.H(:, 2) ./ Htrue))), 5e-4, 'phase at the labelled frequency');
+            % magnitude: the band average of a phase turning by 0.13 rad across the
+            % 2 Hz line is 7e-4 low (both band definitions)
+            tc.verifyLessThan(max(abs(abs(sp.H(:, 2) ./ Htrue) - 1)), 2e-3);
+            tc.verifyEqual(sp.nAvg, 8 * ones(size(sp.f)), 'every line: 7 bins + 2 half edge bins (0.25 Hz bins, df 2 Hz)');
+            % the realised response of the virtual tube (noise-free, gated
+            % 3 s sweep): the phase error at f is now far below the
+            % delta/2 slope error of the half-open band (1.2e-4 to 5.7e-4 rad)
+            rig = tc.makeRig(0); rig.NoiseV = 0;
+            g = tc.genState('SWE_STAT', 1, 'OUTP', 0); rig.setGeneratorState(g);
+            pre = rig.generate(fs);
+            g.OUTP = 1;
+            x = [pre; tc.record(rig, g, round(4.6 * fs), 0)];
+            sw = struct('fStart', 80, 'fStop', 5500, 'duration', 3, 'spacing', 'LOG');
+            sp = tim.dsp.sweepResponse({x}, fs, struct('fRange', [120 4500], 'df', 2, 'preRoll', 1, ...
+                'excitationBand', [80 5500], 'sweep', sw));
+            tc.assertTrue(sp.excitation.gated);
+            tr = rig.trueResponse(sp.f); Ht = tr.G ./ tr.G(:, 1);
+            tc.verifyLessThan(median(abs(angle(sp.H(:, 2:4) ./ Ht(:, 2:4)))), 5e-5 * [1 1 1], ...
+                'median phase error of H2..H4 at the labelled frequency');
+        end
+
         function sweepGateExcludesSwitchingTransients(tc)
             % user request 2026-10-09: the output relay of the 33220A clicks when
             % the output is switched on (before the sweep) and off (after it).

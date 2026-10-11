@@ -25,8 +25,11 @@ function out = sweepResponse(records, fs, opts)
 %   are acoustic excitation at their own frequency too) and of the start-
 %   frequency tone emitted before/after the sweep. Per repetition r:
 %       G_cr(f) = Y_c Y_ref^*,   G_rr(f) = |Y_ref|^2,   G_cc(f) = |Y_c|^2
-%   summed over repetitions AND over the FFT bins inside each output band
-%   (band width df):
+%   summed over repetitions AND over the FFT bins inside each frequency line,
+%   the band [f - df/2, f + df/2] SYMMETRIC about its frequency f: a bin
+%   exactly on an edge f +/- df/2 counts with weight 1/2 in both lines that
+%   share it (nAvg sums the weights). Until 2026-10-11 the band was
+%   half-open, [f - df/2, f + df/2), centred at f - fs/nfft/2 (audit).
 %       H_c  = sum G_cr / sum G_rr                 (H1 estimator)
 %       g2_c = |sum G_cr|^2 / (sum G_rr * sum G_cc) (consistency / coherence)
 %   SWEEP GATE (opts.sweep given, excludeSwitching true): the generator
@@ -152,28 +155,22 @@ for r = 1:numel(records)
     else
         noiseE = nan(numel(fb), C);
     end
-    % ---- accumulate into output bands [fGrid - df/2, fGrid + df/2)
-    if nB == 1
-        near = ones(size(fb));
-    else
-        near = interp1(fGrid, (1:nB).', fb, 'nearest', 'extrap');
-    end
-    dist = fb - fGrid(near);
-    ok = abs(dist) < o.df / 2 | dist == -o.df / 2;    % half-open band [f-df/2, f+df/2)
-    b = near(ok);
-    Yr = Y(ok, ref);
+    % ---- accumulate into the frequency lines [fGrid - df/2, fGrid + df/2],
+    % symmetric about fGrid: bin ib goes to line b with weight wb (1/2 on an edge)
+    [ib, b, wb] = lineWeights(fb, fGrid, o.df);
+    Yr = Y(ib, ref);
     hasNoise = all(isfinite(noiseE(:)));
     for c = 1:C
-        Scr(:, c) = Scr(:, c) + accumarray(b, Y(ok, c) .* conj(Yr), [nB 1]);
-        Scc(:, c) = Scc(:, c) + accumarray(b, abs(Y(ok, c)).^2, [nB 1]);
+        Scr(:, c) = Scr(:, c) + accumarray(b, wb .* Y(ib, c) .* conj(Yr), [nB 1]);
+        Scc(:, c) = Scc(:, c) + accumarray(b, wb .* abs(Y(ib, c)).^2, [nB 1]);
         if hasNoise
-            SccN(:, c) = SccN(:, c) + accumarray(b, abs(Y(ok, c)).^2, [nB 1]);
-            Enoise(:, c) = Enoise(:, c) + accumarray(b, noiseE(ok, c), [nB 1]);
+            SccN(:, c) = SccN(:, c) + accumarray(b, wb .* abs(Y(ib, c)).^2, [nB 1]);
+            Enoise(:, c) = Enoise(:, c) + accumarray(b, wb .* noiseE(ib, c), [nB 1]);
         end
     end
     nNoiseReps = nNoiseReps + hasNoise;
-    Srr = Srr + accumarray(b, abs(Yr).^2, [nB 1]);
-    nAvg = nAvg + accumarray(b, 1, [nB 1]);
+    Srr = Srr + accumarray(b, wb .* abs(Yr).^2, [nB 1]);
+    nAvg = nAvg + accumarray(b, wb, [nB 1]);
 end
 
 H = Scr ./ Srr;
@@ -243,6 +240,29 @@ end
 m = sprintf(['Sweep %g-%g Hz too close to the analysis band for the sweep gate: %s. Let the sweep %s to keep ' ...
     'the generator''s switching transients out of the analysis.'], sw.fStart, sw.fStop, strjoin(what, '; '), ...
     strjoin(parts, ' and '));
+end
+
+function [ib, b, wb] = lineWeights(fb, fGrid, df)
+% contributions of the FFT bins fb to the frequency lines fGrid: bin ib goes
+% to line b with weight wb. Line f covers [f - df/2, f + df/2], symmetric
+% about f: weight 1 inside, 1/2 for a bin exactly on an edge, which the
+% neighbouring line shares (at the ends of the grid: half in the one line)
+nB = numel(fGrid);
+if nB == 1
+    near = ones(size(fb));
+else
+    near = interp1(fGrid, (1:nB).', fb, 'nearest', 'extrap');
+end
+dist = fb - fGrid(near);
+tol = 1e-9 * df;
+inner = find(abs(dist) < df / 2 - tol);
+edge = find(abs(abs(dist) - df / 2) <= tol);
+other = near(edge) + sign(dist(edge));               % the line on the other side of the edge
+shared = other >= 1 & other <= nB;
+shared(shared) = abs(abs(fb(edge(shared)) - fGrid(other(shared))) - df / 2) <= tol;
+ib = [inner; edge; edge(shared)];
+b = [near(inner); near(edge); other(shared)];
+wb = [ones(numel(inner), 1); 0.5 * ones(numel(edge) + nnz(shared), 1)];
 end
 
 function g = sweepGate(xr, fs, sw, band, taper, ex)

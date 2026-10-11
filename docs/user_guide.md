@@ -352,7 +352,12 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   measurement…. Reprocess uses the channel-to-port assignment of the configuration loaded now; if
   it differs from the one the measurement was recorded with (`meas.mics`), the message pane
   says so ("Microphone mapping of the configuration … differs …"): load the measurement's own
-  configuration unless the cabling was recorded wrongly.
+  configuration unless the cabling was recorded wrongly. Since 2026-10-11 every swept-sine
+  frequency line is centred on its frequency (`docs/theory.md` section 4, step 3), so a sweep
+  saved before gives slightly different results when reprocessed (on the lab data of 2026-10-09/10
+  |ΔR| up to 0.006, |ΔZt| up to 0.0024 ρc, a few lines change validity); a calibration made
+  before that date was computed with the former lines and still applies (the difference it
+  leaves is of the same order, at most 0.004 in the calibrated pressures).
 * The `config.json` that Save measurement writes is the configuration the saved results were
   computed with (after File > Open measurement… without Reprocess: the opened folder's
   `config.json`), so it always describes `result.mat`; folder and figure formats follow the

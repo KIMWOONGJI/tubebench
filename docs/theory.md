@@ -377,8 +377,38 @@ Estimator (`tim.dsp.sweepResponse`), per repetition:
    included, and truncation leakage is confined to segments where the signal has decayed; the
    on/off transients are inside this window.
 3. FFT, then accumulate `Y_k Y_ref*`, `|Y_ref|²` and `|Y_k|²` over all FFT bins inside each
-   frequency line `[f − Δf/2, f + Δf/2)` (`Δf = cfg.analysis.df`, default 2 Hz) and over all
-   repetitions.
+   frequency line `[f − Δf/2, f + Δf/2]` (`Δf = cfg.analysis.df`, default 2 Hz) and over all
+   repetitions. The line is **symmetric about its frequency `f`**: a bin inside counts once, a
+   bin exactly on an edge `f ± Δf/2` counts with weight 1/2 in each of the two lines that share
+   it (at the ends of the grid in the one line). With the lab's power-of-two FFT every edge is a
+   bin (`f_s/N_FFT` = 0.125 Hz for a 5 s sweep, 0.25 Hz for 3 s), so a line holds `Δf·N_FFT/f_s`
+   bins in all (`nAvg` sums the weights) and its centroid is `f`.
+
+   *Change 2026-10-11 (audit finding, approved by the owner).* The line used to be half-open,
+   `[f − Δf/2, f + Δf/2)`: the bins `f − Δf/2 … f + Δf/2 − δ` (`δ = f_s/N_FFT`), centred at
+   `f − δ/2`, so `H`, `γ²` and the SNR were estimates at `f − δ/2` labelled `f`. The phase of
+   `H_k` was off by about `−(dφ_k/df)·δ/2` - a systematic inter-pair phase error, the quantity
+   section 3A identifies as critical for a low `Z_t` (in simulation 1.2·10⁻⁴ to 5.7·10⁻⁴ rad
+   median for a 3 s sweep, 0.2-0.6 % of a low `Z_t`; for a pure delay `τ` exactly `π τ δ`).
+   Every saved sweep result and calibration (`C_k` uses the same estimator) carries the shift.
+   The lab folders are reprocessed into new folders after the 1.2.0 merge (raw data are never
+   overwritten).
+
+   *Effect on the lab data* (the five folders of 2026-10-09/10 and both calibrations, reprocessed
+   read-only in memory on 2026-10-11; 5 s sweeps, 16 bins per line and repetition). Relative
+   responses `Y_k/Y_ref`: median phase change 3.5–6.2·10⁻⁴ rad per folder; up to 5·10⁻² rad and
+   4 % only at lines of low coherence where `H` is steep. `C_k` recomputed from the saved switching
+   sweeps:
+   at most 4·10⁻³ in magnitude and 3.9·10⁻³ rad (median 2.3–2.4·10⁻⁴ rad) on its valid lines, 2–3
+   lines change validity. New code with the recomputed calibration against the old code, on the
+   valid lines: calibrated pressures at most 6.3·10⁻³ in magnitude and 6.6·10⁻³ rad, |ΔR| at most
+   6.0·10⁻³, |ΔZ_t|/ρc at most 2.4·10⁻³ (1.4 % of `Z_t`; 0.1 % in three folders, the fifth has no
+   valid `Z_t` line); no folder has a valid `τ` line (termination not anechoic); 0–2 lines per
+   folder change a validity mask. The existing calibration files (`C_k` from the old band) applied
+   to the new `H`: |ΔR| at most 4.6·10⁻³ and |ΔZ_t|/ρc at most 2.6·10⁻³ against the results of the
+   old code; against a calibration recomputed with the new band (CAL-20261010-212544) the old
+   `C_k` leaves at most 4·10⁻³ and 3.9·10⁻³ rad in the calibrated pressures, |ΔR| 3.2·10⁻³ and
+   |ΔZ_t|/ρc 1.4·10⁻⁴.
 4. Compute
 
         H_k^m = Σ Y_k Y_ref* / Σ |Y_ref|²                       (H1)
