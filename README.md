@@ -56,7 +56,7 @@ or configuration.
 
 ## Status (2026-10-11)
 
-* **Software**: complete. 322 automated tests in 21 test classes (simulation and recorded hardware
+* **Software**: complete. 326 automated tests in 21 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,

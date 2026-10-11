@@ -1082,6 +1082,19 @@ message in the changed files; `config/*.json` and the `config.json` of the five 
 folders under `data/` load without a warning (read only). The owner's hardware check (§0.3) is the
 next step (`docs/hardware_status.md`).
 
+**Owner decisions of 2026-10-11 (section 13.4).** D24 implemented (the session sets `AbortFcn`
+at connect and clears it at close; the error path disarms the source after `acquire` returned);
+the fault fixture regenerated with `TestBusTraffic.writeFixture('faults', note)` and compared
+line by line with the previous file: the only traffic change is one `OUTP OFF` moving before
+`REST PUT /rest/rec/measurements/stop` in the stalled-stream and the Stop scenarios; the
+hand-edited closing scenario comes out of the code unchanged. The new tests fail on the session
+code before the change (old file first on the path in a scratch folder). Verified (simulation
+only, 326 tests in 21 classes): `run_tests('fast')` 289 / 290 - `TestGui/closeDuringMeasurementStopsFirst`
+exceeded its 20 s wall-clock limit by 0.14 s on the loaded laptop and passed 3 / 3 when repeated
+alone (it passed in the fast run before, on the same code but a comment) -, `TestEndToEnd` and
+both app simulations 36 / 36; `TestBusTraffic` 6 / 6 with `bus_traffic_sim.txt` unchanged byte for
+byte. The instruments were not connected; the hardware check follows.
+
 ## Appendix A - Inventory of the instrument-specific code before WO-001 (commit 8ff47f3)
 
 Line numbers as of 8ff47f3. "→" names the stage that changed it; every item is done (stage C

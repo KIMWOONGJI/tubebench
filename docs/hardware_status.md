@@ -163,7 +163,7 @@ and the temperature have not been measured. Those rows stay **PENDING** above.
 
 Since 2026-10-11 the 33220A and the LAN-XI are driven through the instrument contract and the
 driver registry (`docs/instrument_interface.md`, `docs/workorder_instrument_interface.md`). This is
-**SW-VERIFIED only**: the full test suite in simulation (299 / 299 on 2026-10-11), the contract
+**SW-VERIFIED only**: the full test suite in simulation (326 tests on 2026-10-11), the contract
 tests of every driver, and the bus-traffic tests, which show that a simulated session sends the same
 SCPI commands and REST requests as the code before WO-001 (three documented changes of order on
 fault paths, approved by the owner on 2026-10-11: closing the window inside a sweep, a Stop during
