@@ -55,6 +55,13 @@
      fault fixture regenerated from the code (no hand edit left).
    - The bus order of the fault-fixture scenario "window closed twice inside a sweep" (ends with
      `tim:instr:closed`) and after a Stop during the LAN-XI connect step: approved as built.
+   - Audit follow-ups on the same branch (not part of the interface): every swept-sine line
+     centred on its frequency and the sweep gate at an end without margin (`docs/theory.md`
+     section 4); File > Open measurement… offers the recorded microphone mapping for Reprocess
+     (default) when the configuration's differs (`tim.app.useRecordedMapping` for scripts); the
+     hardware-only session branches tested on test-only drivers without I/O
+     (`tests/TestSessionHardwareMode`); a test-only hook for a Stop before the session exists; GUI
+     timing tests that time only the operation they guard.
    - The hardware check follows (the owner reconnects the instruments); only after it: version
      1.2.0 and the merge into `main`.
 
