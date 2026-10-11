@@ -4,8 +4,15 @@ Legend: **HW-VERIFIED** = exercised against the real instrument in this lab;
 **SW-VERIFIED** = verified only with mocks / simulation / recorded fixtures;
 **PENDING** = needs the physical test described in `validation_procedure.md`.
 
-Hardware sessions so far: 2026-10-08, from this PC, via the instruments' link-local Ethernet
-addresses. The generator output was **never switched on** and the loudspeaker was **never driven**.
+Hardware sessions so far, all from this PC via the instruments' link-local Ethernet addresses and
+all with software 1.1.0 (before the instrument interface of WO-001):
+
+* **2026-10-08**: identification, LAN-XI recorder cycle and bench tests without the tube; until
+  21:01 the generator output was never switched on. From 21:01 the 33220A drove the loudspeaker
+  directly, without an amplifier, at up to 0.5 Vpk (section "Bench test with excitation").
+* **2026-10-09 and 2026-10-10**: in the tube - two switching calibrations, each with its automatic
+  empty-tube check, and five swept-sine measurements at 0.1 Vpk (0.2 Vpp), direct drive (section
+  "In-tube sessions 2026-10-09 / 2026-10-10").
 
 ## Instruments found
 
@@ -42,10 +49,10 @@ LAN-XI capabilities reported by `/rest/rec/module/info`:
 | 33220A sweep/sine configuration + read-back, safety refusals | HW-VERIFIED (output OFF) | bench 2026-10-08: 80–5500 Hz LOG 5 s 0.05 Vpp read back; `outputOn` refused when not armed; 1 Vpp refused with maxVpp 0.2 |
 | BNC/LEMO `ConnectorSelect` | observed: no difference | identical TEDS/signals with BNC and LEMO selected (microphones on the connectors in use) |
 | Channel → port mapping | **PENDING** | `tim.val.channelIdentification` |
-| Excitation + acquisition (sweep timing, trigger latency) | **PENDING** | `tim.val.sweepTimingTest` |
-| Single-frequency test (Test B) | **PENDING** | `tim.val.testB_singleFrequency` |
-| Switching calibration on hardware (Test C) | **PENDING** | |
-| Rigid termination (Test D), empty tube (Test E), stepped vs sweep (Test G) | **PENDING** | geometry must be measured first |
+| Excitation + acquisition (sweep timing, trigger latency) | HW-VERIFIED (bench and in-tube sweeps); formal test **PENDING** | bench B3 2026-10-08: sweep start, duration −0.05 %, ≈ 0.26 s from the software trigger to the acoustic start; the 20 sweeps of the five in-tube measurements of 2026-10-09/10: excitation detected in every repetition, sweep-law duration error −0.01 … +0.11 %. The formal `tim.val.sweepTimingTest` (H4) has not been run |
+| Single-frequency test (Test B) | **PENDING** | bench B2 2026-10-08 (1 kHz sine, 0.1 and 0.5 Vpk: SNR and block scatter, section below) covers the excitation path; the formal `tim.val.testB_singleFrequency` (H5) has not been run |
+| Switching calibration on hardware (Test C) | **PENDING** (consistency) | two switching calibrations made in the tube with the empty 75 mm section (CAL-20261009-191631, CAL-20261010-212544; section "In-tube sessions"); the consistency criteria of Test C (`tim.val.testC_calibrationConsistency`) not evaluated |
+| Rigid termination (Test D), empty tube (Test E), stepped vs sweep (Test G) | **PENDING** | the automatic empty-tube check of both calibrations passed (section "In-tube sessions"); Test D, the repeated Test E after it (H7) and Test G not run; the geometry is still the CAD design (calipers pending) |
 | GUI | SW-VERIFIED | simulation only |
 | Instrument interface of 1.2.0 (WO-001, branch `wo-001`: drivers through the registry, configuration by driver name, identity display in the window; review fixes of 2026-10-11) | SW-VERIFIED | simulation only (contract tests, bus-traffic fixtures, hidden-window tests). **PENDING** the owner's hardware check (WO-001 §0.3) - steps in the section "Pending: hardware check of the refactored drivers" below |
 
@@ -128,6 +135,29 @@ amplifier record and operator confirmation; stepped-sine scheduler without drift
 Microphone ↔ channel assignment at the end of the session (TEDS): ch1 3342023, ch2 3350978,
 ch3 3342022, ch4 3350977. **Enter the final mapping in `config/user_config.json → mics` before
 measuring in the tube.**
+
+## In-tube sessions 2026-10-09 / 2026-10-10 (software 1.1.0)
+
+Recorded from the saved folders and calibration files (read only). Every run: hardware mode, the
+33220A driving the loudspeaker directly (no amplifier), 0.2 Vpp (0.1 Vpk), swept sine 5 s × 4
+repetitions, LAN-XI 16384 S/s, 10 Vpeak, 0.7 Hz, CCLD, BNC; TEDS on all four channels (ch1 3342022,
+ch2 3342023, ch3 3350977, ch4 3350978); T entered 20 °C (not measured); geometry = CAD design
+values (s1 29, L1 41, d 75, L2 41, s2 29 mm, not yet checked with calipers).
+
+| Time | Run | Result |
+|---|---|---|
+| 10-09 19:16 | switching calibration `CAL-20261009-191631`, empty 75 mm section, sweep 80–5500 Hz | C_k valid on 88–90 % of the lines 120–4500 Hz; automatic empty-tube check **passed**: \|τ\| error 0.007, τ phase error 1.35° rms, R consistency 0.0196 (limit 0.02), 1869 lines |
+| 10-09 19:20 | `data/20261009_192503_sweep`, empty 75 mm section, 80–5500 Hz | integrity OK; 1860 of 2191 lines valid (R: 1918); termination not anechoic (τ, TL masked); evaluated in theory.md ("First lab data") |
+| 10-09 20:15 | `data/20261009_201658_sweep`, 80–5500 Hz | integrity OK; d entered as 53.3 mm (M2–M3 135.3 mm instead of 157 mm), so the calibration's empty-tube check does not apply (warning in the result); what was mounted is not recorded in the folder |
+| 10-10 21:26 | switching calibration `CAL-20261010-212544`, empty 75 mm section, sweep 80–5500 Hz | C_k valid on 96–97 % of the lines; automatic empty-tube check **passed**: \|τ\| error 0.007, τ phase error 0.80° rms, R consistency 0.012, 2031 lines |
+| 10-10 21:34 | `data/20261010_234024_sweep` (saved 23:40), no specimen name, d = 75 mm, 80–5500 Hz | integrity OK; 2096 of 2191 lines valid (R: 2125) |
+| 10-10 23:43 | `data/20261010_234354_sweep_cyl75`, specimen "cyl75", 80–7300 Hz | integrity OK; 2045 lines valid (R: 2104) |
+| 10-10 23:52 | `data/20261010_235332_sweep_metasil-cell1`, specimen "metasil-cell1", d entered as 53.3 mm, 80–7300 Hz | integrity OK; 1591 lines valid (R: 1858); same port-distance warning as 10-09 20:15 |
+
+These runs exercised the excitation, acquisition, calibration and processing chain on the real
+instruments. They are not the formal Tests C, D, E (H7) or G: the consistency of the calibration
+(repeated configuration I) was not evaluated, the termination is not anechoic, and the geometry
+and the temperature have not been measured. Those rows stay **PENDING** above.
 
 ## Pending: hardware check of the refactored drivers (WO-001, branch `wo-001`)
 

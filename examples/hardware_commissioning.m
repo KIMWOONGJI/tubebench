@@ -6,7 +6,9 @@
 % BEFORE YOU START
 %   * Amplifier gain at minimum, loudspeaker connected, tube closed.
 %   * config/user_config.json: "mode": "hardware", correct "daq.lanxi.connector"
-%     (BNC or LEMO), conservative "generator.maxVpp" (e.g. 0.2).
+%     (BNC or LEMO; the lab file keeps the older layout, where it is
+%     "lanxi.connector" - edit that key, do not add a "daq" section),
+%     conservative "generator.maxVpp" (e.g. 0.2).
 %   * Hearing protection if levels may become high.
 
 root = fileparts(fileparts(mfilename('fullpath')));
@@ -30,7 +32,8 @@ report.H1 = tim.val.testA_acquisition(s, 2);
 fprintf('Test A passed: %d\n', report.H1.passed);
 fprintf('  fatal: %s\n', strjoin(report.H1.fatal, ' | '));
 fprintf('  background level 100-5000 Hz [dB SPL]: %s\n', mat2str(report.H1.backgroundLevel_dB_100_5000Hz, 3));
-% If all channels report INVALID: check "daq.lanxi.connector" (BNC/LEMO) and cables.
+% If all channels report INVALID: check "daq.lanxi.connector" (BNC/LEMO; in the lab file of
+% the older layout "lanxi.connector") and cables.
 
 %% H2 - channel identification (tap test, no excitation)
 report.H2 = tim.val.channelIdentification(s);   % figure window: blow onto ch1..ch4 in turn

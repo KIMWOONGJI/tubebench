@@ -23,7 +23,11 @@ else
 end
 warn = tim.app.validateConfig(cfg);
 fprintf('Mode: %s\n', upper(cfg.mode));
-fprintf('  - %s\n', warn{:});
+if isempty(warn)
+    fprintf('  (no configuration warnings)\n');
+else
+    fprintf('  - %s\n', warn{:});
+end
 
 %% 1) (optional) Graphical interface instead of the sections below
 % tubebench        % real instruments (config/user_config.json)
