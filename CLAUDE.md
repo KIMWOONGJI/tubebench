@@ -120,7 +120,8 @@ action is also available from scripts (`start_here.m`).
   Instruments table and checklist of Setup > Connection, texts (`describe().texts`) and the
   limits of the EXCITATION fields (`capabilities()`).
 - A hidden window (`'Visible','off'`, as used by the tests) builds everything synchronously, and
-  its prompts (`ask`, `askBar`) return the default answer.
+  its prompts (`ask`, `askBar`) return the default answer. A Stop or close request during an
+  action (also in a window without a session) makes them return the cancel answer.
 
 **Calibration** (`tim.app.runCalibration`) is a sequence of operator steps. The microphones swap
 ports through a `prompt` callback: in the GUI this is the operator bar, in a script the command

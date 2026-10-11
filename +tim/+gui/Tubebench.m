@@ -120,7 +120,8 @@ classdef Tubebench < handle
     end
     properties (Hidden)
         TestHook = []   % TEST ONLY (tests/TestGui): @(point) called at a fixed point of an action
-                        % ('connect:beforeSession'); empty in normal use, then nothing is called
+                        % ('connect:beforeSession', 'open:beforeQuestions'); empty in normal use,
+                        % then nothing is called
     end
 
     methods
@@ -401,9 +402,17 @@ classdef Tubebench < handle
         end
         function tf = stopPending(app)
             % Stop pressed during the running action (the session keeps the flag
-            % until the next action starts; outside an action it means nothing)
+            % until the next action starts; outside an action it means nothing).
+            % A window without a session (not connected, e.g. Open measurement for
+            % offline reprocessing; or Connect before the session exists) keeps a
+            % Stop or a close request in PendingStop / CloseAfterBusy: during an
+            % action they count too, so a question of that action is cancelled
+            % and the window closes after one request (review 2026-10-11).
+            % run() clears PendingStop when an action starts, and CloseAfterBusy
+            % is set only while busy, so neither answers a later question.
             s = app.Session;
             tf = ~isempty(s) && isvalid(s) && s.InOperation && s.StopRequested;
+            tf = tf || (app.Busy && (app.PendingStop || app.CloseAfterBusy));
         end
 
         function drawCalSetup(app, mapping, msg, stepText, fromMapping)
@@ -2161,6 +2170,7 @@ classdef Tubebench < handle
             elseif ~strcmp(m.kind, 'background')
                 app.log('No results were saved with it - press Reprocess to compute them.');
             end
+            app.testPoint('open:beforeQuestions');      % (tests: a close request before the questions)
             % tube set-up of the saved results vs. the IMPEDANCE TUBE fields
             if ~isempty(saved)
                 [g, e, msgs] = app.readTube();

@@ -1084,6 +1084,66 @@ classdef TestGui < matlab.unittest.TestCase
             end
         end
 
+        function closeWhileOpeningAMeasurementCancelsItsQuestions(tc)
+            % review 2026-10-11: in a window without a session (not connected:
+            % offline reprocessing) a close request during File > Open measurement…
+            % only set CloseAfterBusy / PendingStop, which ask() and askBar() did
+            % not check: an open question (tube set-up, recorded microphone
+            % mapping) kept waiting and only a second close request closed the
+            % window (user guide section 3: the running action is stopped first;
+            % a question counts as cancelled). The test-only hook acts just
+            % before the questions. A hidden window answers with the default
+            % unless the action is being stopped (stopPending, which a visible
+            % dialog's wait loop polls too), so the answers show the cancel.
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            s.connect(); s.prepareAcquisition();
+            meas = s.measure('sweep'); s.close();
+            d = tim.app.saveMeasurement(meas, tim.app.processMeasurement(meas, c, []), c, 'sweep', []);
+            % the window: another tube set-up (L1 9 mm longer), ch1/ch2 swapped; not connected
+            c2 = c; c2.geometry.micPositions(1:2) = c.geometry.micPositions(1:2) - 0.009;
+            c2.mics(1).position = 2; c2.mics(2).position = 1;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c2, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            fig = app.Fig;
+            tc.assertEmpty(app.Session, 'not connected');
+            seen = struct('point', '', 'pending', false, 'ask', '', 'askBar', '');
+            app.TestHook = @(point) closeThere(point);
+            app.openMeasurement(d);                                % returns after the window has closed
+            tc.assertEqual(seen.point, 'open:beforeQuestions', 'the hook ran');
+            tc.verifyTrue(seen.pending, 'the close request counts as a stop of the running action');
+            tc.verifyEqual(seen.ask, 'Cancel', 'a question dialog is cancelled, not answered with its default');
+            tc.verifyEqual(seen.askBar, 'Abort', 'a question in the calibration bar too');
+            tc.verifyFalse(isvalid(app), 'closed after one close request');
+            tc.verifyFalse(isvalid(fig));
+            % a request left over after an action answers no later question: Stop
+            % before the session existed (the connection stopped), then Open
+            % measurement asks as usual (a hidden window: the default answers)
+            app2 = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app2));
+            h2 = app2.H;
+            app2.TestHook = @(~) feval(h2.stop.ButtonPushedFcn, h2.stop, []);
+            feval(h2.connect.ButtonPushedFcn, h2.connect, []);
+            tc.assertEmpty(app2.Session, 'the connection was stopped');
+            tc.assertTrue(app2.PendingStop, 'the request is still recorded after the action');
+            app2.TestHook = [];
+            tc.verifyEqual(app2.ask('Question?', 'Test', {'Answer', 'Cancel'}, 1, 2), 'Answer', 'outside an action');
+            app2.openMeasurement(d);
+            log = strjoin(cellstr(h2.log.Value), newline);
+            tc.verifySubstring(log, 'IMPEDANCE TUBE fields set to the saved set-up');
+            tc.verifySubstring(log, 'Microphone mapping for Reprocess: the recorded one');
+            tc.verifyTrue(isvalid(app2), 'still open');
+            function closeThere(point)
+                seen.point = point;
+                tim.gui.closeApp(fig, app);                        % first close request: during the action
+                seen.pending = app.stopPending();
+                seen.ask = app.ask('Question?', 'Test', {'Answer', 'Cancel'}, 1, 2);
+                seen.askBar = app.askBar('Question?', {'Done', 'Abort'}, 1, 2);
+            end
+        end
+
         function outputNotConfirmedOffIsShown(tc)
             % audit 2026-10-11 (safety display): Stop while measuring and the
             % generator link lost at the same moment - the read-back cannot

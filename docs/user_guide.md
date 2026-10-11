@@ -172,8 +172,12 @@ The same style is used in the window and in the saved figures:
   once) and the window closes as soon as it has stopped; if the last measurement is not saved,
   the unsaved-measurement question is asked first (Cancel keeps the window open). A second close
   request closes at once. A question dialog that is open, or still opening, when the window
-  closes counts as its cancel answer. Stop or a close request pressed while Connect is still
-  starting is kept: the connection stops at its first step, before any instrument is contacted.
+  closes counts as its cancel answer. So does a question of the running action when the close
+  is requested (or Stop pressed) during that action, also in a window that is not connected:
+  e.g. the tube set-up and microphone-mapping questions of File > Open measurement… are
+  cancelled and the window closes after one close request. Stop or a close request pressed
+  while Connect is still starting is kept: the connection stops at its first step, before any
+  instrument is contacted.
 * Start with a low generator amplitude **and a low amplifier gain**, and increase gradually
   (commissioning section H3 in `examples/hardware_commissioning.m`).
 
