@@ -63,6 +63,11 @@ classdef MeasurementSession < handle
                                  % the drivers' connectionSteps(), then sens, settle, signal;
                                  % state: run | ok | warn | fail | skip
     end
+    properties (Hidden)
+        ConsoleInput = @input    % TEST ONLY: reads the answer to the command-window confirmation
+                                 % (consoleConfirm; same call as input(prompt, 's')), so that
+                                 % tests/TestSessionHardwareMode can answer it without a keyboard
+    end
     properties (Access = private)
         ProgressKey char = ''    % checklist step currently running (marked 'fail' on error)
         OperationDepth double = 0  % nested beginOperation calls (GUI action > calibration)
@@ -779,7 +784,7 @@ classdef MeasurementSession < handle
             msg = tim.app.msg(lang, 'confirmExcitation', what, amplitudeVpp, obj.Cfg.generator.maxVpp, ...
                 obj.amplifierLine(amplitudeVpp), obj.Cfg.generator.load);
             fcn = obj.ExcitationConfirm;
-            if isempty(fcn), fcn = @(m) tim.app.MeasurementSession.consoleConfirm(m, lang); end
+            if isempty(fcn), fcn = @(m) tim.app.MeasurementSession.consoleConfirm(m, lang, obj.ConsoleInput); end
             if ~fcn(msg)
                 obj.Gen.outputOff();
                 error('tim:session:notConfirmed', 'Excitation cancelled by the operator – the loudspeaker was not driven.');
@@ -847,10 +852,14 @@ classdef MeasurementSession < handle
             s = char(key);
             if strcmpi(s, 'teds'), s = 'TEDS'; end
         end
-        function ok = consoleConfirm(msg, lang)
+        function ok = consoleConfirm(msg, lang, reader)
+            %CONSOLECONFIRM Default excitation confirmation in hardware mode:
+            %   prints msg in the command window and continues only on "y".
+            %   reader (tests only): replaces input(prompt, 's').
             if nargin < 2, lang = 'en'; end
+            if nargin < 3, reader = @input; end
             fprintf('\n%s\n', msg);
-            a = input(tim.app.msg(lang, 'typeY'), 's');
+            a = reader(tim.app.msg(lang, 'typeY'), 's');
             ok = strcmpi(strtrim(a), 'y');
         end
     end

@@ -126,7 +126,8 @@ tests/                  matlab.unittest suites + fixtures (real LAN-XI responses
                         TestBusTraffic); TestInstrumentContract (every registered driver);
                         TestInstrumentTemplates (the driver templates); TestConfiguration (layout
                         and migration); TestGui (hidden window, also with the simulated combined
-                        device; identity display); support/ (test-only drivers)
+                        device; identity display); TestSessionHardwareMode (the hardware-only
+                        session branches on test-only drivers, no I/O); support/ (test-only drivers)
 templates/instrument    starting files for a new driver (source, acquisition, combined device,
                         their protocol mocks and tests, reference document, configuration
                         snippets); not on the path (docs/adding_an_instrument.md)
