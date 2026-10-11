@@ -221,8 +221,16 @@ classdef TestDsp < matlab.unittest.TestCase
             % ring-down margin past the sweep end)
             rig = tc.makeRig(2e-3);
             fs = rig.Fs;
+            % the limits are 91.5 and 4951.1 Hz (outer line edges 119 / 4501 Hz,
+            % tim.dsp.sweepGateLimits); the configuration check uses the same
+            % limits (review 2026-10-11: it used 92 / 4950 Hz, so a sweep set to
+            % the advised 92 Hz or 4950 Hz passed it and lost the gate there)
             cases = {80 5500 {'gate', 'gate'}; 120 4500 {'detected start', 'ring-down margin'}; ...
-                109 5500 {'detected start', 'gate'}; 80 4600 {'gate', 'ring-down margin'}};
+                109 5500 {'detected start', 'gate'}; 80 4600 {'gate', 'ring-down margin'}; ...
+                92 5500 {'detected start', 'gate'}; 80 4950 {'gate', 'ring-down margin'}; ...
+                91 5500 {'gate', 'gate'}; 80 4952 {'gate', 'gate'}};
+            c = tim.app.defaultConfig();
+            tc.assertEqual([c.analysis.fMin c.analysis.fMax c.analysis.df], [120 4500 2], 'the band analysed below');
             for i = 1:size(cases, 1)
                 [f1, f2, ends] = cases{i, :};
                 rig.reset();
@@ -239,6 +247,11 @@ classdef TestDsp < matlab.unittest.TestCase
                 tc.verifyEqual(sp.excitation.gateEnds, ends, what);
                 w = sp.warnings(contains(sp.warnings, 'too close to the analysis band'));
                 tc.verifyEqual(numel(w), double(~isequal(ends, {'gate', 'gate'})), what);
+                % the configuration check reports exactly the sweeps the analysis
+                % does not gate at both ends
+                b = c; b.excitation.sweep.fStart = f1; b.excitation.sweep.fStop = f2;
+                tc.verifyEqual(any(contains(tim.app.validateConfig(b), 'the sweep gate has no room at that end')), ...
+                    ~isempty(w), [what ': validateConfig agrees with the analysis']);
                 if isempty(w), continue; end
                 tc.verifyEqual(contains(w{1}, 'starts at the detected excitation'), strcmp(ends{1}, 'detected start'), what);
                 tc.verifyEqual(contains(w{1}, 'extended past the end of the sweep by the gate''s ring-down margin'), ...

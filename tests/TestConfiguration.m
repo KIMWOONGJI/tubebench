@@ -352,6 +352,37 @@ classdef TestConfiguration < matlab.unittest.TestCase
             tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'pre-roll 0.05 s')));
         end
 
+        function sweepMarginCheckedAtTheLimitsOfTheAnalysis(tc)
+            % review 2026-10-11: the configuration check used the line centres
+            % fMin/1.3 and 1.1 fMax (92 / 4950 Hz for 120-4500 Hz), the analysis
+            % the outer line edges (fMin - df/2)/1.3 and 1.1 (fMax + df/2), i.e.
+            % 91.5 / 4951.1 Hz: a sweep set to the advised 92 Hz or 4950 Hz passed
+            % the check silently and was analysed without the gate at that end.
+            % One definition now (tim.dsp.sweepGateLimits); the message prints
+            % the limits the analysis uses.
+            c = tim.app.defaultConfig();                        % 120-4500 Hz, df 2 Hz
+            [lo, hi] = tim.dsp.sweepGateLimits(c.analysis.fMin:c.analysis.df:c.analysis.fMax, c.analysis.df);
+            tc.verifyEqual([lo hi], [119 / 1.3, 1.1 * 4501], 'AbsTol', 1e-9, 'outer edges of the first and last line');
+            for r = [92 5500; 80 4950; 92 4950; 91.6 5500; 80 4951]'
+                b = c; b.excitation.sweep.fStart = r(1); b.excitation.sweep.fStop = r(2);
+                m = tim.app.validateConfig(b);
+                m = m(contains(m, 'the sweep gate has no room at that end'));
+                tc.verifyNumElements(m, 1, mat2str(r'));
+                tc.verifyTrue(all(contains(m, 'start at or below 91 Hz and stop at or above 4952 Hz')), mat2str(r'));
+            end
+            for r = [91 5500; 80 4952; 91.5 4951.2]'
+                b = c; b.excitation.sweep.fStart = r(1); b.excitation.sweep.fStop = r(2);
+                tc.verifyFalse(any(contains(tim.app.validateConfig(b), 'Swept sine')), mat2str(r'));
+            end
+            % a band that is not a whole number of lines: the last line of
+            % processMeasurement's grid 120:2:4499 is 4498 Hz, its upper edge 4499 Hz,
+            % so the limit is 1.1 x 4499 = 4948.9 Hz (not 1.1 x (4499 + 1))
+            b = c; b.analysis.fMax = 4499; b.excitation.sweep.fStart = 80; b.excitation.sweep.fStop = 4949;
+            tc.verifyFalse(any(contains(tim.app.validateConfig(b), 'Swept sine')), 'fMax 4499 Hz, stop 4949 Hz');
+            b.excitation.sweep.fStop = 4948;
+            tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'stop at or above 4949 Hz')), 'fMax 4499 Hz, stop 4948 Hz');
+        end
+
         function driveEstimateUsesTheDriversSourceImpedance(tc)
             % docs/instrument_interface.md D12: the drive estimate and the operator
             % text take the source impedance from the generator driver

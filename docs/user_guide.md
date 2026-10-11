@@ -277,15 +277,18 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 
 * Each signal keeps its own frequency range, duration or number of steps and repetitions:
   switching the Signal shows the values last used for that signal. The amplitude is common.
-* **Swept-sine range**: let the sweep start at or below fMin/1.3 and stop at or above 1.1 × fMax
-  of the analysis band (default 80–5500 Hz for 120–4500 Hz). The sweep gate (theory.md section 4)
-  needs that room outside the band to leave the generator's switching clicks out. Since
-  2026-10-11 an end without the margin is analysed without the gate's ramp, so the lines near the
-  band edge stay accurate (before, they were biased by up to 13 % at a 109 Hz start and 58 % for
-  120–4500 Hz in simulation): a start above fMin/1.3 is analysed from the detected start of the
-  excitation (the output-on click included), a stop below 1.1 × fMax keeps a ring-down margin
-  after the sweep (an output-off click within it included). The message pane warns when the
-  configuration or a processed sweep does not keep the margin and names the edge that was used.
+* **Swept-sine range**: let the sweep start at or below f_lo/1.3 and stop at or above 1.1 × f_hi,
+  where f_lo = fMin − Δf/2 and f_hi = fMax + Δf/2 are the outer edges of the first and last
+  frequency line: **91 Hz and 4952 Hz** for the analysis band 120–4500 Hz at Δf = 2 Hz (default
+  sweep 80–5500 Hz). The sweep gate (theory.md section 4) needs that room outside the band to leave
+  the generator's switching clicks out. Since 2026-10-11 an end without the margin is analysed
+  without the gate's ramp, so the lines near the band edge stay accurate (before, they were biased
+  by up to 13 % at a 109 Hz start and 58 % for 120–4500 Hz in simulation): a start above the lower
+  limit is analysed from the detected start of the excitation (the output-on click included), a
+  stop below the upper limit keeps a ring-down margin after the sweep (an output-off click within
+  it included). The message pane warns when the configuration or a processed sweep does not keep
+  the margin, names the edge that was used and prints the two limits; the configuration check and
+  the analysis use the same limits.
 * **Amplifier gain**: the field is disabled for "none (direct drive)" (gain ×1). When you choose an
   amplifier, the field turns yellow and the message pane asks for the gain: **Start measurement
   and Run switching calibration… are refused until a gain has been entered** (typed into the

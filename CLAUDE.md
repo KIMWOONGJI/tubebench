@@ -76,7 +76,9 @@ Only afterwards is it verified that the excitation lies inside the recording:
 
 - `tim.dsp.detectExcitation`;
 - for sweeps, the matched-filter "sweep gate" in `tim.dsp.sweepResponse`, which also excludes
-  the generator's output-switching clicks.
+  the generator's output-switching clicks. It needs the sweep to reach beyond the band
+  (`tim.dsp.sweepGateLimits`, also used by `validateConfig`); an end without that margin gets
+  another window edge (from the detected start, or a ring-down margin past the sweep end).
 
 The analysis uses only the relative responses between channels.
 

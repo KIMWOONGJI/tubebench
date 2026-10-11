@@ -140,17 +140,24 @@ elseif strcmp(lm, 'none')
         'biased by up to ~0.03 ρc at 4.5 kHz in the lab tube (~65 % at |Zt|/ρc = 0.05). Use ''kirchhoff''.'];
 end
 sw = cfg.excitation.sweep;
+% the sweep gate needs room outside the band (docs/theory.md section 4);
+% without it that end of the analysis window includes the generator's
+% output switching (owner decision 2026-10-11, tim.dsp.sweepResponse). The
+% limits are those of the analysis: the outer edges of the lines of the grid
+% fMin:df:fMax (tim.app.processMeasurement), tim.dsp.sweepGateLimits
+an = cfg.analysis;
+dfl = NaN; fl = [];
+if isfield(an, 'df') && isnumeric(an.df) && isscalar(an.df), dfl = an.df; end
+if isfinite(dfl) && dfl > 0, fl = an.fMin:dfl:an.fMax; end
+if isempty(fl), fl = [an.fMin an.fMax]; dfl = 0; end      % no valid line width: the band itself
+[fStartMax, fStopMin] = tim.dsp.sweepGateLimits(fl, dfl);
 if sw.fStart > cfg.analysis.fMin || sw.fStop < cfg.analysis.fMax
     report{end+1} = 'Swept sine: start/stop frequencies do not cover the analysis band, so its edges will have a low SNR.';
-elseif sw.fStart > cfg.analysis.fMin / 1.3 || sw.fStop < 1.1 * cfg.analysis.fMax
-    % the sweep gate needs room outside the band (docs/theory.md section 4);
-    % without it that end of the analysis window includes the generator's
-    % output switching (owner decision 2026-10-11, tim.dsp.sweepResponse)
+elseif sw.fStart > fStartMax || sw.fStop < fStopMin
     report{end+1} = sprintf(['Swept sine: let the sweep start at or below %.0f Hz and stop at or above %.0f Hz ' ...
         '(analysis band %g–%g Hz): closer to the band the sweep gate has no room at that end, so the analysis ' ...
         'window there includes the generator''s output switching (from the detected start; the ring-down margin ' ...
-        'after the sweep).'], floor(cfg.analysis.fMin / 1.3), ceil(1.1 * cfg.analysis.fMax), ...
-        cfg.analysis.fMin, cfg.analysis.fMax);
+        'after the sweep).'], floor(fStartMax), ceil(fStopMin), cfg.analysis.fMin, cfg.analysis.fMax);
 end
 if sw.preRoll < 0.15
     report{end+1} = sprintf(['Swept sine: pre-roll %.3g s (excitation.sweep.preRoll) is shorter than 0.15 s: no ' ...

@@ -341,8 +341,12 @@ Estimator (`tim.dsp.sweepResponse`), per repetition:
    (`'gate'`, `'detected start'`, `'ring-down margin'`), and `tim.dsp.sweepResponse` adds a warning
    ("Sweep … too close to the analysis band for the sweep gate: …", in `res.diagnostics.warnings`
    and the calibration log) that names the edge and the margin; `tim.app.validateConfig` reports
-   the configured range. The lab range (80–5500 Hz or wider for 120–4500 Hz) keeps the gate at both
-   ends: the five lab folders and both lab calibrations give bit-identical results with this rule.
+   the configured range with the same limits (`tim.dsp.sweepGateLimits`, one definition for both:
+   `f_lo/1.3` = 91.5 Hz and `1.1 f_hi` = 4951.1 Hz for 120–4500 Hz at Δf = 2 Hz, printed as 91 and
+   4952 Hz; until the review of 2026-10-11 the check used the line centres, 92 and 4950 Hz, so a
+   sweep set to those values passed it and was analysed without the gate at that end). The lab
+   range (80–5500 Hz or wider for 120–4500 Hz) keeps the gate at both ends: the five lab folders
+   and both lab calibrations give bit-identical results with this rule.
 
    *Choice of the edges (simulation, 2026-10-11; 3 s log sweep, band 120–4500 Hz, session-like
    records with the output switched off 0.05 or 0.19 s after the sweep, max |H/H_true − 1|).*

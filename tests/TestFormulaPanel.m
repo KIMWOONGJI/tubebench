@@ -127,6 +127,9 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
             % the taper from the detected excitation is only its fallback (audit 2026-10-11)
             tc.verifyTrue(contains(t, 'the sweep gate: a matched filter finds the start and the duration of the sweep'));
             tc.verifyTrue(contains(t, 'If the sweep is not found: detected sweep start − 10 ms'));
+            % the sweep-margin limits of the analysis: outer line edges (review 2026-10-11)
+            tc.verifyTrue(contains(t, 'f_lo/1.3 (91.5 Hz for the default band)'), 'lower limit');
+            tc.verifyTrue(contains(t, 'below 1.1 f_hi (4951.1 Hz)'), 'upper limit');
         end
 
         function glossarySymbols(tc)
