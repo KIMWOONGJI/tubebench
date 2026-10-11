@@ -649,7 +649,9 @@ classdef MeasurementSession < handle
                 obj.LastPartial = partial;
                 f = tim.app.saveEmergency(obj, partial);
                 obj.setStatus('error');
-                obj.log('Error during %s: %s. Generator output switched off. Partial data saved to %s.', ...
+                % commanded, not read back (outputOff never throws; a failure is
+                % only a warning): never claim the output is off here
+                obj.log('Error during %s: %s. Generator output commanded off (not read back). Partial data saved to %s.', ...
                     what, regexprep(err.message, '\.$', ''), f);
                 rethrow(err);
             end
@@ -674,7 +676,7 @@ classdef MeasurementSession < handle
             obj.LastPartial = partial;
             f = tim.app.saveEmergency(obj, partial);
             obj.setStatus('error');
-            obj.log(['Error during %s after %d completed repetition(s): %s. Generator output switched off. ' ...
+            obj.log(['Error during %s after %d completed repetition(s): %s. Generator output commanded off (not read back). ' ...
                 'The completed repetitions were saved to %s.'], what, numel(records), regexprep(err.message, '\.$', ''), f);
         end
 

@@ -100,6 +100,7 @@ classdef Tubebench < handle
         BuildSkips double = 0      % background ticks skipped: action / session operation / stream running
         ShownTime double = NaN     % s after the start of the constructor: main window shown
         ReadyTime double = NaN     % s after the start of the constructor: every view prepared
+        TimerTag char = ''         % Tag of every timer of this window (tests count only their own window's)
     end
     properties (Constant)
         % views prepared after the main window is shown, in this order (the
@@ -132,6 +133,8 @@ classdef Tubebench < handle
             % afterwards in the background (startBuild). Hidden (tests): no start
             % window, every view built here as before.
             app.T0 = tic;
+            [~, id] = fileparts(tempname);
+            app.TimerTag = ['tubebench-' id];  % unique: another window (the user's) has other timers
             show = strcmp(opts.Visible, 'on');
             deferred = opts.Deferred; if isempty(deferred), deferred = show; end
             app.Deferred = logical(deferred);
@@ -1063,7 +1066,7 @@ classdef Tubebench < handle
             if isempty(app.BuildQueue), app.finishBuild(); return; end
             app.log('Preparing the views in the background… A view opened before it is ready is prepared at once.');
             app.BuildTimer = timer('Name', 'tubebench-build', 'ExecutionMode', 'fixedSpacing', 'Period', 0.1, ...
-                'BusyMode', 'drop', 'StartDelay', delay, 'TimerFcn', @(t, ~) buildTimerFcn(t, app));
+                'BusyMode', 'drop', 'StartDelay', delay, 'TimerFcn', @(t, ~) buildTimerFcn(t, app), 'Tag', app.TimerTag);
             start(app.BuildTimer);
         end
 
@@ -1618,7 +1621,8 @@ classdef Tubebench < handle
             P = tim.gui.palette();
             c = app.Cfg;
             c.amplifier.model = app.H.ampModel.Value;
-            c.amplifier.gainFactor = app.gainValue();
+            c.amplifier.gainFactor = app.gainValue();             % NaN = not entered ...
+            c.amplifier.gain_dB = 20 * log10(app.gainValue());    % ... also here (driveEstimate falls back to gain_dB)
             c.loudspeaker.impedance_ohm = app.H.spkZ.Value; c.loudspeaker.maxPower_W = app.H.spkP.Value;
             d = tim.app.driveEstimate(c, 2 * app.H.amp.Value);
             lim = c.generator.maxVpp / 2;
@@ -1778,11 +1782,13 @@ classdef Tubebench < handle
                 what = busyWhat; if isempty(what), what = 'action'; end
                 if strcmp(err.identifier, 'tim:session:notConfirmed')
                     app.log('%s cancelled by the operator: %s', app.capital(what), err.message);
-                    msg = sprintf('%s cancelled: the loudspeaker was not driven. %s', app.capital(what), app.outputOffText());
+                    off = app.outputOffText(); app.log('%s', off);     % the read-back, not only the command
+                    msg = sprintf('%s cancelled: the loudspeaker was not driven. %s', app.capital(what), off);
                     icon = 'info'; ttl = sprintf('%s cancelled', app.capital(what));
                 elseif any(strcmp(err.identifier, {'tim:session:stopped', 'tim:gui:abort'}))
                     app.log('%s stopped by the operator: %s', app.capital(what), err.message);
-                    msg = sprintf('%s stopped by the operator. %s', app.capital(what), app.outputOffText());
+                    off = app.outputOffText(); app.log('%s', off);
+                    msg = sprintf('%s stopped by the operator. %s', app.capital(what), off);
                     icon = 'info'; ttl = sprintf('%s stopped', app.capital(what));
                 elseif startsWith(err.identifier, {'tim:gui:input', 'tim:gui:geometry', 'tim:config:'})
                     app.log('Warning: %s', err.message);
@@ -2178,7 +2184,15 @@ classdef Tubebench < handle
             app.H.connHead.Text = sprintf('Connecting (%s mode)…', app.Cfg.mode);
             app.H.connHead.FontColor = [0.1 0.1 0.1];
             app.refreshCards();
-            s = tim.app.MeasurementSession(app.Cfg);
+            try
+                s = tim.app.MeasurementSession(app.Cfg);
+            catch err
+                % refused before any instrument was contacted (driver limits, an
+                % unknown driver, a missing calibration file): no step ran
+                app.H.connHead.Text = sprintf('Connection refused: %s', strjoin(splitlines(string(err.message)), ' '));
+                app.H.connHead.FontColor = tim.gui.palette().fail;
+                rethrow(err);
+            end
             s.StatusCallback = @(line) app.appendLog(line);
             s.BlockCallback = @() app.liveUpdate();       % live time signals + keeps STOP responsive
             s.ProgressCallback = @(key, state, detail) app.onProgress(key, state, detail);
@@ -2354,6 +2368,7 @@ classdef Tubebench < handle
             m = app.Session.measure(app.Cfg.excitation.mode);
             app.LastMeas = m; app.LastRes = []; app.LastCfg = app.Cfg; app.Saved = false; app.SavedDir = ''; app.Opened = false;
             app.LastMeas.metadata.specimen = app.specimenName();   % name at Start (folder + metadata)
+            app.setResultStatus();                       % 'not saved' also when the processing fails
             app.process();
             app.setResultStatus();
             if ~m.integrityOk
@@ -2383,7 +2398,8 @@ classdef Tubebench < handle
             if ~isempty(app.Session)
                 app.Session.requestStop();
                 try, app.Session.Gen.outputOff(); catch, end
-                app.log('Stop requested by the operator: generator output switched off.');
+                % commanded, not read back here: the stopped action logs the read-back
+                app.log('Stop requested by the operator: generator output commanded off.');
             end
         end
 
@@ -2805,7 +2821,7 @@ classdef Tubebench < handle
             app.stopPulse();
             if ~isfield(app.H, 'calHi') || isempty(app.H.calHi), return; end
             app.PulseTimer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.35, 'BusyMode', 'drop', ...
-                'Name', 'Tubebench-calibration-pulse', 'TimerFcn', @(~, ~) app.pulseStep());
+                'Name', 'Tubebench-calibration-pulse', 'TimerFcn', @(~, ~) app.pulseStep(), 'Tag', app.TimerTag);
             start(app.PulseTimer);
         end
         function pulseStep(app)
@@ -2931,11 +2947,18 @@ classdef Tubebench < handle
             end
         end
 
-        function o = plotOpts(app, src)
-            % options of the tim.plots views
+        function o = plotOpts(app, src, res)
+            % options of the tim.plots views. A result is drawn with the band and
+            % limits it was analysed with (res.analysis.options, the views' default),
+            % as in the saved figures (tim.app.plotResults); the configuration's
+            % only without one (empty states, an unprocessed measurement) - an
+            % opened measurement may have been analysed with other settings
             a = app.Cfg.analysis;
             o = struct('band', [a.fMin a.fMax], 'coherenceMin', a.coherenceMin, 'anechoicRmax', a.anechoicRmax, ...
                 'simulation', false);
+            if nargin >= 3 && isstruct(res) && isfield(res, 'analysis') && isfield(res.analysis, 'options')
+                o.band = []; o.coherenceMin = []; o.anechoicRmax = [];
+            end
             if nargin >= 2 && isstruct(src)
                 if isfield(src, 'metadata') && isfield(src.metadata, 'WARNING'), o.simulation = true; end
                 if isfield(src, 'meta') && isfield(src.meta, 'mode'), o.simulation = strcmp(src.meta.mode, 'simulation'); end
@@ -2951,7 +2974,7 @@ classdef Tubebench < handle
             if nargin < 2, pages = {'wave', 'spec', 'tf', 'refl', 'tl', 'zt', 'valid', 'cal'}; end
             pages = pages(cellfun(@(p) app.isBuilt(p), pages));
             m = app.LastMeas; r = app.LastRes;
-            o = app.plotOpts(m);
+            o = app.plotOpts(m, r);
             if isempty(m)
                 o.emptyText = 'No measurement yet – connect and press Start measurement';
             elseif strcmp(m.kind, 'background')

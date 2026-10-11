@@ -141,7 +141,9 @@ The same style is used in the window and in the saved figures:
   running action: a question asked after that action has ended, e.g. the unsaved-measurement
   question, is shown as usual.
 * **Errors and Stop** (network, stream, instrument error, Stop): the generator output is switched
-  off and read back (33220A: `OUTP?`); the alert says whether the output is confirmed off, or asks
+  off and read back (33220A: `OUTP?`). The message pane first says "generator output commanded
+  off" (only the command; a failure to send it is a warning in the command window), then the
+  result of the read-back; the alert says whether the output is confirmed off, or asks
   you to switch the generator output off at the instrument (a generator that cannot report its
   state - none of today's drivers - is reported as "switched off … check it at the instrument";
   the simulated combined device as "output stopped (device idle, 0 V)"). If the read-back does
@@ -369,8 +371,10 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 3. Press **Connect**. Setup > Connection opens and lists every step with its result and duration
    (section 6). Read the line above the list: "Connected - all checks passed.", "Connected with
    warnings – see the orange items below." or "Connected, but a check failed – see the red items
-   below." The status line keeps this verdict. Check the sensitivity source of every channel and
-   the background level of the signal check.
+   below." The status line keeps this verdict. A Connect refused before any instrument is
+   contacted (a setting outside the driver's limits, an unknown driver, a missing calibration
+   file) reads "Connection refused: …" in red, with every step still pending. Check the
+   sensitivity source of every channel and the background level of the signal check.
 4. Check the **IMPEDANCE TUBE** fields against the tube (D, T, p, s1, L1, d, L2, s2) and look at
    Setup > Tube setup. Enter the measured temperature and static pressure. Store the values with
    File > Save configuration… and commit `config/user_config.json`.
@@ -594,7 +598,9 @@ criteria; 12 units and level references. The derivations are in `theory.md`.
 * **File**: Open measurement…, Load configuration…, Save configuration…, Exit.
   * *Open measurement…* shows a measurement saved by Save measurement again: select `raw.mat` (or
     `result.mat`) in its folder under `data\`. Every view shows the saved data and results (the
-    results are not recomputed), Last result reads "Opened: `<folder>`" and the message pane gives
+    results are not recomputed), drawn with the analysis band and the coherence and |R_term|
+    limits they were computed with (as in the saved figures), not with those of the loaded
+    configuration; Last result reads "Opened: `<folder>`" and the message pane gives
     the measurement time, the specimen and the calibration of the saved results. If the tube
     set-up of the saved results (its `config.json`) differs from the IMPEDANCE TUBE fields, a
     dialog asks "Use the saved set-up" (puts it into the fields) or "Keep the current fields".

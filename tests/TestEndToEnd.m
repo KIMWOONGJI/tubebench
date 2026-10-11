@@ -570,6 +570,36 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyGreaterThanOrEqual(size(s.LastPartial.records{end}, 1), 40000 - 2048);
             em = dir(fullfile(tc.cfg.output.dataDir, 'emergency', '*.mat'));
             tc.verifyNumElements(em, 1);
+            % audit 2026-10-11: outputOff never throws (a failure is only a
+            % warning), so the log says what was done, not that the output is off
+            tc.verifyTrue(any(contains(s.LogLines, 'Generator output commanded off (not read back).')), ...
+                strjoin(s.LogLines(max(1, end - 3):end), newline));
+            tc.verifyFalse(any(contains(s.LogLines, 'output switched off')));
+            clear cleanup
+        end
+
+        function sampleRateOfTheDataIsChecked(tc)
+            % audit 2026-10-11: data delivered at another rate than the configured
+            % one would shift the frequency axis - the session marks the
+            % measurement as failing the integrity check whatever the driver
+            % reports (MeasurementSession.checkRate; test driver
+            % tests/support/FakeRateCombined, simulation only)
+            tc.applyFixture(matlab.unittest.fixtures.PathFixture( ...
+                fullfile(fileparts(mfilename('fullpath')), 'support')));
+            tim.instr.drivers('add', struct('name', 'fakeratecombined', 'class', 'FakeRateCombined'));
+            tc.addTeardown(@() tim.instr.drivers('remove', 'fakeratecombined'));
+            c = tc.cfg; c.generator.driver = 'fakeratecombined'; c.daq.driver = 'fakeratecombined';
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            m = s.measure('sweep');
+            tc.verifyFalse(m.integrityOk, 'the rate mismatch fails the integrity check');
+            integ = m.channelInfo{1}.integrity;
+            tc.verifyFalse(integ.ok);
+            tc.verifyTrue(any(contains(integ.fatal, sprintf('differs from the configured %g S/s', c.acquisition.sampleRate))), ...
+                strjoin(integ.fatal, ' | '));
+            tc.verifyEqual(m.fs, c.acquisition.sampleRate, 'meas.fs is the configured rate');
             clear cleanup
         end
 
@@ -590,6 +620,8 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.assertNotEmpty(s.LastPartial, 'the completed repetitions are kept');
             tc.verifyNumElements(s.LastPartial.records, 2);
             tc.verifyEqual(s.LastPartial.error, 'Measurement stopped by user.');
+            tc.verifyTrue(any(contains(s.LogLines, 'Generator output commanded off (not read back).')), ...
+                'commanded, not claimed off (audit 2026-10-11)');
             em = dir(fullfile(c.output.dataDir, 'emergency', '*.mat'));
             tc.verifyNumElements(em, 1, 'emergency file');
             tc.verifyEqual(s.Status, 'error');

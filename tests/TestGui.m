@@ -611,6 +611,7 @@ classdef TestGui < matlab.unittest.TestCase
             end
             tc.verifySubstring(strjoin(cellstr(h.axSpec.Title.String), ' '), 'Stepped sine');
             LH = findobj(h.axH, 'Type', 'line');
+            tc.assertNotEmpty(LH, 'relative responses drawn');      % all() of nothing would pass
             tc.verifyTrue(all(strcmp({LH.Marker}, 'o')), 'relative responses drawn as markers');
             % sweep afterwards: dense PSD, no markers, no stepped title
             h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
@@ -620,6 +621,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyGreaterThan(max(arrayfun(@(l) numel(l.XData), L)), 1000);
             tc.verifyFalse(contains(strjoin(cellstr(h.axSpec.Title.String), ' '), 'Stepped'));
             LH = findobj(h.axH, 'Type', 'line');
+            tc.assertNotEmpty(LH, 'relative responses drawn');
             tc.verifyTrue(all(strcmp({LH.Marker}, 'none')));
         end
 
@@ -785,6 +787,164 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(h.save.Enable, matlab.lang.OnOffSwitchState.on, 'controls unlocked again');
         end
 
+        function openedResultDrawnWithItsOwnBandAndLimits(tc)
+            % audit 2026-10-11: a result opened from its folder is drawn with the
+            % band and limits it was analysed with (res.analysis.options), as in
+            % its saved figures - not with those of the window's configuration
+            % (one drawing code: window = saved figure)
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            c.analysis.fMin = 120; c.analysis.fMax = 4500; c.analysis.coherenceMin = 0.98;
+            s = tim.app.MeasurementSession(c);
+            s.connect(); s.prepareAcquisition();
+            meas = s.measure('sweep'); s.close();
+            res = tim.app.processMeasurement(meas, c, []);
+            d = tim.app.saveMeasurement(meas, res, c, 'sweep', []);
+            c2 = c; c2.analysis.fMin = 200; c2.analysis.fMax = 3000; c2.analysis.coherenceMin = 0.9;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c2, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            app.openMeasurement(d, false);
+            tc.assertEqual(app.LastRes.analysis.options.fRange, [120 4500]);
+            figs = tim.app.plotResults(res, meas, struct('Visible', 'off'));
+            tc.addTeardown(@() deleteFigs(figs));
+            lim = findobj(h.axH(3), 'Tag', 'timCoherenceLimit');
+            tc.assertNumElements(lim, 1);
+            tc.verifyEqual(lim.Value, 0.98, 'AbsTol', 1e-12, 'coherence limit of the result');
+            F = getappdata(figs.reflection, 'timSavedFrame');
+            tc.verifyEqual(h.axR(1).XLim, F.axes(1).XLim, 'RelTol', 1e-9, 'band of the result (as saved)');
+            views = {'spec', 'spectrum'; 'tf', 'transfer'; 'refl', 'reflection'; 'tl', 'transmissionLoss'; ...
+                'zt', 'impedance'; 'valid', 'validity'};
+            for i = 1:size(views, 1)
+                info = getappdata(figs.(views{i, 2}), 'timViewInfo');
+                p = app.Pages.(views{i, 1});
+                note = ''; if isfield(info, 'note'), note = info.note; end
+                tc.verifyEqual(string(p.Note.Text), string(note), sprintf('%s: note as in the saved figure', views{i, 1}));
+                if isfield(info, 'summary') && isstruct(info.summary) && isfield(info.summary, 'data')
+                    dat = info.summary.data; if isnumeric(dat), dat = num2cell(dat); end
+                    tc.verifyEqual(p.SummaryTable.Data, dat, sprintf('%s: summary as in the saved figure', views{i, 1}));
+                end
+            end
+        end
+
+        function processingFailureLeavesTheMeasurementUnsaved(tc)
+            % audit 2026-10-11: a new measurement whose processing fails is shown
+            % as not saved (the RESULTS line kept the previous "Saved: <folder>")
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H; P = tim.gui.palette();
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            tc.assertTrue(startsWith(h.resultStatus.Text, 'Saved: '), h.resultStatus.Text);
+            % a calibration made with another reference channel: the processing
+            % of the next measurement fails (tim:cal:ref)
+            f = (100:2:5000).';
+            cal = struct('type', 'tim.complexChannelCalibration', 'version', 'CAL-TEST-REF2', 'refChannel', 2, ...
+                'f', f, 'C', ones(numel(f), 4), 'valid', true(numel(f), 4), 'meta', struct('mode', 'simulation'));
+            calFile = fullfile(tc.tmp, 'CAL-TEST-REF2.mat'); save(calFile, 'cal');
+            app.Session.loadCalibration(calFile);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.assertNotEmpty(app.LastMeas);
+            tc.verifyEmpty(app.LastRes, 'processing failed');
+            tc.verifySubstring(strjoin(cellstr(h.log.Value), newline), 'Reference channel of the calibration (ch2)');
+            tc.verifyFalse(app.Saved);
+            tc.verifySubstring(h.resultStatus.Text, 'not saved', 'the new measurement is not saved');
+            tc.verifyEqual(h.resultStatus.FontColor, P.fail);
+            tc.verifyEqual(h.save.Enable, matlab.lang.OnOffSwitchState.on, 'it can be saved');
+        end
+
+        function amplifierWithoutGainIsNeitherEstimatedNorDriven(tc)
+            % audit 2026-10-11 (loudspeaker safety): an amplifier chosen without
+            % its gain gives no drive estimate (the configured gain_dB of direct
+            % drive was used, i.e. gain x1) and Start measurement / Run switching
+            % calibration are refused until the gain is entered (user guide section 4)
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            c.amplifier.model = 'none (direct drive)'; c.amplifier.gainFactor = 1; c.amplifier.gain_dB = 0;  % as the lab file
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            tc.assertSubstring(h.drive.Text, 'Estimated loudspeaker drive');
+            h.ampModel.Value = 'power amplifier';
+            feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));
+            tc.verifyFalse(app.GainEntered);
+            tc.verifySubstring(h.drive.Text, 'Amplifier gain not entered: no drive estimate');
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertTrue(app.Session.Prepared);
+            refusal = 'enter the voltage gain set on the amplifier "power amplifier"';
+            count = @() nnz(contains(cellstr(h.log.Value), refusal));
+            tc.assertEqual(count(), 0);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.verifyEmpty(app.LastMeas, 'Start refused: nothing measured');
+            n = count();
+            tc.verifyGreaterThan(n, 0, 'Start refused with the request for the gain');
+            feval(h.runCal.ButtonPushedFcn, h.runCal, []);
+            tc.verifyGreaterThan(count(), n, 'Run switching calibration refused as well');
+            tc.verifyEmpty(app.Session.Calibration, 'no calibration ran');
+            h.ampGain.Value = 10;
+            feval(h.ampGain.ValueChangedFcn, h.ampGain, struct('PreviousValue', 0));
+            tc.verifyTrue(app.GainEntered);
+            tc.verifySubstring(h.drive.Text, 'Estimated loudspeaker drive');
+        end
+
+        function connectRefusedBeforeTheSessionExists(tc)
+            % audit 2026-10-11: a Connect refused by the session's own checks
+            % before any instrument is contacted (here a configured calibration
+            % file that does not exist) says so in Setup > Connection instead of
+            % "Connecting (... mode)…"
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.calibration.file = fullfile(tc.tmp, 'CAL-missing.mat');
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.verifyEmpty(app.Session, 'not connected');
+            tc.verifyTrue(startsWith(h.connHead.Text, 'Connection refused: '), h.connHead.Text);
+            tc.verifySubstring(h.connHead.Text, 'CAL-missing.mat');
+            tc.verifyEqual(h.connHead.FontColor, tim.gui.palette().fail);
+            tc.verifyTrue(all(strcmp(app.ConnList.States, 'pending')), 'no step ran');
+            tc.verifySubstring(h.status.Text, 'Not connected');
+            tc.verifyFalse(app.Busy);
+        end
+
+        function outputNotConfirmedOffIsShown(tc)
+            % audit 2026-10-11 (safety display): Stop while measuring and the
+            % generator link lost at the same moment - the read-back cannot
+            % confirm the output off: red Generator lamp and status "Generator
+            % output not confirmed off". The message pane says the output was
+            % commanded off and then the read-back, never "switched off".
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 3; c.excitation.sweep.repetitions = 4;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H; P = tim.gui.palette();
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertTrue(app.Session.Prepared);
+            hk = tim.instr.Keysight33220A.testHooks(app.Session.Gen);
+            stopper = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) stopAndBreakLink(h, hk));
+            tc.addTeardown(@() delete(stopper));
+            start(stopper);
+            ws = warning('off', 'tim:gen:outputOff'); tc.addTeardown(@() warning(ws));   % the lost link
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.verifyTrue(app.OutputUnconfirmed);
+            tc.verifyEqual(h.lamp(1).Color, P.fail, 'Generator lamp red');
+            tc.verifyEqual(h.status.Text, 'Generator output not confirmed off');
+            log = strjoin(cellstr(h.log.Value), newline);
+            tc.verifySubstring(log, 'Stop requested by the operator: generator output commanded off.');
+            tc.verifySubstring(log, 'The generator output could not be confirmed off.', 'the read-back is logged');
+            tc.verifyFalse(contains(log, 'output switched off'), 'never claimed off without a read-back');
+        end
+
         function windowTitleMenusAndAbout(tc)
             % user request 2026-10-09: version and repository in Help > About of a
             % menu bar (as in other programs) instead of a footer; tab "Formula"
@@ -835,9 +995,10 @@ classdef TestGui < matlab.unittest.TestCase
             % with the control panel, the message pane, every tab and Setup >
             % Connection; a view opened before the background has prepared it is
             % prepared at once (major tab: its selected sub tab)
-            n0 = numel(timerfindall);
+            n0 = timersExceptOtherWindows();
             app = tim.gui.Tubebench(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 600);
             tc.addTeardown(@() delete(app));      % (600 s: the background queue does not start here)
+            tag = app.TimerTag;
             tc.verifyTrue(app.Deferred);
             for p = app.Parts
                 tc.verifyEqual(app.PartState.(p{1}), 'none', p{1});
@@ -854,7 +1015,8 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(sort(fieldnames(ph)).', sort(app.Parts));
             tc.verifyEqual(ph.zt.Text, 'Preparing the view…');
             tc.verifyEqual(app.BuildTimer.Running, 'on');
-            tc.verifyEqual(numel(timerfindall), n0 + 1, 'one timer: the background queue');
+            tc.verifyEqual(timersExceptOtherWindows(tag), n0 + 1, 'one timer: the background queue');
+            tc.verifySameHandle(timerfindall('Tag', tag), app.BuildTimer, 'tagged with the window');
             % major tab Results -> its selected sub tab (Reflection and transmission)
             feval(app.H.tabs.SelectionChangedFcn, app.H.tabs, struct('NewValue', app.H.resTab, 'OldValue', app.H.setupTab));
             tc.verifyEqual(app.PartState.refl, 'ready');
@@ -878,22 +1040,23 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyNotEmpty(findobj(app.H.axTube3D, 'Tag', 'specimen'), 'tube model drawn');
             tc.verifyError(@() app.ensureBuilt('nonsense'), 'tim:gui:part');
             delete(app);
-            tc.verifyEqual(numel(timerfindall), n0, 'timer deleted with the window');
+            tc.verifyEqual(timersExceptOtherWindows(tag), n0, 'timer deleted with the window');
         end
 
         function deferredQueuePreparesEveryView(tc)
             % the background queue prepares every view, one step per timer tick,
             % with its first drawing; afterwards no timer is left
-            n0 = numel(timerfindall);
+            n0 = timersExceptOtherWindows();
             app = tim.gui.Tubebench(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
             tc.addTeardown(@() delete(app));
+            tag = app.TimerTag;
             t0 = tic;
             while isnan(app.ReadyTime) && toc(t0) < 240, pause(0.1); end
             tc.assertFalse(isnan(app.ReadyTime), 'queue finished');
             for p = app.Parts, tc.verifyEqual(app.PartState.(p{1}), 'ready', p{1}); end
             tc.verifyEmpty(app.BuildQueue);
             tc.verifyEmpty(app.BuildTimer);
-            tc.verifyEqual(numel(timerfindall), n0, 'timer deleted when the queue is done');
+            tc.verifyEqual(timersExceptOtherWindows(tag), n0, 'timer deleted when the queue is done');
             tc.verifyEmpty(fieldnames(app.H.placeholder), 'every placeholder removed');
             h = app.H;
             tc.verifyNumElements(h.axW, 4); tc.verifyNumElements(h.axH, 3); tc.verifyNumElements(h.axR, 2);
@@ -967,9 +1130,16 @@ classdef TestGui < matlab.unittest.TestCase
 
         function closeWhileViewsArePrepared(tc)
             % closing the window during the background preparation: no error, no
-            % timer left (the timer belongs to the window)
-            n0 = numel(timerfindall);
+            % timer left (the timer belongs to the window). Audit 2026-10-11:
+            % only this window's timers are counted - another window (the user's,
+            % in the same MATLAB) keeps its own preparation timer meanwhile
+            other = tim.gui.Tubebench('', 'Visible', 'off', 'Deferred', true, 'BuildDelay', 600);
+            tc.addTeardown(@() delete(other));
+            tc.assertNotEmpty(timerfindall('Tag', other.TimerTag), 'the other window prepares its views');
+            n0 = timersExceptOtherWindows();
             app = tim.gui.Tubebench('', 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
+            tag = app.TimerTag;
+            tc.assertNotEqual(tag, other.TimerTag, 'one tag per window');
             fig = app.Fig;
             tc.addTeardown(@() delete(fig(isvalid(fig))));
             t0 = tic;
@@ -977,8 +1147,9 @@ classdef TestGui < matlab.unittest.TestCase
             tc.assertTrue(isnan(app.ReadyTime), 'still preparing');
             tc.verifyWarningFree(@() closeAndWait(fig, app));
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
-            tc.verifyEmpty(timerfindall('Name', 'tubebench-build'));
-            tc.verifyEqual(numel(timerfindall), n0, 'no timer left');
+            tc.verifyEmpty(timerfindall('Tag', tag), 'no timer of the closed window left');
+            tc.verifyEqual(timersExceptOtherWindows(tag), n0, 'no timer left');
+            tc.verifyNumElements(timerfindall('Tag', other.TimerTag), 1, 'the other window''s timer untouched');
         end
     end
 
@@ -996,6 +1167,29 @@ end
 function closeAndWait(fig, app)
 tim.gui.closeApp(fig, app);
 pause(0.5);                     % a pending timer tick would run here
+end
+
+function stopAndBreakLink(h, hooks)
+% Stop pressed, and the generator link lost at the same moment
+feval(h.stop.ButtonPushedFcn, h.stop, []);
+hooks.breakLink();
+end
+
+function deleteFigs(figs)
+fc = struct2cell(figs);
+for i = 1:numel(fc), if isgraphics(fc{i}), delete(fc{i}); end, end
+end
+
+function n = timersExceptOtherWindows(tag)
+% number of timers in this MATLAB session without those of OTHER tubebench
+% windows (every window tags its timers with its TimerTag): the user's own
+% window may start or end its view-preparation or calibration timer while a
+% test runs (tests may run in the user's MATLAB)
+if nargin < 1, tag = ''; end
+t = timerfindall;
+if isempty(t), n = 0; return; end
+tags = get(t, {'Tag'});
+n = nnz(~(startsWith(tags, 'tubebench-') & ~strcmp(tags, tag)));
 end
 
 function L = labels(ax)
