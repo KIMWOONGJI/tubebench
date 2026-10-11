@@ -512,14 +512,19 @@ second, the header note gives the live level of every channel. After the measure
 record of repetition 1, long records as a min / max envelope so that every peak stays visible. A
 display high-pass at 20 Hz removes the slow CCLD settling drift; the raw data are not changed and
 are stored in volts. Without a valid sensitivity for every channel the graphs show mV.
-For a swept sine the parts of the record that are **not analysed** are shaded grey: before the
-sweep (the "click" when the generator output is switched on and the start-frequency tone) and
-after it (the jump back to the start frequency and the click when the output is switched off).
+For a swept sine the parts of the record that are **not analysed** are shaded grey: normally
+before the sweep (the "click" when the generator output is switched on and the start-frequency
+tone) and after it (the jump back to the start frequency and the click when the output is
+switched off).
 The sweep is located in every repetition by a matched filter; only the sweep enters the transfer
-functions and the calibration (`docs/theory.md`, section 4). A sweep that starts above fMin/1.3
-is analysed from the detected start, one that stops below 1.1 × fMax with a ring-down margin after
-its end, so the shading starts or ends there (see "Swept-sine range" above). If the sweep cannot
-be found, the message pane says so and the whole excited interval is used.
+functions and the calibration (`docs/theory.md`, section 4). A sweep that starts too close to the
+band (above f_lo/1.3) is analysed from the detected start, one that stops too close (below
+1.1 × f_hi) with a ring-down margin after its end, so the shading starts or ends there (see
+"Swept-sine range" above). The header note then says so per end: before the analysed part there
+is only the pre-roll and the output-on transient and the start-frequency tone are analysed, or
+the analysed part continues past the sweep end and includes an output-off transient within the
+margin. If the sweep cannot be found, the message pane says so and the whole excited interval is
+used.
 Summary **Channels**: Channel, Port, Peak [Pa], Level [dB SPL] (rms of the displayed record,
 including pre- and post-roll), Sensitivity [mV/Pa], Source (TEDS, Certificate, Nominal).
 

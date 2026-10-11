@@ -319,7 +319,8 @@ Estimator (`tim.dsp.sweepResponse`), per repetition:
    `f_hi` to `1.1 f_hi` of ring-down (in the tube about 1 ms per 0.3 m of path, decaying with
    |R|). Ramps shorter than 10 ms are widened to 10 ms inside the sweep. The pre-roll noise
    estimate uses the same window energy. The window of repetition 1 is shown in the Time signals
-   view (grey: not analysed). If the sweep is not found, step 2' is used and a warning says so.
+   view (grey: not analysed; its note names an end without the margin, below). If the sweep is
+   not found, step 2' is used and a warning says so.
    The sweep must reach beyond the band: it should start at or below `f_lo/1.3` and stop at or
    above `1.1 f_hi` (default 80–5500 Hz for 120–4500 Hz). Closer to the band the gate has no room
    for its ramps at that end: they would fall on the band edges (the lower one at most half as

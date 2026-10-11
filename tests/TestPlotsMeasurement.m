@@ -112,6 +112,42 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             tc.verifySubstring(info.note, 'mV');
         end
 
+        function timeSignalsNoteNamesTheEdgesOfTheAnalysis(tc)
+            % review 2026-10-11: the note said the grey parts held the generator
+            % output on/off transients also when an end of a sweep without the
+            % margin outside the band has another edge (owner decision
+            % 2026-10-11) and the transient is inside the analysed part
+            [g, ends] = tim.plots.analysisGate(tc.rSweep);       % 80-5500 Hz for 120-4500 Hz
+            tc.verifyEqual(ends, {'gate', 'gate'});
+            info = tim.plots.timeSignals(tc.axesFor(4), tc.mSweep, struct('gate', g, 'gateEnds', {ends}));
+            tc.verifySubstring(info.note, sprintf(['Grey: not analysed (before %.2f s and after %.2f s: generator ' ...
+                'output on/off, start-frequency tone).'], g(1), g(4)));
+            % the same record analysed for 100-5000 Hz (outer line edges 99 / 5001 Hz): the
+            % sweep 80-5500 Hz has no margin at either end
+            c = tc.cfg; c.analysis.fMin = 100; c.analysis.fMax = 5000;
+            r = tim.app.processMeasurement(tc.mSweep, c, []);
+            [g2, e2] = tim.plots.analysisGate(r);
+            tc.assertEqual(e2, {'detected start', 'ring-down margin'});
+            ex = r.spectra.excitation(1);
+            tc.verifyLessThan(g2(1), ex.sweepStart_s, 'the output-on transient and the start tone are analysed');
+            tc.verifyGreaterThan(g2(4), ex.sweepStart_s + ex.sweepDuration_s, 'analysed past the sweep end');
+            info2 = tim.plots.timeSignals(tc.axesFor(4), tc.mSweep, struct('gate', g2, 'gateEnds', {e2}));
+            tc.verifyFalse(contains(info2.note, 'generator output on/off'), info2.note);
+            tc.verifySubstring(info2.note, sprintf(['Before %.2f s: the pre-roll only - the sweep starts too close ' ...
+                'to the band, so the analysed part includes the output-on transient and the start-frequency tone.'], g2(1)));
+            tc.verifySubstring(info2.note, sprintf(['After %.2f s: the rest of the record - the sweep stops too ' ...
+                'close to the band, so the analysed part continues past the sweep end by the ring-down margin'], g2(4)));
+            % one end only
+            info3 = tim.plots.timeSignals(tc.axesFor(4), tc.mSweep, struct('gate', g2, 'gateEnds', {{'gate', 'ring-down margin'}}));
+            tc.verifySubstring(info3.note, sprintf('Before %.2f s: generator output on, start-frequency tone.', g2(1)));
+            tc.verifySubstring(info3.note, 'includes an output-off transient within it.');
+            % the saved figure draws the same note (tim.app.plotResults passes the ends too)
+            figs = tim.app.plotResults(r, tc.mSweep, struct('Visible', 'off', 'Views', {{'waveforms'}}));
+            tc.addTeardown(@() delete(figs.waveforms));
+            saved = getappdata(figs.waveforms, 'timViewInfo');
+            tc.verifyEqual(saved.note, info2.note);
+        end
+
         function timeSignalsEmptyAndLive(tc)
             ax = tc.axesFor(4);
             info = tim.plots.timeSignals(ax, []);

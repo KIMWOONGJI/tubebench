@@ -3057,7 +3057,7 @@ classdef Tubebench < handle
                 try
                     switch views{i}
                         case 'wave'
-                            ow = o; ow.gate = tim.plots.analysisGate(r);     % grey: not analysed (generator on/off)
+                            ow = o; [ow.gate, ow.gateEnds] = tim.plots.analysisGate(r);   % grey: not analysed
                             info = tim.plots.timeSignals(app.H.axW, m, ow);
                             if isfield(info, 'lines'), app.WaveLines = info.lines; else, app.WaveLines = gobjects(0); end
                         case 'spec', info = tim.plots.spectrum(app.H.axSpec, m, r, o);

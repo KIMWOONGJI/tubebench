@@ -169,7 +169,7 @@ classdef TestPlotsSaved < matlab.unittest.TestCase
             o = struct('simulation', true);
             fig = figure('Visible', 'off', 'Position', [50 50 1100 650]);
             tc.addTeardown(@() delete(fig));
-            og = o; og.gate = tim.plots.analysisGate(tc.rSweep);    % as the GUI: analysed part of the sweep
+            og = o; [og.gate, og.gateEnds] = tim.plots.analysisGate(tc.rSweep);    % as the GUI: analysed part of the sweep
             tc.verifyNumElements(og.gate, 4, 'sweep gate found in the simulated sweep');
             calls = {@(ax) tim.plots.timeSignals(ax, tc.mSweep, og), 4
                 @(ax) tim.plots.spectrum(ax, tc.mSweep, tc.rSweep, o), 1
