@@ -349,10 +349,14 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   fields (geometry, temperature, pressure) and the active calibration, e.g. after correcting a
   distance or loading another calibration. Save measurement again to keep the new results (a new
   folder; the first one is not changed). This also works for a measurement opened with File > Open
-  measurement…. Reprocess uses the channel-to-port assignment of the configuration loaded now; if
-  it differs from the one the measurement was recorded with (`meas.mics`), the message pane
-  says so ("Microphone mapping of the configuration … differs …"): load the measurement's own
-  configuration unless the cabling was recorded wrongly. Since 2026-10-11 every swept-sine
+  measurement…. Channel-to-port assignment (which DAQ channel is in which port M1–M4): a new
+  measurement is processed with the configuration's, the one of the connection. For a measurement
+  opened with File > Open measurement… whose recorded assignment (`meas.mics`, or its folder's
+  `config.json`) differs from the configuration's, the window asks when it opens it (section 7);
+  the recorded one is the default and Reprocess then uses it ("Microphone mapping as recorded with
+  the measurement: …" in the message pane). The configuration's assignment stays available there,
+  to correct an assignment that was recorded wrongly; the message pane then says that it differs
+  ("Microphone mapping of the configuration … differs …"). Since 2026-10-11 every swept-sine
   frequency line is centred on its frequency (`docs/theory.md` section 4, step 3), so a sweep
   saved before gives slightly different results when reprocessed (on the lab data of 2026-10-09/10
   |ΔR| up to 0.006, |ΔZt| up to 0.0024 ρc, a few lines change validity); a calibration made
@@ -618,9 +622,18 @@ criteria; 12 units and level references. The derivations are in `theory.md`.
     the measurement time, the specimen and the calibration of the saved results. If the tube
     set-up of the saved results (its `config.json`) differs from the IMPEDANCE TUBE fields, a
     dialog asks "Use the saved set-up" (puts it into the fields) or "Keep the current fields".
-    **Reprocess** then computes the results again with the fields and the active calibration;
-    **Save measurement** writes a new folder. The opened files are only read, never changed. It
-    asks about an unsaved measurement first and works connected or not.
+    If the microphones were on other ports when the measurement was recorded (`meas.mics` in
+    `raw.mat`, or the folder's `config.json`) than the configuration says now (e.g. re-cabled
+    since, or another configuration loaded), a second dialog shows both assignments and asks
+    "Use the recorded mapping" (the default, also when the dialog is closed) or "Keep the
+    configuration's mapping" (only to correct an assignment that was recorded wrongly). The
+    choice applies to Reprocess of this measurement only; the message pane records it.
+    **Reprocess** then computes the results again with the fields, the active calibration and that
+    assignment; **Save measurement** writes a new folder whose `config.json` holds the assignment
+    of its results. The opened files are only read, never changed. It asks about an unsaved
+    measurement first and works connected or not. From a script:
+    `app.openMeasurement(folder, useSavedTube, useRecordedMapping)` (each `'ask'` - the
+    default, a hidden window takes the default answer -, `true` or `false`).
   * *Load configuration…* asks about an unsaved measurement; when connected it asks "Disconnect and
     load" (the operating mode, the microphones and the calibration settings belong to the
     connection). The last measurement is cleared.
@@ -879,9 +892,16 @@ calibration:
 
 ```matlab
 S = load('data/<folder>/raw.mat');  cfg2 = tim.app.loadConfig('config/user_config.json');
+cfg2 = tim.app.useRecordedMapping(cfg2, S.meas.mics);   % the ports the microphones were recorded in
 C = load('calibration/CAL-20261009-101500.mat', 'cal');
 res2 = tim.app.processMeasurement(S.meas, cfg2, C.cal);
 ```
+
+`tim.app.useRecordedMapping` sets the port of every DAQ channel in `cfg2.mics` to the one the
+measurement was recorded with (the configuration loaded now may have been re-cabled since); its
+second output says whether the two differed. Leave that line out only to correct an assignment
+that was recorded wrongly: `processMeasurement` then uses the configuration's assignment and adds
+the warning "Microphone mapping of the configuration … differs …" to `res2.diagnostics.warnings`.
 
 ## 12. Stored data
 
@@ -915,7 +935,8 @@ with a measurement.
 
 A saved folder is shown again in the window with **File > Open measurement…** (section 7), or
 from a script with `app.openMeasurement(folder)`; without the window: `load(fullfile(folder,
-'raw.mat'))` and `tim.app.processMeasurement(meas, cfg, cal)`.
+'raw.mat'))`, `cfg = tim.app.useRecordedMapping(cfg, meas.mics)` and
+`tim.app.processMeasurement(meas, cfg, cal)` (section 11).
 
 Simulated measurements are labelled "SIMULATED DATA" in `README.txt` and in the metadata, and are
 stored separately in `data\simulation\` and `calibration\simulation\`, so they cannot be confused

@@ -103,8 +103,8 @@ config/                 user_config.json (lab settings), example_config.json (te
                         validityMasks, transferMatrix, frequencyLimits
 +tim/+sim               SimulatedRig, tubeModel, lanxiEncode; SimulatedCombined (driver
                         'simcombined': one output + four inputs on one clock, simulation only)
-+tim/+app               MeasurementSession, runCalibration, processMeasurement, driveEstimate,
-                        plotResults (saved figures), plotCalibration, save* / export*,
++tim/+app               MeasurementSession, runCalibration, processMeasurement, useRecordedMapping,
+                        driveEstimate, plotResults (saved figures), plotCalibration, save* / export*,
                         loadConfig / saveConfig / defaultConfig / validateConfig / migrateConfig,
                         outputGuard, msg (prompts en / ko), softwareVersion
 +tim/+plots             the views, shared by the window and the saved figures: timeSignals,

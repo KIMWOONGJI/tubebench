@@ -61,6 +61,8 @@ classdef Tubebench < handle
         Saved logical = true    % the last measurement is saved (or there is nothing to save)
         SavedDir char = ''      % folder of the last save (or of the opened measurement)
         Opened logical = false  % the last measurement was opened from its folder (File > Open measurement…)
+        ReprocessMics = []      % microphones whose channel-to-port mapping Reprocess uses for LastMeas: the
+                                % recorded ones of an opened measurement (operator's choice); [] = the configuration's
         GainEntered logical = true  % the gain was entered after an amplifier was chosen
         LastCheck char = ''     % last configuration warnings (logged once)
         CalStep double = 0      % current / total operator steps of a calibration
@@ -247,7 +249,7 @@ classdef Tubebench < handle
             [geom, env, msgs] = app.readTube();
         end
 
-        function openMeasurement(app, folder, useSavedTube)
+        function openMeasurement(app, folder, useSavedTube, useRecordedMapping)
             %OPENMEASUREMENT Show a measurement saved by Save measurement (also
             %   File > Open measurement…): raw.mat and result.mat of the folder in
             %   every view; Reprocess and Save measurement then work as after a
@@ -255,8 +257,14 @@ classdef Tubebench < handle
             %   useSavedTube: 'ask' (default; a hidden window answers yes) | true |
             %   false - put the tube set-up of the saved results (config.json of
             %   the folder) into the IMPEDANCE TUBE fields when it differs from them.
+            %   useRecordedMapping: 'ask' (default; a hidden window answers yes) |
+            %   true | false - Reprocess uses the channel-to-port mapping the
+            %   measurement was recorded with (meas.mics, else the folder's
+            %   config.json) when it differs from the configuration's; false keeps
+            %   the configuration's (to correct a mapping recorded wrongly).
             if nargin < 3, useSavedTube = 'ask'; end
-            app.run(@() app.doOpenMeasurement(folder, useSavedTube), 'opening the measurement');
+            if nargin < 4, useRecordedMapping = 'ask'; end
+            app.run(@() app.doOpenMeasurement(folder, useSavedTube, useRecordedMapping), 'opening the measurement');
         end
 
         function sel = ask(app, msg, title, options, defaultIdx, cancelIdx, icon)
@@ -2073,6 +2081,7 @@ classdef Tubebench < handle
             end
             app.Cfg = cfg; app.LastCheck = '';
             app.LastMeas = []; app.LastRes = []; app.LastCfg = []; app.Saved = true; app.Opened = false;
+            app.ReprocessMics = [];
             app.refreshFromCfg();
             app.refreshViews();
             app.setResultStatus();
@@ -2093,7 +2102,7 @@ classdef Tubebench < handle
             if isequal(f, 0), return; end
             app.openMeasurement(p);
         end
-        function doOpenMeasurement(app, folder, useSavedTube)
+        function doOpenMeasurement(app, folder, useSavedTube, useRecordedMapping)
             folder = char(folder);
             if isfile(folder), folder = fileparts(folder); end       % raw.mat / result.mat given
             if endsWith(folder, filesep), folder = folder(1:end - 1); end
@@ -2120,6 +2129,7 @@ classdef Tubebench < handle
             app.LastMeas = m; app.LastRes = res;
             app.LastCfg = saved;         % the set-up of the saved results (Save writes it again)
             app.Saved = true; app.SavedDir = folder; app.Opened = true;
+            app.ReprocessMics = [];      % the configuration's mapping unless chosen below
             app.refreshViews();
             app.setResultStatus();
             [~, nm] = fileparts(folder);
@@ -2154,10 +2164,39 @@ classdef Tubebench < handle
                     end
                 end
             end
+            % microphone mapping (DAQ channel -> port) the data were recorded with
+            % vs the configuration's (owner decision 2026-10-11): asked like the
+            % tube set-up; the recorded one is the default answer (also when the
+            % dialog is dismissed). The configuration's stays available to correct
+            % a mapping that was recorded wrongly - processMeasurement then reports
+            % the difference.
+            how = '';
+            [rec, mp] = recordedMapping(app.Cfg, m, saved);
+            if ~strcmp(m.kind, 'background') && ~isempty(rec) && mp.differs
+                use = useRecordedMapping;
+                if ~islogical(use)
+                    sel = app.ask(sprintf(['This measurement was recorded with this microphone mapping (DAQ ' ...
+                        'channel → port):\n%s\n\nThe configuration has another one:\n%s\n\nReprocess with the ' ...
+                        'recorded mapping? Keep the configuration''s mapping only to correct a mapping that was ' ...
+                        'recorded wrongly.'], mp.recordedText, mp.configuredText), 'Open measurement', ...
+                        {'Use the recorded mapping', 'Keep the configuration''s mapping'}, 1, 1, 'question');
+                    use = strcmp(sel, 'Use the recorded mapping');
+                end
+                if use
+                    app.ReprocessMics = rec;
+                    how = ' and the microphone mapping the measurement was recorded with';
+                    app.log('Microphone mapping for Reprocess: the recorded one (%s); the configuration has %s.', ...
+                        mp.recordedText, mp.configuredText);
+                else
+                    how = ' and the configuration''s microphone mapping';
+                    app.log('Microphone mapping of the configuration kept for Reprocess (%s); the measurement was recorded with %s.', ...
+                        mp.configuredText, mp.recordedText);
+                end
+            end
             [cal, ~] = app.currentCalibration();
             cv = 'none - results not valid'; if ~isempty(cal), cv = cal.version; end
             if ~strcmp(m.kind, 'background')
-                app.log('Reprocess uses the IMPEDANCE TUBE fields and the active calibration (%s).', cv);
+                app.log('Reprocess uses the IMPEDANCE TUBE fields and the active calibration (%s)%s.', cv, how);
             end
         end
 
@@ -2367,6 +2406,7 @@ classdef Tubebench < handle
             app.prepareLive();
             m = app.Session.measure(app.Cfg.excitation.mode);
             app.LastMeas = m; app.LastRes = []; app.LastCfg = app.Cfg; app.Saved = false; app.SavedDir = ''; app.Opened = false;
+            app.ReprocessMics = [];                      % a new measurement: the configuration's mapping
             app.LastMeas.metadata.specimen = app.specimenName();   % name at Start (folder + metadata)
             app.setResultStatus();                       % 'not saved' also when the processing fails
             app.process();
@@ -2416,6 +2456,7 @@ classdef Tubebench < handle
             app.prepareLive();
             m = app.Session.measureBackground(2);
             app.LastMeas = m; app.LastRes = []; app.LastCfg = app.Cfg; app.Saved = false; app.SavedDir = ''; app.Opened = false;
+            app.ReprocessMics = [];                      % a new measurement: the configuration's mapping
             app.refreshViews();
             app.setResultStatus();
             integ = m.channelInfo{1}.integrity;
@@ -2916,11 +2957,20 @@ classdef Tubebench < handle
             c = app.Cfg;                 % the mode of the DATA (not the selector) for the calibration context
             md = app.LastMeas.metadata;
             if isfield(md, 'mode'), c.mode = md.mode; elseif isfield(md, 'WARNING'), c.mode = 'simulation'; end
+            recorded = '';
+            if ~isempty(app.ReprocessMics)
+                % an opened measurement: the mapping it was recorded with (operator's choice)
+                [c, mp] = tim.app.useRecordedMapping(c, app.ReprocessMics);
+                recorded = mp.recordedText;
+            end
             app.LastRes = tim.app.processMeasurement(app.LastMeas, c, cal);
             app.LastCfg = c;             % saved as config.json with these results
             app.log('%s', app.LastRes.summary);
             app.log('Processed with calibration %s%s; L1/d/L2 = %s/%s/%s mm, T = %g °C.', ...
                 app.LastRes.calibration.version, src, app.H.L1.Value, app.H.dTh.Value, app.H.L2.Value, app.H.temp.Value);
+            if ~isempty(recorded)
+                app.log('Microphone mapping as recorded with the measurement: %s.', recorded);
+            end
             for w = app.LastRes.calibration.context.warnings, app.log('CALIBRATION: %s', w{1}); end
             if isfield(app.LastRes, 'diagnostics') && isfield(app.LastRes.diagnostics, 'warnings')
                 for w = reshape(app.LastRes.diagnostics.warnings, 1, []), app.log('Warning: %s', w{1}); end
@@ -3295,6 +3345,24 @@ function closeFigures(figs)
 fc = struct2cell(figs);
 for i = 1:numel(fc)
     if ~isempty(fc{i}) && isgraphics(fc{i}), close(fc{i}); end
+end
+end
+
+function [mics, info] = recordedMapping(cfg, meas, saved)
+% the microphones a measurement was recorded with - meas.mics, else the mics of
+% its folder's config.json (saved) - and their mapping compared with cfg
+% (tim.app.useRecordedMapping); mics = [] when neither holds a complete mapping
+mics = []; info = [];
+src = {};
+if isfield(meas, 'mics'), src{end + 1} = meas.mics; end
+if isstruct(saved) && isfield(saved, 'mics'), src{end + 1} = saved.mics; end
+for i = 1:numel(src)
+    try
+        [~, info] = tim.app.useRecordedMapping(cfg, src{i});
+        mics = src{i};
+        return
+    catch
+    end
 end
 end
 

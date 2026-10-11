@@ -368,6 +368,34 @@ classdef TestConfiguration < matlab.unittest.TestCase
             tc.verifySubstring(tim.app.msg('en', 'ampDirect', 50, 8, 1, 2, 3, 4), 'via the 50 Ω generator output');
             tc.verifySubstring(tim.app.msg('en', 'ampDirect', 0, 8, 1, 2, 3, 4), 'via the 0 Ω generator output');
         end
+
+        function recordedMappingForReprocessing(tc)
+            % owner decision 2026-10-11: a saved measurement is reprocessed with
+            % the channel-to-port mapping it was recorded with
+            % (tim.app.useRecordedMapping, also used by the window); only the
+            % ports change, both lists may be in any order
+            c = tim.app.defaultConfig();
+            c.mics = c.mics([2 1 3 4]);                                    % listed ch2, ch1, ch3, ch4
+            rec = struct('channel', {3, 1, 2, 4}, 'position', {3, 2, 1, 4});   % recorded: ch1 in M2, ch2 in M1
+            [c2, info] = tim.app.useRecordedMapping(c, rec);
+            tc.verifyEqual(info.recorded, [2 1 3 4]);
+            tc.verifyEqual(info.configured, 1:4);
+            tc.verifyTrue(info.differs);
+            tc.verifyEqual(info.recordedText, 'ch1 M2, ch2 M1, ch3 M3, ch4 M4', 'wording of the processMeasurement warning');
+            tc.verifyEqual(info.configuredText, 'ch1 M1, ch2 M2, ch3 M3, ch4 M4');
+            tc.verifyEqual([c2.mics.channel], [2 1 3 4], 'list order kept');
+            tc.verifyEqual([c2.mics.position], [1 2 3 4], 'ch2 in M1, ch1 in M2');
+            tc.verifyEqual(rmfield(c2.mics, 'position'), rmfield(c.mics, 'position'), 'the other microphone fields kept');
+            tc.verifyEqual(rmfield(c2, 'mics'), rmfield(c, 'mics'), 'nothing else changed');
+            tc.verifyWarningFree(@() tim.app.validateConfig(c2, 'instruments'));
+            [~, again] = tim.app.useRecordedMapping(c2, rec);
+            tc.verifyFalse(again.differs);
+            bad = rec; bad(2).position = 3;                                % two channels in M3
+            tc.verifyError(@() tim.app.useRecordedMapping(c, bad), 'tim:config:mics');
+            tc.verifyError(@() tim.app.useRecordedMapping(c, rec(1:3)), 'tim:config:mics');
+            tc.verifyError(@() tim.app.useRecordedMapping(c, rmfield(rec, 'position')), 'tim:config:mics');
+            tc.verifyError(@() tim.app.useRecordedMapping(c, []), 'tim:config:mics');
+        end
     end
 end
 

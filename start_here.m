@@ -64,3 +64,14 @@ fprintf('Saved to %s\n', folder);
 
 %% 8) Disconnect (output off, DAQ stopped - LAN-XI: back to Idle)
 s.close();
+
+%% 9) (optional) Reprocess a saved measurement offline (no instruments)
+% e.g. with a corrected geometry or another calibration; a new save writes a new
+% folder. useRecordedMapping puts each DAQ channel in the port it was recorded
+% in (meas.mics): the configuration may have been re-cabled since. Leave it out
+% only to correct a channel-to-port assignment that was recorded wrongly.
+% S = load(fullfile(root, 'data', '<folder>', 'raw.mat'));
+% cfgR = tim.app.useRecordedMapping(cfg, S.meas.mics);
+% C = load(fullfile(root, 'calibration', 'CAL-xxxxxxxx-xxxxxx.mat'), 'cal');
+% resR = tim.app.processMeasurement(S.meas, cfgR, C.cal);
+% disp(resR.summary)

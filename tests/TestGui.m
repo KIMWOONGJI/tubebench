@@ -787,6 +787,64 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(h.save.Enable, matlab.lang.OnOffSwitchState.on, 'controls unlocked again');
         end
 
+        function openedMeasurementReprocessedWithItsRecordedMapping(tc)
+            % owner decision 2026-10-11: when the channel-to-port mapping a
+            % measurement was recorded with (meas.mics) differs from the
+            % configuration's (re-cabled since, another file loaded), File > Open
+            % measurement… asks "Use the recorded mapping" / "Keep the
+            % configuration's mapping", like the tube set-up; the recorded one is
+            % the default answer (a hidden window takes it). The configuration's
+            % stays available to correct a mapping that was recorded wrongly; the
+            % mismatch warning of processMeasurement then stays.
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            s.connect(); s.prepareAcquisition();
+            meas = s.measure('sweep'); s.close();                  % recorded with ch1 M1, ch2 M2, ch3 M3, ch4 M4
+            res = tim.app.processMeasurement(meas, c, []);
+            d = tim.app.saveMeasurement(meas, res, c, 'sweep', []);
+            c2 = c; c2.mics(1).position = 2; c2.mics(2).position = 1;   % the window's configuration: ch1/ch2 swapped
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c2, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            logText = @() strjoin(cellstr(h.log.Value), newline);
+            recordedText = 'ch1 M1, ch2 M2, ch3 M3, ch4 M4'; configuredText = 'ch1 M2, ch2 M1, ch3 M3, ch4 M4';
+            app.openMeasurement(d);                                % asked; a hidden window takes the default
+            tc.verifySubstring(logText(), sprintf(['Microphone mapping for Reprocess: the recorded one (%s); ' ...
+                'the configuration has %s.'], recordedText, configuredText));
+            tc.verifySubstring(logText(), 'and the microphone mapping the measurement was recorded with.');
+            tc.verifyEqual(app.LastRes.analysis.R, res.analysis.R, 'the saved results are shown, not recomputed');
+            feval(h.reprocess.ButtonPushedFcn, h.reprocess, []);
+            tc.assertNotEmpty(app.LastRes, 'reprocessed');
+            tc.verifyEqual(app.LastRes.channelOfPosition, 1:4, 'Reprocess used the recorded mapping');
+            tc.verifyFalse(any(contains(app.LastRes.diagnostics.warnings, 'Microphone mapping')), 'no mismatch left');
+            tc.verifyEqual(app.LastRes.analysis.R, res.analysis.R, 'AbsTol', 1e-6, 'the results of the recording');
+            tc.verifySubstring(logText(), sprintf('Microphone mapping as recorded with the measurement: %s.', recordedText));
+            % saved again: its config.json holds the mapping of its results (= raw.mat)
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            [~, saved] = tim.app.useRecordedMapping(tim.app.loadConfig(fullfile(app.SavedDir, 'config.json')), meas.mics);
+            tc.verifyFalse(saved.differs, 'config.json of the new folder: the recorded mapping');
+            % the configuration's mapping chosen explicitly (a mapping recorded wrongly)
+            app.openMeasurement(d, 'ask', false);
+            tc.verifySubstring(logText(), sprintf(['Microphone mapping of the configuration kept for Reprocess (%s); ' ...
+                'the measurement was recorded with %s.'], configuredText, recordedText));
+            feval(h.reprocess.ButtonPushedFcn, h.reprocess, []);
+            tc.verifyEqual(app.LastRes.channelOfPosition, [2 1 3 4], 'Reprocess used the configuration''s mapping');
+            tc.verifySubstring(logText(), sprintf('Warning: Microphone mapping of the configuration (%s) differs', configuredText), ...
+                'the mismatch is still reported');
+            % the recorded mapping belongs to the opened measurement only: a new
+            % measurement is processed with the configuration's (that of the connection)
+            app.openMeasurement(d);
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertTrue(app.Session.Prepared);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.assertNotEmpty(app.LastRes, 'measured');
+            tc.verifyEqual(app.LastRes.channelOfPosition, [2 1 3 4], 'a new measurement: the configuration''s mapping');
+            tc.verifyFalse(any(contains(app.LastRes.diagnostics.warnings, 'Microphone mapping')));
+        end
+
         function openedResultDrawnWithItsOwnBandAndLimits(tc)
             % audit 2026-10-11: a result opened from its folder is drawn with the
             % band and limits it was analysed with (res.analysis.options), as in
