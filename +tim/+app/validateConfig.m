@@ -121,6 +121,16 @@ end
 sw = cfg.excitation.sweep;
 if sw.fStart > cfg.analysis.fMin || sw.fStop < cfg.analysis.fMax
     report{end+1} = 'Swept sine: start/stop frequencies do not cover the analysis band, so its edges will have a low SNR.';
+elseif sw.fStart > cfg.analysis.fMin / 1.3 || sw.fStop < 1.1 * cfg.analysis.fMax
+    % the sweep gate needs room outside the band (docs/theory.md section 4)
+    report{end+1} = sprintf(['Swept sine: let the sweep start at or below %.0f Hz and stop at or above %.0f Hz ' ...
+        '(analysis band %g–%g Hz): closer to the band the sweep gate cuts into the band edges and the lines near ' ...
+        'them can be biased although they stay valid.'], floor(cfg.analysis.fMin / 1.3), ceil(1.1 * cfg.analysis.fMax), ...
+        cfg.analysis.fMin, cfg.analysis.fMax);
+end
+if sw.preRoll < 0.15
+    report{end+1} = sprintf(['Swept sine: pre-roll %.3g s (excitation.sweep.preRoll) is shorter than 0.15 s: no ' ...
+        'noise-only part before the sweep, the SNR is unknown and no frequency line is valid.'], sw.preRoll);
 end
 assert(sw.repetitions >= 1 && sw.repetitions <= 100, 'tim:config:repetitions', ...
     'Swept sine: repetitions must be between 1 and 100.');

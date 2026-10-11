@@ -123,6 +123,10 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
             t = strjoin(tc.plain, newline);
             tc.verifyTrue(contains(t, '47 % at |Zt|/(ρc) = 0.05, 12 % at 0.2 and 2 % at 1'), 'iso10534 Zt bias');
             tc.verifyFalse(contains(t, '3–17 %'), 'old iso10534 Zt bias figure');
+            % the swept-sine window is the sweep gate (processMeasurement, runCalibration);
+            % the taper from the detected excitation is only its fallback (audit 2026-10-11)
+            tc.verifyTrue(contains(t, 'the sweep gate: a matched filter finds the start and the duration of the sweep'));
+            tc.verifyTrue(contains(t, 'If the sweep is not found: detected sweep start − 10 ms'));
         end
 
         function glossarySymbols(tc)

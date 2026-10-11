@@ -31,9 +31,13 @@ for k = 1:nRepeat
     o = tim.dsp.sineResponse(m.records{k}(idx, :), m.fs, f, struct('refChannel', ref));
     H(k, :) = o.H; snr(k, :) = o.snr_dB; clk(k) = o.clockRatio;
 end
-magdB = 20 * log10(abs(H)); ph = rad2deg(angle(H));
-r = struct('name', sprintf('Test B - single frequency %g Hz', f), 'H', mean(H, 1), ...
-    'relLevel_dB', mean(magdB, 1), 'relPhase_deg', mean(ph, 1), ...
+magdB = 20 * log10(abs(H));
+% phases about the mean phasor: a relative phase near +-180 deg must not
+% average +179.99 and -179.99 deg to 0 (audit 2026-10-11)
+Hm = mean(H, 1);
+ph = rad2deg(angle(H ./ Hm));
+r = struct('name', sprintf('Test B - single frequency %g Hz', f), 'H', Hm, ...
+    'relLevel_dB', mean(magdB, 1), 'relPhase_deg', rad2deg(angle(Hm)), ...
     'scatter_dB', std(magdB, 0, 1), 'scatter_deg', std(ph, 0, 1), 'snr_dB', min(snr, [], 1), ...
     'clockRatio', mean(clk), 'clockOffset_ppm', (mean(clk) - 1) * 1e6, 'integrityOk', m.integrityOk, 'meas', m);
 r.passed = m.integrityOk && all(r.snr_dB > 40) && all(r.scatter_dB < 0.05) && all(r.scatter_deg < 0.2);

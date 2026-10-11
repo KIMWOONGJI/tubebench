@@ -380,6 +380,19 @@ classdef TestAcoustics < matlab.unittest.TestCase
             a2 = tim.acoustics.analyzeFourMic(fq, H, g, tc.env, o);
             tc.verifyFalse(any(a2.valid.validR(bad)));
             tc.verifyTrue(all(a2.valid.upstream.flags.lowCoherence(bad)));
+            % audit 2026-10-11: an unknown SNR (NaN: no noise-only pre-roll) fails
+            % the SNR criterion, as in the switching calibration; also coherence
+            o.quality.coherence = coh;
+            snr2 = snr; snr2(bad, 2) = NaN;
+            o.quality.snr_dB = snr2;
+            a3 = tim.acoustics.analyzeFourMic(fq, H, g, tc.env, o);
+            tc.verifyTrue(all(a3.valid.upstream.flags.lowSNR(bad)), 'NaN SNR: low SNR');
+            tc.verifyFalse(any(a3.valid.validR(bad)));
+            tc.verifyGreaterThan(nnz(a3.valid.validR), 0.5 * nnz(band), 'finite SNR elsewhere: valid');
+            coh3 = coh; coh3(bad, 1) = NaN;
+            o.quality = struct('coherence', coh3, 'snr_dB', snr);
+            a4 = tim.acoustics.analyzeFourMic(fq, H, g, tc.env, o);
+            tc.verifyTrue(all(a4.valid.upstream.flags.lowCoherence(bad)), 'NaN coherence: low coherence');
             % the termination plane cannot lie upstream of the rear face
             tc.verifyError(@() tim.sim.tubeModel(fq, g, tc.env, struct('type', 'air'), struct('R', 1, 'x', -0.01)), ...
                 'tim:sim:termination');

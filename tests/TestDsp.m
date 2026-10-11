@@ -168,6 +168,28 @@ classdef TestDsp < matlab.unittest.TestCase
             tc.verifyTrue(any(contains(sp2.warnings, 'not excluded')));
         end
 
+        function sweepGateWarnsWithoutMarginBeyondTheBand(tc)
+            % audit 2026-10-11: a sweep that does not reach far enough beyond the
+            % analysis band puts the gate ramps on the band edges (the lines
+            % there are biased but stay valid): a warning names the margin
+            rig = tc.makeRig(2e-3);
+            fs = rig.Fs;
+            for r = [80 5500 0; 120 4500 1; 109 5500 1; 80 4600 1]'
+                rig.reset();
+                g = tc.genState('SWE_STAT', 1, 'OUTP', 0, 'FREQ_STAR', r(1), 'FREQ_STOP', r(2));
+                rig.setGeneratorState(g);
+                pre = rig.generate(fs);
+                g.OUTP = 1;
+                x = [pre; tc.record(rig, g, round(4.6 * fs), 0)];
+                sw = struct('fStart', r(1), 'fStop', r(2), 'duration', 3, 'spacing', 'LOG');
+                sp = tim.dsp.sweepResponse({x}, fs, struct('fRange', [120 4500], 'df', 2, 'preRoll', 1, ...
+                    'excitationBand', [r(1) r(2)], 'sweep', sw));
+                tc.assertTrue(sp.excitation.gated, sprintf('sweep %g-%g Hz found', r(1), r(2)));
+                warned = any(contains(sp.warnings, 'too close to the analysis band'));
+                tc.verifyEqual(warned, logical(r(3)), sprintf('sweep %g-%g Hz', r(1), r(2)));
+            end
+        end
+
         function sweepIndependentOfExcitationWaveform(tc)
             % The same tube measured with a LINEAR sweep and with noise gives
             % the same relative responses (excitation-independence).

@@ -320,8 +320,21 @@ Estimator (`tim.dsp.sweepResponse`), per repetition:
    |R|). Ramps shorter than 10 ms are widened to 10 ms inside the sweep. The pre-roll noise
    estimate uses the same window energy. The window of repetition 1 is shown in the Time signals
    view (grey: not analysed). If the sweep is not found, step 2' is used and a warning says so.
-   With the default band 120–4500 Hz the sweep should start at least 10 % below 120 Hz and stop at
-   least 10 % above 4500 Hz (default 80–5500 Hz).
+   The sweep must reach beyond the band: it should start at or below `f_lo/1.3` and stop at or
+   above `1.1 f_hi` (default 80–5500 Hz for 120–4500 Hz). Closer to the band the ramps fall on
+   the band edges (the lower one at most half as long as designed, the start-frequency tone cut
+   close to the band; no ring-down margin above `f_hi`), and the lines there are biased while
+   their coherence stays high, so they remain valid. `tim.dsp.sweepResponse` then adds a warning
+   ("Sweep … too close to the analysis band …", in `res.diagnostics.warnings` and the calibration
+   log) and `tim.app.validateConfig` reports the configured range.
+
+   *Measured in simulation (audit 2026-10-11; noise-free rig, 3 s log sweep, band 120–4500 Hz,
+   max |H/H_true − 1| over the band, |R_term| = 0.03 / 0.9):* 80–5500 Hz 0.10 % / 1.9 % (as without
+   the gate); start 100 Hz 0.28 % / 2.3 %, 105 Hz 0.77 % / 6.9 %, 109 Hz (still 10 % below the
+   band) 0.84 % / 13 %, 120 Hz 1.9 % / 19 %; stop 4950 Hz 0.10 % / 1.0 %, 4800 Hz 0.19 % / 0.9 %,
+   4600 Hz 2.5 % / 7.7 %, 4500 Hz 18 % / 63 %. The earlier advice ("at least 10 % below the band")
+   was not enough at the lower edge. The gate itself is unchanged (an owner decision is pending
+   on falling back to step 2' at an edge without margin).
 
    *Measured on the lab tube (empty 75 mm section, 2026-10-09):* the trigger latency varied by
    0.15 s between repetitions (sweep start 1.128–1.277 s after the record start) and the output-off
@@ -467,8 +480,11 @@ s = 29 mm). For thin elements of low impedance the inter-pair phase matters more
 3. `qualityOK`: coherence and SNR at all four ports, **and a valid complex calibration**. Without
    calibration nothing is ever valid.
 
-`valid = measured & geometryOK & qualityOK & ~nonPassive`. Criteria and defaults
-(`cfg.analysis`):
+`valid = measured & geometryOK & qualityOK & ~nonPassive`. An unknown coherence or SNR (NaN, e.g.
+the swept-sine SNR when no repetition had ≥ 0.1 s of noise-only pre-roll, section 4 step 5) fails
+its criterion, as in the switching calibration (`tim.cal.switchingCorrection`); before 2026-10-11
+it passed silently. `tim.app.validateConfig` reports a sweep pre-roll below 0.15 s. Criteria and
+defaults (`cfg.analysis`):
 
 | Flag (rejects when true) | Criterion | Default |
 |---|---|---|

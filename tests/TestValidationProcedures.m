@@ -63,6 +63,30 @@ classdef TestValidationProcedures < matlab.unittest.TestCase
             r = tim.val.testC_calibrationConsistency(cal, mA, mB, tc.cfg, [1 2]);
             tc.verifyTrue(r.passed);
             tc.verifyLessThan(r.after_rms_dB, r.before_rms_dB);
+            % audit 2026-10-11: the estimator of the calibration (sweep gate)
+            tc.verifyTrue(all(r.gated), 'Test C uses the sweep gate');
+        end
+
+        function testBPhaseNear180Degrees(tc)
+            % audit 2026-10-11: a relative phase at +-180 deg; repeats on both
+            % sides of the branch cut must not average to about 60 deg with a
+            % scatter of 200 deg. ch4 is set to exactly 180 deg at 1 kHz by
+            % shifting its chain delay in the virtual rig.
+            s = tc.session(); c = onCleanup(@() s.close());
+            f = 1000; rig = s.Rig;
+            rig.GenClockPpm = 0;                                % the tone exactly at f (no 35 ppm offset)
+            for it = 1:4                                        % the realised FIR converges in a few steps
+                t = rig.trueResponse([f; f + 1]);               % (a scalar would be a number of points)
+                dphi = angle(-t.G(1, 4) / t.G(1, 1));           % phase that is missing to 180 deg
+                rig.Tau(4) = rig.Tau(4) + dphi / (2 * pi * f);
+                rig.MicPosOfChannel = rig.MicPosOfChannel;      % re-design the channel responses
+            end
+            t = rig.trueResponse([f; f + 1]);
+            tc.assertLessThan(abs(abs(rad2deg(angle(t.G(1, 4) / t.G(1, 1)))) - 180), 1e-3);
+            r = tim.val.testB_singleFrequency(s, f, 0.2, 8);
+            tc.verifyLessThan(abs(abs(r.relPhase_deg(4)) - 180), 0.05, 'relative phase about 180 deg');
+            tc.verifyLessThan(r.scatter_deg(4), 0.2, 'scatter of the repeats, not of the branch cut');
+            tc.verifyTrue(r.passed);
         end
 
         function testDrigid(tc)

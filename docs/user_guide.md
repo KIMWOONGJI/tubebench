@@ -270,6 +270,11 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 
 * Each signal keeps its own frequency range, duration or number of steps and repetitions:
   switching the Signal shows the values last used for that signal. The amplitude is common.
+* **Swept-sine range**: let the sweep start at or below fMin/1.3 and stop at or above 1.1 × fMax
+  of the analysis band (default 80–5500 Hz for 120–4500 Hz). The sweep gate (theory.md section 4)
+  needs that room outside the band; a sweep closer to the band biases the lines near the band
+  edges although they stay valid (simulation: up to 13 % at a 109 Hz start). The message pane
+  warns when the configuration or a processed sweep does not keep this margin.
 * **Amplifier gain**: the field is disabled for "none (direct drive)" (gain ×1). When you choose an
   amplifier, the field turns yellow and the message pane asks for the gain: **Start measurement
   and Run switching calibration… are refused until a gain has been entered** (typed into the

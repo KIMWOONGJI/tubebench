@@ -187,6 +187,29 @@ if ~isempty(gateWarn)
     out.warnings{end+1} = sprintf(['Sweep not found reliably in repetition(s) %s: the generator on/off ' ...
         'transients are not excluded there (window from the detected excitation).'], mat2str(gateWarn));
 end
+if any([excit.gated])
+    m = sweepMargin(o.sweep, band);
+    if ~isempty(m)
+        out.warnings{end+1} = m;
+    end
+end
+end
+
+function m = sweepMargin(sw, band)
+% the sweep gate needs the sweep to reach beyond the analysis band: below it
+% the ramp from f_lo/1.5 to f_lo/1.1 (shortened to less than half, and the
+% start-frequency tone is cut close to the band), above it the ring-down
+% margin up to 1.1 f_hi. Otherwise the lines near that band edge are biased
+% (simulation, |R_term| = 0.9: up to 13 % at a 109 Hz start, 8 % at a
+% 4600 Hz stop for 120-4500 Hz; audit 2026-10-11) - with high coherence
+m = '';
+lo = sw.fStart > band(1) / 1.3; hi = sw.fStop < 1.1 * band(2);
+if ~(lo || hi), return; end
+parts = {};
+if lo, parts{end+1} = sprintf('start at or below %.0f Hz (now %g Hz)', floor(band(1) / 1.3), sw.fStart); end
+if hi, parts{end+1} = sprintf('stop at or above %.0f Hz (now %g Hz)', ceil(1.1 * band(2)), sw.fStop); end
+m = sprintf(['Sweep %g-%g Hz too close to the analysis band: the sweep gate cuts into the band edges and the ' ...
+    'lines near them can be biased although they stay valid. Let the sweep %s.'], sw.fStart, sw.fStop, strjoin(parts, ' and '));
 end
 
 function g = sweepGate(xr, fs, sw, band, taper, ex)
