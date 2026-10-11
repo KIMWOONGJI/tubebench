@@ -645,6 +645,50 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyGreaterThan(ex.duration_s, 0.8 * s.duration);
         end
 
+        function waitCompleteNotBeforeTheEndOfTheSweep(tc, separateAcquisition)
+            % section 3.2: waitComplete is never true before the sweep has ended -
+            % also for a separate source whose sweep the acquisition records on
+            % the same virtual rig (audit 2026-10-11: the 33220A mock answered
+            % *OPC? at once and the last 5-30 ms of every simulated sweep were cut)
+            cfg = tc.config('acquisition', separateAcquisition);
+            list = tim.instr.drivers();
+            srcName = '';
+            for i = 1:numel(list)
+                c = capabilitiesOf(list(i).name);
+                if any(strcmp('source', c.roles)) && ~c.rolesTogether, srcName = list(i).name; break; end
+            end
+            tc.assumeNotEmpty(srcName, 'no separate source driver registered');
+            cfg.generator.driver = srcName;
+            rig = tim.sim.SimulatedRig(cfg);
+            ctx = struct('mode', 'simulation', 'rig', rig, 'progress', []);
+            src = tim.instr.create('source', cfg, ctx);
+            tc.addTeardown(@() src.close());
+            acq = tim.instr.create('acquisition', cfg, ctx, src);
+            tc.addTeardown(@() acq.close());
+            quiet(acq);
+            acq.prepare(tc.channelSetup(cfg));
+            fs = acq.SampleRate;
+            s = struct('fStart', 200, 'fStop', 2000, 'duration', 0.5, 'spacing', 'LOG', 'amplitudeVpp', 0.2);
+            src.configureSweep(s);
+            nPre = round(0.5 * fs); nTotal = nPre + round(s.duration * fs) + round(0.5 * fs);
+            ok = false; doneAt = NaN; sweepEnd = NaN;
+            function onBlock(n)
+                if isnan(doneAt) && n >= nPre
+                    src.outputOn(); src.triggerSweep();
+                    ok = src.waitComplete(10);                  % asked at once after the trigger
+                    doneAt = rig.SampleCounter;
+                    sweepEnd = rig.TriggerLog(end) + s.duration * fs / (1 + rig.GenClockPpm * 1e-6);
+                    src.outputOff();
+                end
+            end
+            src.armOutput(true);
+            acq.acquire(nTotal, @onBlock);
+            src.armOutput(false);
+            tc.assertFalse(isnan(doneAt), 'the sweep ran inside the acquisition');
+            tc.verifyTrue(ok, 'the sweep completes');
+            tc.verifyGreaterThanOrEqual(doneAt, sweepEnd, 'waitComplete true only after the end of the sweep');
+        end
+
         %% ---------------- combined block device (planned output, section 8.3) ----------------
         function plannedActionsPlayedSampleExactly(tc, blockDevice)
             % every source call of the planning pass takes effect at its sample
@@ -776,6 +820,30 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             dev.armOutput(false);
             h.stallAfter(Inf);
             tc.verifySize(dev.acquire(4096), [4096 4], 'the next acquisition works');
+        end
+
+        function lostLinkWhilePlayingIsNotReportedOff(tc, blockDevice)
+            % section 3.5: when 0 V cannot be written after a stop (the device is
+            % not reachable any more while the output plays) the output state is
+            % unknown and reported as on - never as off (audit 2026-10-11)
+            [dev, h, cfg] = tc.make('acquisition', blockDevice);
+            dev.configureSine(1000, 0.2);
+            dev.prepare(tc.channelSetup(cfg));
+            B = planUnit(dev); broken = false;
+            function onBlock(n)
+                if dev.isPlanning()
+                    if n == B, dev.outputOn(); end
+                elseif ~broken && n >= 3 * B
+                    broken = true;
+                    h.breakLink();                              % cable pulled while it plays
+                end
+            end
+            dev.armOutput(true);
+            ws = warning('off', 'all'); restore = onCleanup(@() warning(ws));   % the driver warns about each failed step
+            tc.verifyError(@() dev.acquire(12 * B, @onBlock), ?MException, 'the lost link ends the acquisition');
+            tc.verifyTrue(broken, 'the link was lost while the output played');
+            tc.verifyTrue(dev.isOutputOn(), '0 V not confirmed: reported as on');
+            clear restore
         end
 
         function plannedSweepFollowsItsLaw(tc, blockDevice)

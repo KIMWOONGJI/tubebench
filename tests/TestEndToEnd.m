@@ -519,6 +519,68 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function stopBetweenRepetitionsKeepsTheCompletedOnes(tc)
+            % audit 2026-10-11: Stop pressed while the stream of repetition 2
+            % drains (between two repetitions; the next checkStop raises): the
+            % completed repetitions are kept (LastPartial, emergency file) and
+            % the generator is off and disarmed, as for a Stop inside the record
+            c = tc.cfg; c.excitation.sweep.repetitions = 3;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            s.StatusCallback = @(line) stopOn(s, line, 'Repetition 2:');
+            tc.verifyError(@() s.measure('sweep'), 'tim:session:stopped');
+            tc.verifyFalse(s.Gen.isOutputOn(), 'output off');
+            tc.verifyFalse(s.Gen.OutputArmed, 'disarmed: the output cannot be switched on outside measure*');
+            tc.verifyError(@() s.Gen.outputOn(), 'tim:gen:notArmed');
+            tc.assertNotEmpty(s.LastPartial, 'the completed repetitions are kept');
+            tc.verifyNumElements(s.LastPartial.records, 2);
+            tc.verifyEqual(s.LastPartial.error, 'Measurement stopped by user.');
+            em = dir(fullfile(c.output.dataDir, 'emergency', '*.mat'));
+            tc.verifyNumElements(em, 1, 'emergency file');
+            tc.verifyEqual(s.Status, 'error');
+            s.StatusCallback = [];
+            m = s.measure('sweep');                              % the next measurement works
+            tc.verifyNumElements(m.records, 3);
+            tc.verifyFalse(s.Gen.OutputArmed);
+            clear cleanup
+        end
+
+        function closedSessionConnectsAndClosesAgain(tc)
+            % audit 2026-10-11: close() after a reconnect of the same session
+            % releases the instruments again
+            s = tim.app.MeasurementSession(tc.cfg);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition(); s.close();
+            s.connect(); s.prepareAcquisition();
+            http = s.Daq.Http;
+            tc.assertEqual(http.State, 'RecorderStreaming');
+            s.close();
+            tc.verifyFalse(s.Connected);
+            tc.verifyFalse(s.Prepared);
+            tc.verifyEqual(s.Status, 'disconnected');
+            tc.verifyEqual(http.State, 'Idle', 'the LAN-XI module returned to Idle');
+            tc.verifyFalse(s.Gen.Transport.isOpen(), 'the generator transport closed');
+            clear cleanup
+        end
+
+        function relativeCalibrationFileFromAnyFolder(tc)
+            % audit 2026-10-11: a relative calibration.file is relative to the
+            % project root for the session as for the window (resolvePath), also
+            % when MATLAB's current folder is another one
+            root = tim.app.projectRoot();
+            tc.assumeTrue(strncmpi(root, tc.tmp, 2), 'project and temporary folder on the same drive');
+            cal = struct('type', 'tim.complexChannelCalibration', 'version', 'CAL-REL');
+            save(fullfile(tc.tmp, 'calrel.mat'), 'cal');
+            up = repmat({'..'}, 1, numel(strsplit(strip(root(3:end), 'right', filesep), filesep)) - 1);
+            rel = fullfile(up{:}, tc.tmp(4:end), 'calrel.mat');        % relative to the project root
+            tc.assertTrue(isfile(tim.app.resolvePath(rel)));
+            tc.applyFixture(matlab.unittest.fixtures.CurrentFolderFixture(tc.tmp));
+            c = tc.cfg; c.calibration.file = rel;
+            s = tim.app.MeasurementSession(c);
+            tc.verifyEqual(s.Calibration.version, 'CAL-REL');
+        end
+
         function incompleteGeometryStillMeasures(tc)
             c = tc.cfg;
             c.geometry = tim.app.defaultConfig().geometry;   % positions unknown (as in the lab today)
@@ -838,4 +900,9 @@ function connectSession(cfg)
 s = tim.app.MeasurementSession(cfg);
 cleanup = onCleanup(@() s.close());
 s.connect();
+end
+
+function stopOn(s, line, text)
+% the operator presses Stop when the session logs a line containing text
+if contains(line, text), s.requestStop(); end
 end

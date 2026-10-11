@@ -75,8 +75,9 @@ per line, `;` separates commands in one line. A real driver would use `tim.instr
 * The sweep settings are sent in the order of 3.3, the state last; every setting is read back.
 * The output state is the reply `ON` / `OFF`; any other reply raises `tim:gen:verify`.
 * `configureNoise` is refused (`tim:gen:unsupported`) without sending anything.
-* The mock answers `*OPC?` at once (it has no clock of its own); the session asks only after the
-  samples of the sweep have been recorded, so the simulated sweep has ended.
+* The mock answers `*OPC?` after a triggered sweep has ended: it lets the virtual time run on
+  (`tim.sim.SimulatedRig.finishSweep`; the running data stream records the rest of the sweep), as
+  the instrument blocks the reply until the end of the sweep.
 
 ## 6. Suitability (WO-001 section 3; guide step 2)
 

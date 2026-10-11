@@ -64,6 +64,8 @@ classdef MeasurementSession < handle
         ProgressKey char = ''    % checklist step currently running (marked 'fail' on error)
         OperationDepth double = 0  % nested beginOperation calls (GUI action > calibration)
         Closed logical = false   % close() done: never shut the module down twice
+        AcquireFailed logical = false  % guardedAcquire handled the error of this measurement
+                                       % (output off, disarmed, partial data saved)
     end
 
     methods
@@ -77,7 +79,9 @@ classdef MeasurementSession < handle
             obj.Cfg = cfg;
             obj.Mics = tim.app.MeasurementSession.micsByChannel(cfg.mics);
             if ~isempty(cfg.calibration.file)
-                obj.loadCalibration(cfg.calibration.file);
+                % a relative path is relative to the project root, as in the
+                % window (tim.app.resolvePath), not to MATLAB's current folder
+                obj.loadCalibration(tim.app.resolvePath(cfg.calibration.file));
             end
         end
 
@@ -89,6 +93,9 @@ classdef MeasurementSession < handle
             %   state (output off), reporting its checklist steps.
             c = obj.Cfg;
             obj.log('Connecting (%s mode)…', c.mode);
+            % a session closed before connects again: its next close() must
+            % release these instruments (also those of a connection that fails)
+            obj.Closed = false;
             ctx = struct('mode', c.mode, 'rig', [], 'progress', @(key, state, detail) obj.progress(key, state, detail));
             try
                 if strcmp(c.mode, 'simulation')
@@ -295,14 +302,22 @@ classdef MeasurementSession < handle
                     ev.offSample = n;
                 end
             end
-            for r = 1:sw.repetitions
-                obj.checkStop();
-                ev = struct('triggerSample', NaN, 'offSample', NaN, 'opcOk', false);
-                [data, info] = obj.guardedAcquire(nTotal, @onBlock, sprintf('swept sine, repetition %d', r), records, infos, sw.amplitudeVpp);
-                if isnan(ev.offSample), obj.Gen.outputOff(); end
-                records{end+1} = data; infos{end+1} = info; events{end+1} = ev; %#ok<AGROW>
-                obj.log('Repetition %d: sweep triggered at sample %d, output off at sample %d; data integrity %s', ...
-                    r, ev.triggerSample, ev.offSample, obj.okText(info.integrity));
+            % an interrupt (Ctrl+C) between two repetitions: never left armed
+            disarm = obj.disarmOnExit(); %#ok<NASGU>
+            obj.AcquireFailed = false;
+            try
+                for r = 1:sw.repetitions
+                    obj.checkStop();
+                    ev = struct('triggerSample', NaN, 'offSample', NaN, 'opcOk', false);
+                    [data, info] = obj.guardedAcquire(nTotal, @onBlock, sprintf('swept sine, repetition %d', r), records, infos, sw.amplitudeVpp);
+                    if isnan(ev.offSample), obj.Gen.outputOff(); end
+                    records{end+1} = data; infos{end+1} = info; events{end+1} = ev; %#ok<AGROW>
+                    obj.log('Repetition %d: sweep triggered at sample %d, output off at sample %d; data integrity %s', ...
+                        r, ev.triggerSample, ev.offSample, obj.okText(info.integrity));
+                end
+            catch err
+                obj.failedOutsideAcquisition(err, 'swept sine', records, infos);
+                rethrow(err);
             end
             obj.Gen.armOutput(false);
             meas = obj.packMeasurement('sweep', records, infos, sw, events);
@@ -343,13 +358,21 @@ classdef MeasurementSession < handle
                 end
             end
             records = {}; infos = {}; evs = {};
-            for r = 1:st.repetitions
-                ev.stepStart(:) = NaN; ev.onSample = NaN; k = 0;
-                if r > 1, obj.Gen.setFrequency(freqs(1)); end
-                [data, info] = obj.guardedAcquire(nTotal, @onBlock, 'stepped sine', records, infos, st.amplitudeVpp);
-                obj.Gen.outputOff();
-                records{end+1} = data; infos{end+1} = info; %#ok<AGROW>
-                evs{r} = ev; %#ok<AGROW>
+            % an interrupt (Ctrl+C) between two repetitions: never left armed
+            disarm = obj.disarmOnExit(); %#ok<NASGU>
+            obj.AcquireFailed = false;
+            try
+                for r = 1:st.repetitions
+                    ev.stepStart(:) = NaN; ev.onSample = NaN; k = 0;
+                    if r > 1, obj.Gen.setFrequency(freqs(1)); end
+                    [data, info] = obj.guardedAcquire(nTotal, @onBlock, 'stepped sine', records, infos, st.amplitudeVpp);
+                    obj.Gen.outputOff();
+                    records{end+1} = data; infos{end+1} = info; %#ok<AGROW>
+                    evs{r} = ev; %#ok<AGROW>
+                end
+            catch err
+                obj.failedOutsideAcquisition(err, 'stepped sine', records, infos);
+                rethrow(err);
             end
             obj.Gen.armOutput(false);
             st.frequencies = freqs; st.settleSamples = nSettle; st.recordSamples = nRec;
@@ -608,6 +631,7 @@ classdef MeasurementSession < handle
             try
                 [data, info] = obj.Daq.acquire(nTotal, onBlock);
             catch err
+                obj.AcquireFailed = true;  % handled here, not again by failedOutsideAcquisition
                 obj.Gen.outputOff();
                 obj.Gen.armOutput(false);
                 guard.dismiss();           % switched off here: no second output-off command
@@ -632,6 +656,35 @@ classdef MeasurementSession < handle
             guard.dismiss();               % normal end: the schedule switched the output off
             info = obj.checkRate(info);
             obj.setStatus('ready');
+        end
+
+        function failedOutsideAcquisition(obj, err, what, records, infos)
+            % an error of measureSweep / measureStepped outside guardedAcquire's
+            % acquisition: a Stop or an instrument error between two repetitions
+            % (checkStop, setFrequency) or a refused confirmation. The generator
+            % is disarmed (armOutput(false) also switches the output off) and the
+            % completed repetitions are kept in LastPartial and an emergency file,
+            % as for an error inside the acquisition. Nothing to do when
+            % guardedAcquire handled the error itself; before the first
+            % repetition nothing was armed or recorded, so nothing is sent.
+            if obj.AcquireFailed, return; end
+            if obj.Gen.OutputArmed, obj.Gen.armOutput(false); end
+            if isempty(records), return; end
+            partial = struct('records', {records}, 'infos', {infos}, 'error', err.message);
+            obj.LastPartial = partial;
+            f = tim.app.saveEmergency(obj, partial);
+            obj.setStatus('error');
+            obj.log(['Error during %s after %d completed repetition(s): %s. Generator output switched off. ' ...
+                'The completed repetitions were saved to %s.'], what, numel(records), regexprep(err.message, '\.$', ''), f);
+        end
+
+        function c = disarmOnExit(obj)
+            % onCleanup of measureSweep / measureStepped: an exit that skips the
+            % normal end and the error paths (an interrupt between two
+            % repetitions, where no output guard exists) leaves the generator
+            % disarmed and its output off. Sends nothing when it is not armed.
+            gen = obj.Gen;
+            c = onCleanup(@() tim.app.MeasurementSession.disarmSource(gen));
         end
 
         function info = checkRate(obj, info)
@@ -746,6 +799,15 @@ classdef MeasurementSession < handle
             if ~isempty(m) && isfield(m, 'channel')
                 [~, i] = sort([m.channel]);
                 m = m(i);
+            end
+        end
+        function disarmSource(gen)
+            %DISARMSOURCE armOutput(false) if the source is still armed (also
+            %   switches its output off). Never throws.
+            try
+                if ~isempty(gen) && isvalid(gen) && gen.OutputArmed, gen.armOutput(false); end
+            catch err
+                warning('tim:session:outputGuard', 'Output guard: %s', err.message);
             end
         end
         function s = sourceName(key)

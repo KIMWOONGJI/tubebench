@@ -166,7 +166,11 @@ classdef MockScpiTransport < handle
             s = obj.State;
             switch cmd
                 case '*IDN?', r = obj.IdnString;
-                case '*OPC?', r = '1';
+                case '*OPC?'
+                    % pending operations complete first: a triggered sweep runs
+                    % to its end (the virtual time passes, the stream records it)
+                    if ~isempty(obj.Rig), obj.Rig.finishSweep(); end
+                    r = '1';
                 case 'SYST:ERR?'
                     if isempty(obj.ErrorQueue)
                         r = '+0,"No error"';

@@ -50,6 +50,7 @@ classdef MockLanXiStream < handle
 
         function start(obj)
             obj.Running = true;
+            if ~isempty(obj.Rig), obj.Rig.setProducer(@() obj.advance()); end   % finishSweep
             obj.T0 = floor(posixtime(datetime('now', 'TimeZone', 'UTC')));
             if ~obj.Opt.OmitInterpretation
                 ids = 1:numel(obj.SignalChannels);
@@ -64,13 +65,21 @@ classdef MockLanXiStream < handle
 
         function stop(obj)
             obj.Running = false;
+            obj.releaseRig();
         end
 
-        function b = read(obj)
+        function advance(obj)
+            %ADVANCE Produce the next block now (delivered by the next reads):
+            %   the virtual time runs on while the generator mock waits for the
+            %   end of its sweep (tim.sim.SimulatedRig.finishSweep).
             if obj.Running && obj.Produced < obj.Opt.StopAfterSamples
                 n = min(obj.Opt.BlockSamples, obj.Opt.StopAfterSamples - obj.Produced);
                 obj.produce(n);
             end
+        end
+
+        function b = read(obj)
+            obj.advance();
             if obj.Opt.RandomChunking && numel(obj.Backlog) > 1
                 k = randi(obj.Rng, numel(obj.Backlog));
             else
@@ -85,10 +94,16 @@ classdef MockLanXiStream < handle
             if ~obj.Closed, tim.instr.mockBusLog('add', 'STREAM', 'close'); end
             obj.Closed = true;
             obj.Running = false;
+            obj.releaseRig();
         end
     end
 
     methods (Access = private)
+        function releaseRig(obj)
+            % this stream no longer produces the rig's samples
+            if ~isempty(obj.Rig), obj.Rig.setProducer([]); end
+        end
+
         function produce(obj, n)
             if isempty(obj.Rig)
                 v = 1e-3 * obj.Rng.randn(n, 4);

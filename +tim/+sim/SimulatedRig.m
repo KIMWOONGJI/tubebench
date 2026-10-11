@@ -70,6 +70,7 @@ classdef SimulatedRig < handle
         Phase double = 0
         Tail double
         Rng
+        Producer = []        % @() of the running data stream: produce its next block (setProducer)
     end
 
     methods
@@ -111,6 +112,27 @@ classdef SimulatedRig < handle
             obj.SweepStartSample = obj.SampleCounter + round(lat * obj.Fs);
             obj.TriggerLog(end+1, 1) = obj.SweepStartSample;
         end
+        function setProducer(obj, fcn)
+            %SETPRODUCER The running data stream registers fcn(): produce its
+            %   next block of samples (recorded, delivered on its next reads);
+            %   [] when it stops. Used by finishSweep.
+            obj.Producer = fcn;
+        end
+        function finishSweep(obj)
+            %FINISHSWEEP Let the virtual time run until the triggered sweep of
+            %   the separate generator has ended: a generator mock calls it
+            %   before it answers that the sweep is complete (33220A *OPC?), as
+            %   on the bench, where the query blocks until the end of the sweep
+            %   while the data stream keeps filling. The running stream produces
+            %   the samples. Returns at once without a running sweep or stream,
+            %   or when the stream stops delivering.
+            for i = 1:1e5
+                if isnan(obj.SweepStartSample) || ~obj.Gen.SWE_STAT || isempty(obj.Producer), return; end
+                n0 = obj.SampleCounter;
+                obj.Producer();
+                if obj.SampleCounter == n0, return; end      % the stream stalled or stopped
+            end
+        end
         function markTrigger(obj, sample)
             %MARKTRIGGER Record a sweep start at DAQ sample index sample (a
             %   source on the shared clock that starts its sweep itself).
@@ -151,7 +173,7 @@ classdef SimulatedRig < handle
         end
 
         function reset(obj)
-            obj.SampleCounter = 0; obj.Phase = 0; obj.SweepStartSample = NaN;
+            obj.SampleCounter = 0; obj.Phase = 0; obj.SweepStartSample = NaN; obj.Producer = [];
             obj.TriggerLog = zeros(0, 1); obj.OutputLog = zeros(0, 4); obj.Dirty = true;
             obj.Rng = RandStream('mt19937ar', 'Seed', obj.Seed);
         end

@@ -18,7 +18,10 @@ classdef MockTemplateAcquisition < handle
     %   COUPLING TO THE VIRTUAL TUBE (simulation mode, tim.sim.SimulatedRig): a
     %   separate acquisition takes its samples from rig.generate(m): the four
     %   microphone voltages produced by whatever source drives the rig (the
-    %   33220A mock, another generator mock), on the DAQ clock.
+    %   33220A mock, another generator mock), on the DAQ clock. While it runs
+    %   it registers advance() with rig.setProducer: a generator mock asked
+    %   whether its sweep is complete lets the virtual time run on through it
+    %   (rig.finishSweep), as a real device keeps recording meanwhile.
     %
     %   Fault injection (the driver's testHooks): fault('broken') - the link is
     %   lost, every operation fails; fault('stallAfter', n) - from the next
@@ -42,7 +45,8 @@ classdef MockTemplateAcquisition < handle
         Channels double = 1:4
         StallAfter double = Inf      % of the running acquisition
         FaultChannels double = []
-        Delivered double = 0         % samples delivered in the running acquisition
+        Delivered double = 0         % samples produced in the running acquisition (read or pending)
+        Pending double = zeros(0, 4) % produced, not yet read (advance)
         Next struct = struct('stallAfter', Inf, 'channels', [])   % faults of the next acquisition
     end
     properties (Constant)
@@ -74,8 +78,12 @@ classdef MockTemplateAcquisition < handle
             obj.operation('start');
             obj.Running = true;
             obj.Delivered = 0;
+            obj.Pending = zeros(0, numel(obj.Channels));
             obj.StallAfter = obj.Next.stallAfter;
             obj.FaultChannels = obj.Next.channels;
+            % a generator mock waiting for the end of its sweep lets the virtual
+            % time run on through this device (tim.sim.SimulatedRig.finishSweep)
+            if ~isempty(obj.Rig), obj.Rig.setProducer(@() obj.advance()); end
         end
 
         function [x, st] = read(obj)
@@ -84,28 +92,39 @@ classdef MockTemplateAcquisition < handle
             if obj.Broken, error('tim:templateacquisition:link', 'Mock device not reachable (read).'); end
             nCh = numel(obj.Channels);
             st = struct('fault', ismember(1:nCh, obj.FaultChannels), 'overload', false(1, nCh));
+            obj.advance();
+            x = obj.Pending;
+            obj.Pending = zeros(0, nCh);
+        end
+
+        function advance(obj)
+            %ADVANCE Produce the next block now (delivered by the next read): the
+            %   virtual time runs on, as on a device that keeps recording.
+            nCh = numel(obj.Channels);
             m = 0;
             if obj.Running, m = max(0, min(obj.BlockSamples, obj.StallAfter - obj.Delivered)); end
-            if m == 0
-                x = zeros(0, nCh);
-            elseif isempty(obj.Rig)
+            if m == 0, return; end
+            if isempty(obj.Rig)
                 x = 1e-4 * randn(m, nCh);
             else
                 y = obj.Rig.generate(m);                      % microphone volts of the virtual tube
                 x = y(:, obj.Channels);
             end
+            obj.Pending = [obj.Pending; x];
             obj.Delivered = obj.Delivered + m;
         end
 
         function stop(obj)
             obj.operation('stop');
             obj.Running = false;
+            obj.releaseRig();
         end
 
         function close(obj)
             if ~obj.Closed, obj.Log{end+1} = 'close'; end
             obj.Closed = true;
             obj.Running = false;
+            obj.releaseRig();
         end
 
         function setTimeout(~, ~)
@@ -123,6 +142,11 @@ classdef MockTemplateAcquisition < handle
     end
 
     methods (Access = private)
+        function releaseRig(obj)
+            % this device no longer produces the rig's samples
+            if ~isempty(obj.Rig), obj.Rig.setProducer([]); end
+        end
+
         function operation(obj, op)
             % one operation on the device: refused when closed or not reachable, else logged
             if obj.Closed, error('tim:templateacquisition:closed', 'Mock device closed (%s).', op); end

@@ -338,8 +338,15 @@ classdef LanXi < tim.instr.Acquisition
             if nargin < 4, timeout = nSamples / obj.SampleRate * 1.5 + 10; end
             obj.assertNotClosed('acquire');
             obj.AcquireDone = false;
-            obj.startMeasurement();
+            % nothing of the previous acquisition is collected as this one's
+            % partial data when the start fails (collect, rawBytes)
+            obj.Parser = tim.instr.LanXiStreamParser();
+            obj.LastStream = [];
+            % the guard exists BEFORE the start: a failed POST, a time-out of the
+            % RecorderRecording wait or an interrupt during the start also close
+            % the stream and stop a recording the module may have started
             cleanup = onCleanup(@() obj.endAcquire());
+            obj.startMeasurement();
             t0 = tic; n = 0; lastProgress = tic; lastN = 0;
             while n < nSamples
                 obj.assertNotClosed('acquire');        % close() from a callback during pause

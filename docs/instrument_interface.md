@@ -636,7 +636,12 @@ The rig keeps an `OutputLog` filled by both paths, one row per output block
 `[firstSample nSamples peak_V last_V]` (sample index on the rig's timeline; `respond(zeros(0, 1))`
 adds a row `[n 0 0 0]`: the output was set to 0 V), so the contract tests can check generically
 what was really played (section 11.3); `markTrigger(n)` records a sweep start of a shared-clock
-source in `TriggerLog`. A new real driver brings its own protocol mock (`docs/adding_an_instrument.md`
+source in `TriggerLog`. A generator mock that is asked whether its sweep is complete (33220A
+`*OPC?`, the demo source and the template) first calls `finishSweep()`: the running data stream
+(`MockLanXiStream`, registered with `setProducer`) produces samples until the triggered sweep
+has ended, as on the bench, where `*OPC?` blocks until the end of the sweep while the stream keeps
+filling. Before 2026-10-11 the mocks answered at once and the last 5-30 ms of every simulated
+sweep were cut (contract case `waitCompleteNotBeforeTheEndOfTheSweep`). A new real driver brings its own protocol mock (`docs/adding_an_instrument.md`
 step 5, from the templates) and runs in simulation mode like the two lab drivers.
 
 ## 11. Safety duties (checked by `tests/TestInstrumentContract.m`)
@@ -687,7 +692,13 @@ only `onCleanup` objects run. `guardedAcquire` therefore creates an output guard
 and `armOutput(false)` unless it was dismissed just before the normal return or after the error
 path switched the output off itself, so neither the normal path nor the error paths send an
 extra `OUTP OFF`. Every error path switches the output off, stops the acquisition and keeps the
-partial data (`s.LastPartial`, emergency file).
+partial data (`s.LastPartial`, emergency file). This includes the time **between two
+repetitions** of `measureSweep` / `measureStepped` (audit 2026-10-11): an error there - a Stop
+seen by the next repetition's check, an instrument error of the frequency reset - disarms the
+source (`armOutput(false)`, which also switches it off) and keeps the completed repetitions in
+`s.LastPartial` and the emergency file; an `onCleanup` disarms the source on an interrupt
+between two repetitions. Before the first repetition nothing is sent (the source was never
+armed), so the fault-path bus traffic is unchanged.
 
 ### 11.3 Contract tests and test hooks
 

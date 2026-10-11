@@ -28,6 +28,8 @@ LAN-XI capabilities reported by `/rest/rec/module/info`:
 | 33220A TCP socket, `*IDN?`, `SYST:ERR?`, `OUTP?` | HW-VERIFIED | read-only queries |
 | 33220A configure sine/sweep/noise, `*TRG`, `*OPC?`, `OUTP ON/OFF` | SW-VERIFIED | mock; SCPI strings verified against the manual (docs/ref_33220A_scpi.md). **PENDING** on hardware |
 | 33220A amplitude read-back safety check | SW-VERIFIED | PENDING on hardware |
+| SCPI transport: a late reply after a query time-out is discarded; the next query resynchronises with `*IDN?` (audit fix 2026-10-11) | SW-VERIFIED | local fake instrument on 127.0.0.1 (`TestInstruments/scpiLateReplyIsNotTakenAsTheNextAnswer`); not exercised on the 33220A (a time-out needs a slow or interrupted link) |
+| LAN-XI: a fault while a recording starts (POST, its reply lost, or the RecorderRecording wait) closes the stream and stops the recording (audit fix 2026-10-11) | SW-VERIFIED | mock fault injection (`TestInstruments/lanxiStartFailureReleasesTheStream`); PENDING on hardware |
 | LAN-XI REST client (GET/PUT/POST, HTTP 403 handling) | HW-VERIFIED | `PUT /create` in Idle → `403 "Cannot create recording in module state Idle"` |
 | LAN-XI open → create → TEDS detect → setup → stream → stop → finish → close | HW-VERIFIED | full cycle, module returned to Idle |
 | Recovery from an unexpected state (`shutdown`) | HW-VERIFIED | after a client-side timeout the module was in RecorderStreaming and was returned to Idle |

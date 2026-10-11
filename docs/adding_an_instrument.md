@@ -384,8 +384,8 @@ It couples to the virtual tube (`tim.sim.SimulatedRig`, contract section 10) in 
 
 | The instrument | The mock | Example |
 |---|---|---|
-| a separate generator (own clock) | maps its state onto the rig's function-generator model, `rig.setGeneratorState(struct('OUTP', 0/1, 'FUNC', 'SIN'/'NOI', 'FREQ', Hz, 'VOLT', Vpp, 'FREQ_STAR', Hz, 'FREQ_STOP', Hz, 'SWE_SPAC', 'LOG'/'LIN', 'SWE_TIME', s, 'SWE_STAT', 0/1, 'TRIG_SOUR', text))`, after every change; `rig.generatorTrigger()` when the sweep starts | `MockTemplateSource`, `MockScpiTransport` |
-| a separate DAQ | takes the microphone voltages from `rig.generate(m)` (m x 4, whatever source drives the rig) | `MockTemplateAcquisition`, `MockLanXiStream` |
+| a separate generator (own clock) | maps its state onto the rig's function-generator model, `rig.setGeneratorState(struct('OUTP', 0/1, 'FUNC', 'SIN'/'NOI', 'FREQ', Hz, 'VOLT', Vpp, 'FREQ_STAR', Hz, 'FREQ_STOP', Hz, 'SWE_SPAC', 'LOG'/'LIN', 'SWE_TIME', s, 'SWE_STAT', 0/1, 'TRIG_SOUR', text))`, after every change; `rig.generatorTrigger()` when the sweep starts; `rig.finishSweep()` before it answers that the sweep is complete (the virtual time runs to the end of the sweep) | `MockTemplateSource`, `MockScpiTransport` |
+| a separate DAQ | takes the microphone voltages from `rig.generate(m)` (m x 4, whatever source drives the rig); while it runs it registers a function that produces its next block, `rig.setProducer(@() obj.advance())` (`[]` at stop and close), used by `finishSweep` | `MockTemplateAcquisition`, `MockLanXiStream` |
 | one device in both roles | gives the rig its output samples and records the answer, `y = rig.respond(x)`; 0 V is `rig.respond(zeros(0, 1))` | `MockTemplateCombined`, `SimulatedCombined` |
 
 Keep from the template: the `Log` of every command (the contract tests count it to check that

@@ -175,7 +175,9 @@ classdef MockDemoSource < handle
             s = obj.State;
             switch cmd
                 case '*IDN?',           r = obj.IdnString;
-                case '*OPC?',           r = '1';            % the mock has no clock: never busy
+                case '*OPC?'                                % after the end of a triggered sweep
+                    if ~isempty(obj.Rig), obj.Rig.finishSweep(); end
+                    r = '1';
                 case 'SYST:ERR?'
                     if isempty(obj.ErrorQueue)
                         r = '0,"No error"';

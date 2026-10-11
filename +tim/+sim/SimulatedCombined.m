@@ -673,10 +673,17 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
         end
 
         function writeZero(obj)
-            % 0 V on the output (device session stopped)
-            obj.DeviceOn = false;
+            % 0 V on the output (device session stopped). The output counts as
+            % off only when the device took the write; when it failed the state
+            % is unknown and reported as on (contract section 3.5)
+            try
+                obj.device('output 0 V');
+            catch err
+                obj.DeviceOn = true;
+                rethrow(err);
+            end
             obj.Rig.respond(zeros(0, 1));
-            obj.device('output 0 V');
+            obj.DeviceOn = false;
         end
 
         function endAcquire(obj)
@@ -698,10 +705,10 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
                 try
                     obj.writeZero();                  % 0 V after the stop (contract section 3.1)
                 catch err
+                    % writeZero reports the output on: its state is unknown
                     warning('tim:simcombined:stop', 'Simulated device: output to 0 V after the stop: %s', err.message);
                 end
             end
-            obj.DeviceOn = false;
         end
 
         function device(obj, op)

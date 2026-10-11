@@ -148,7 +148,10 @@ The same style is used in the window and in the saved figures:
   not confirm the output off, the Generator lamp turns red and the status line reads "Generator
   output not confirmed off" until a later read-back confirms it. If a recording was running, it
   is stopped and the data received so far are saved to `data\emergency\partial_<time>.mat`; the
-  views then show the last measurement again.
+  views then show the last measurement again. A Stop or an instrument error **between two
+  repetitions** (e.g. while the stream of a repetition is being closed) also keeps the
+  repetitions completed so far in that file, and the generator is locked again (it can be
+  switched on only by the next measurement).
 * **Data integrity**: the input faults the acquisition reports (LAN-XI: DataQuality flags INVALID,
   clipped) and a software check (≥ 99 % of the input range) mark a measurement as failing. The
   results are still computed, the message pane lists the problem and a "Data integrity" warning

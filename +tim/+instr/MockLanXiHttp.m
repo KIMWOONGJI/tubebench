@@ -13,6 +13,8 @@ classdef MockLanXiHttp < handle
     %   Fault injection:
     %     TedsPresent      logical 1x4 - channels returning a TEDS record
     %     FailPath         path for which the next request fails (network error)
+    %     LoseReplyPath    path whose next request the module executes, but its
+    %                      reply is lost (network error after the state change)
     %     Broken           lost link: every request fails (network error), nothing
     %                      reaches the module
     %     StreamOptions    struct passed to MockLanXiStream (chunking, corruption...)
@@ -28,6 +30,7 @@ classdef MockLanXiHttp < handle
         TedsSensitivity double = [11.2 11.5 10.9 11.3] * 1e-3
         TedsSerial double = [3001001 3001002 3001003 3001004]
         FailPath char = ''
+        LoseReplyPath char = ''
         Broken logical = false
         StreamOptions struct = struct()
         Port double = 1536
@@ -102,6 +105,10 @@ classdef MockLanXiHttp < handle
                 otherwise
                     status = 404;
                     error('tim:lanxi:http', 'LAN-XI %s %s returned HTTP 404: not found (mock)', method, path);
+            end
+            if ~isempty(obj.LoseReplyPath) && strcmpi(path, obj.LoseReplyPath)
+                obj.LoseReplyPath = '';
+                error('tim:lanxi:network', 'LAN-XI %s %s failed: mock reply lost (the module executed it)', method, path);
             end
             raw = '';
         end
