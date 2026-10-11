@@ -170,23 +170,76 @@ classdef TestDsp < matlab.unittest.TestCase
 
         function sweepGateWarnsWithoutMarginBeyondTheBand(tc)
             % audit 2026-10-11: a sweep that does not reach far enough beyond the
-            % analysis band puts the gate ramps on the band edges (the lines
-            % there are biased but stay valid): a warning names the margin
+            % analysis band has no room for a gate ramp at that end; since the
+            % owner's decision of 2026-10-11 that end gets another window edge,
+            % recorded in excitation.gateEnds, and a warning names it and the
+            % margin (lower end: from the detected start; upper end: the gate's
+            % ring-down margin past the sweep end)
             rig = tc.makeRig(2e-3);
             fs = rig.Fs;
-            for r = [80 5500 0; 120 4500 1; 109 5500 1; 80 4600 1]'
+            cases = {80 5500 {'gate', 'gate'}; 120 4500 {'detected start', 'ring-down margin'}; ...
+                109 5500 {'detected start', 'gate'}; 80 4600 {'gate', 'ring-down margin'}};
+            for i = 1:size(cases, 1)
+                [f1, f2, ends] = cases{i, :};
+                rig.reset();
+                g = tc.genState('SWE_STAT', 1, 'OUTP', 0, 'FREQ_STAR', f1, 'FREQ_STOP', f2);
+                rig.setGeneratorState(g);
+                pre = rig.generate(fs);
+                g.OUTP = 1;
+                x = [pre; tc.record(rig, g, round(4.6 * fs), 0)];
+                sw = struct('fStart', f1, 'fStop', f2, 'duration', 3, 'spacing', 'LOG');
+                sp = tim.dsp.sweepResponse({x}, fs, struct('fRange', [120 4500], 'df', 2, 'preRoll', 1, ...
+                    'excitationBand', [f1 f2], 'sweep', sw));
+                what = sprintf('sweep %g-%g Hz', f1, f2);
+                tc.assertTrue(sp.excitation.gated, [what ' found']);
+                tc.verifyEqual(sp.excitation.gateEnds, ends, what);
+                w = sp.warnings(contains(sp.warnings, 'too close to the analysis band'));
+                tc.verifyEqual(numel(w), double(~isequal(ends, {'gate', 'gate'})), what);
+                if isempty(w), continue; end
+                tc.verifyEqual(contains(w{1}, 'starts at the detected excitation'), strcmp(ends{1}, 'detected start'), what);
+                tc.verifyEqual(contains(w{1}, 'extended past the end of the sweep by the gate''s ring-down margin'), ...
+                    strcmp(ends{2}, 'ring-down margin'), what);
+                t0 = sp.excitation.sweepStart_s; T = sp.excitation.sweepDuration_s; gt = sp.excitation.gate_s;
+                if strcmp(ends{1}, 'detected start')
+                    tc.verifyEqual(gt(2), min(sp.excitation.start_s, t0), 'AbsTol', 1e-9, [what ': window from the detected start']);
+                end
+                if strcmp(ends{2}, 'ring-down margin')
+                    % 1 up to t(1.1 f_hi), 0 at t(1.5 f_hi) on the continued sweep law
+                    tl = @(f) t0 + T * log(f / f1) / log(f2 / f1);
+                    tc.verifyEqual(gt(3:4), [tl(1.1 * 4501) tl(1.5 * 4501)], 'AbsTol', 1e-9, [what ': ring-down margin']);
+                end
+            end
+        end
+
+        function sweepGateWithoutMarginKeepsTheEdgeLines(tc)
+            % owner decision 2026-10-11 (audit: up to 58 % H error at |R_term|
+            % 0.9 with the 10 ms gate ramps inside the band): a sweep without the
+            % margin at an end is analysed from the detected start / with the
+            % ring-down margin past the sweep end there, so the lines near the
+            % band edges keep their accuracy. Session-like records: the output
+            % is switched off just after the sweep.
+            c = tc.cfg;
+            c.simulation.Termination = struct('R', 0.9, 'x', 0.6);
+            rig = tim.sim.SimulatedRig(c); rig.NoisePa = 2e-5; rig.NoiseV = 2e-8;
+            fs = rig.Fs;
+            for r = [120 4500; 109 5500; 80 4600]'
                 rig.reset();
                 g = tc.genState('SWE_STAT', 1, 'OUTP', 0, 'FREQ_STAR', r(1), 'FREQ_STOP', r(2));
                 rig.setGeneratorState(g);
                 pre = rig.generate(fs);
                 g.OUTP = 1;
-                x = [pre; tc.record(rig, g, round(4.6 * fs), 0)];
+                on = tc.record(rig, g, round(3.4 * fs), 0);          % trigger after the first block, sweep 3 s
+                g.OUTP = 0;
+                off = tc.record(rig, g, round(1.2 * fs));            % output off, ring-down
+                x = [pre; on; off];
                 sw = struct('fStart', r(1), 'fStop', r(2), 'duration', 3, 'spacing', 'LOG');
                 sp = tim.dsp.sweepResponse({x}, fs, struct('fRange', [120 4500], 'df', 2, 'preRoll', 1, ...
-                    'excitationBand', [r(1) r(2)], 'sweep', sw));
-                tc.assertTrue(sp.excitation.gated, sprintf('sweep %g-%g Hz found', r(1), r(2)));
-                warned = any(contains(sp.warnings, 'too close to the analysis band'));
-                tc.verifyEqual(warned, logical(r(3)), sprintf('sweep %g-%g Hz', r(1), r(2)));
+                    'excitationBand', r', 'ringDown', 0.5, 'sweep', sw));
+                tc.assertTrue(sp.excitation.gated, sprintf('sweep %g-%g Hz found', r));
+                tr = rig.trueResponse(sp.f); Ht = tr.G ./ tr.G(:, 1);
+                e = abs(sp.H(:, 2:4) ./ Ht(:, 2:4) - 1);
+                % measured 0.6-0.9 % (as without the gate); the gate gave 58 / 12 / 7.9 %
+                tc.verifyLessThan(max(e(:)), 0.03, sprintf('sweep %g-%g Hz: max |H/H_true - 1|', r));
             end
         end
 

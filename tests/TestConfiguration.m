@@ -346,7 +346,7 @@ classdef TestConfiguration < matlab.unittest.TestCase
             tc.verifyFalse(any(contains(tim.app.validateConfig(c), 'Swept sine')), 'default 80-5500 Hz');
             for r = [109 5500; 80 4600; 120 4500]'
                 b = c; b.excitation.sweep.fStart = r(1); b.excitation.sweep.fStop = r(2);
-                tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'sweep gate cuts into the band edges')), mat2str(r'));
+                tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'the sweep gate has no room at that end')), mat2str(r'));
             end
             b = c; b.excitation.sweep.preRoll = 0.05;
             tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'pre-roll 0.05 s')));

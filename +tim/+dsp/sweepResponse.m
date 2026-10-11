@@ -43,9 +43,22 @@ function out = sweepResponse(records, fs, opts)
 %   analysis band: the window edges lie in the part of the sweep outside
 %   the band (long, smooth ramps: no truncation leakage into the band) and
 %   the band keeps its ring-down (at least the time from fHi to 1.1 fHi).
-%   Ramps shorter than 'taper' are widened to 'taper' inside the sweep. If
-%   the sweep is not found reliably the record is cut as below and a
-%   warning says so.
+%   Ramps shorter than 'taper' are widened to 'taper' inside the sweep.
+%   AN END WITHOUT THE MARGIN (owner decision 2026-10-11): when the sweep
+%   starts above fLo/1.3 or stops below 1.1 fHi, the gate would put its ramp
+%   on the band edge there (biased lines with a high coherence). That end of
+%   the window is then
+%       start: as without the gate, from the detected start - taper (raised
+%              cosine; the output-on transient and the start tone included);
+%       end:   extended past the sweep end t0+T by the gate's ring-down
+%              margin, the sweep law continued beyond fStop: 1 up to
+%              t(1.1 fHi), raised cosine down to t(1.5 fHi) (at least
+%              'taper', at most the end of the record), so a later
+%              output-off transient stays out.
+%   excitation.gateEnds names the edge used per repetition ('gate',
+%   'detected start', 'ring-down margin') and a warning says so. If the
+%   sweep is not found reliably the record is cut as below and a warning
+%   says so.
 %   Without the gate the record of each repetition is cut from (detected
 %   start - taper) to (detected end + ringDown) with short raised-cosine
 %   tapers, so the acoustic ring-down is included and leakage from
@@ -54,8 +67,9 @@ function out = sweepResponse(records, fs, opts)
 %   noise measured in the pre-roll (same window, same length).
 %
 %   out fields: f, H (Nf x C, H(:,ref) = 1), coherence, snr_dB, nAvg,
-%   excitation (per repetition: detected start/end/duration), noisePSD,
-%   method, options.
+%   excitation (per repetition: detected start/end/duration, gated,
+%   sweepStart_s, sweepDuration_s, gate_s, gateEnds {lower, upper}),
+%   method, options, warnings.
 
 arguments
     records
@@ -85,7 +99,7 @@ Scr = zeros(nB, C); Srr = zeros(nB, 1); Scc = zeros(nB, C);
 SccN = zeros(nB, C); Enoise = zeros(nB, C);   % SNR only from reps with a noise estimate
 nAvg = zeros(nB, 1); nNoiseReps = 0;
 excit = struct('start_s', {}, 'end_s', {}, 'duration_s', {}, 'noiseRms', {}, 'peakRms', {}, 'detected', {}, ...
-    'gated', {}, 'sweepStart_s', {}, 'sweepDuration_s', {}, 'gate_s', {});
+    'gated', {}, 'sweepStart_s', {}, 'sweepDuration_s', {}, 'gate_s', {}, 'gateEnds', {});
 useGate = o.excludeSwitching && isstruct(o.sweep) && ~isempty(o.sweep);
 gateWarn = [];
 band = [min(fGrid) - o.df / 2, max(fGrid) + o.df / 2];
@@ -95,6 +109,7 @@ for r = 1:numel(records)
     x = x - mean(x, 1);
     ex = tim.dsp.detectExcitation(x(:, ref), fs, o.excitationBand, o.detectThreshold_dB, o.preRoll);
     ex.gated = false; ex.sweepStart_s = NaN; ex.sweepDuration_s = NaN; ex.gate_s = nan(1, 4);
+    ex.gateEnds = {'', ''};
     % ---- segment and window
     g = [];
     if useGate && ex.detected
@@ -102,6 +117,7 @@ for r = 1:numel(records)
     end
     if ~isempty(g)
         ex.gated = true; ex.sweepStart_s = g.t0; ex.sweepDuration_s = g.T; ex.gate_s = g.t;
+        ex.gateEnds = g.ends;
         i1 = max(1, floor(g.t(1) * fs) + 1);
         i2 = min(size(x, 1), ceil(g.t(4) * fs));
         tt = (i1 - 1:i2 - 1).' / fs;
@@ -195,21 +211,38 @@ if any([excit.gated])
 end
 end
 
-function m = sweepMargin(sw, band)
+function [lo, hi] = noMargin(sw, band)
 % the sweep gate needs the sweep to reach beyond the analysis band: below it
-% the ramp from f_lo/1.5 to f_lo/1.1 (shortened to less than half, and the
-% start-frequency tone is cut close to the band), above it the ring-down
-% margin up to 1.1 f_hi. Otherwise the lines near that band edge are biased
-% (simulation, |R_term| = 0.9: up to 13 % at a 109 Hz start, 8 % at a
-% 4600 Hz stop for 120-4500 Hz; audit 2026-10-11) - with high coherence
+% the ramp from f_lo/1.5 to f_lo/1.1 (shortened to less than half, the
+% start-frequency tone cut close to the band), above it the ring-down margin
+% up to 1.1 f_hi. Without that room the gated lines near the band edge were
+% biased with a high coherence (simulation, |R_term| = 0.9, 120-4500 Hz: up
+% to 13 % at a 109 Hz start, 8 % at a 4600 Hz stop, 58 % for 120-4500 Hz;
+% audit 2026-10-11); such an end gets another edge (sweepGate)
+lo = sw.fStart > band(1) / 1.3;
+hi = sw.fStop < 1.1 * band(2);
+end
+
+function m = sweepMargin(sw, band)
+% warning for a sweep without the margin at one or both ends: which window
+% edge was used there instead of the gate
 m = '';
-lo = sw.fStart > band(1) / 1.3; hi = sw.fStop < 1.1 * band(2);
+[lo, hi] = noMargin(sw, band);
 if ~(lo || hi), return; end
-parts = {};
-if lo, parts{end+1} = sprintf('start at or below %.0f Hz (now %g Hz)', floor(band(1) / 1.3), sw.fStart); end
-if hi, parts{end+1} = sprintf('stop at or above %.0f Hz (now %g Hz)', ceil(1.1 * band(2)), sw.fStop); end
-m = sprintf(['Sweep %g-%g Hz too close to the analysis band: the sweep gate cuts into the band edges and the ' ...
-    'lines near them can be biased although they stay valid. Let the sweep %s.'], sw.fStart, sw.fStop, strjoin(parts, ' and '));
+what = {}; parts = {};
+if lo
+    what{end+1} = ['the analysis window starts at the detected excitation, as without the gate (the ' ...
+        'output-on transient and the start tone included)'];
+    parts{end+1} = sprintf('start at or below %.0f Hz (now %g Hz)', floor(band(1) / 1.3), sw.fStart);
+end
+if hi
+    what{end+1} = ['the window is extended past the end of the sweep by the gate''s ring-down margin (an ' ...
+        'output-off transient within it is included)'];
+    parts{end+1} = sprintf('stop at or above %.0f Hz (now %g Hz)', ceil(1.1 * band(2)), sw.fStop);
+end
+m = sprintf(['Sweep %g-%g Hz too close to the analysis band for the sweep gate: %s. Let the sweep %s to keep ' ...
+    'the generator''s switching transients out of the analysis.'], sw.fStart, sw.fStop, strjoin(what, '; '), ...
+    strjoin(parts, ' and '));
 end
 
 function g = sweepGate(xr, fs, sw, band, taper, ex)
@@ -233,11 +266,36 @@ else
     tf = @(f) t0 + T * (min(max(f, f1), f2) - f1) / (f2 - f1);
 end
 t = [tf(band(1) / 1.5), tf(band(1) / 1.1), tf(band(2) * 1.1), tf(band(2) * 1.5)];
-% minimum ramp length inside the sweep (the band reaches the sweep start / end)
-if t(2) - t(1) < taper, t(1) = max(t0, t(2) - taper); t(2) = t(1) + taper; end
-if t(4) - t(3) < taper, t(4) = min(t0 + T, t(3) + taper); t(3) = t(4) - taper; end
+[lo, hi] = noMargin(sw, band);
+ends = {'gate', 'gate'};
+if lo
+    % no room below the band (owner decision 2026-10-11): from the detected
+    % start, as without the gate (docs/theory.md section 4, step 2')
+    t(1) = max(0, min(ex.start_s, t0) - taper); t(2) = t(1) + taper;
+    ends{1} = 'detected start';
+elseif t(2) - t(1) < taper
+    % minimum ramp length inside the sweep
+    t(1) = max(t0, t(2) - taper); t(2) = t(1) + taper;
+end
+if hi
+    % no room above the band (owner decision 2026-10-11): the gate's ring-down
+    % margin past the sweep end, the sweep law continued beyond fStop - 1 up
+    % to t(1.1 f_hi), raised cosine down to t(1.5 f_hi) (at least the taper,
+    % at most the record), so a later output-off transient stays out
+    if strncmpi(sw.spacing, 'LOG', 3)
+        tx = @(f) t0 + T * log(f / f1) / log(f2 / f1);
+    else
+        tx = @(f) t0 + T * (f - f1) / (f2 - f1);
+    end
+    t(4) = min(numel(xr) / fs, max(tx(band(2) * 1.5), t0 + T + taper));
+    t(3) = min(max(tx(band(2) * 1.1), t0 + T), t(4) - taper);
+    ends{2} = 'ring-down margin';
+elseif t(4) - t(3) < taper
+    % minimum ramp length inside the sweep
+    t(4) = min(t0 + T, t(3) + taper); t(3) = t(4) - taper;
+end
 if ~(t(2) <= t(3)), return; end
-g = struct('t0', t0, 'T', T, 't', t);
+g = struct('t0', t0, 'T', T, 't', t, 'ends', {ends});
 end
 
 function w = gateWindow(tt, t)
