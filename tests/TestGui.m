@@ -354,7 +354,14 @@ classdef TestGui < matlab.unittest.TestCase
         end
 
         function closeDuringMeasurementStopsFirst(tc)
-            % a close request while a measurement runs stops it first, then closes
+            % a close request while a measurement runs stops it first, then closes.
+            % The request comes from INSIDE the acquisition (review 2026-10-11: the
+            % former 1 s timer fired while the window was still preparing the
+            % measurement, so the session stopped before 'Swept sine' and no
+            % acquisition was running): from the session's block callback, once
+            % the virtual rig has produced the pre-roll and a third of the sweep
+            % of repetition 1 - a fixed sample count, as TestBusTraffic's
+            % atSample, independent of the wall clock.
             c = tim.app.defaultConfig(); c.mode = 'simulation';
             c.geometry = c.simulation.Geometry;
             c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
@@ -363,39 +370,58 @@ classdef TestGui < matlab.unittest.TestCase
             app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
             s = app.Session; fig = app.Fig;
+            tc.assertNotEmpty(s.Rig, 'simulation: the virtual rig counts the samples');
+            sw = s.Cfg.excitation.sweep;
+            n = round((sw.preRoll + sw.duration / 3) * s.Cfg.acquisition.sampleRate);
             t0 = tic;
             stamps = stampLog(s, t0);
-            closer = timer('StartDelay', 1.0, 'UserData', NaN, 'TimerFcn', @(t, ~) requestCloseAndStamp(t, fig, app, t0));
-            tc.addTeardown(@() delete(closer));
-            start(closer);
+            at = struct('first', NaN, 't', NaN, 'samples', NaN, 'log', {{}});
+            live = s.BlockCallback;                        % the window's live view (keeps it as in use)
+            s.BlockCallback = @closeInside;
             feval(app.H.start.ButtonPushedFcn, app.H.start, []);   % returns when stopped + closed
             tAll = toc(t0);
+            tc.assertFalse(isnan(at.t), 'the close was requested inside the acquisition');
+            tc.verifyTrue(any(contains(at.log, 'Swept sine')), 'the measurement had started');
+            tc.verifyFalse(any(contains(at.log, 'Repetition 1:')), 'during repetition 1');
+            tc.verifyGreaterThanOrEqual(at.samples, n, 'after the pre-roll: the sweep was running');
             % Timed: only what this test guards - from the close request to the
             % last closing step ("Closing: window deleted.", logged right before
-            % the window is deleted). The request stops the action at its next
-            % check (every received block; the mocks deliver at once); the stopped
-            % action reads the generator output back (1 s time-out) and the window
-            % then closes as in closeShowsStepsAndDisconnects (at most 1 + 2 x 2 s
-            % of time-outs). Longer than these time-outs together means the close
-            % waited for something, e.g. for the measurement to end. Not timed:
-            % the preparation of the measurement before the request and deleting
-            % the window afterwards (the former limit of 20 s on the whole Start
-            % call failed at 20.1 s on 2026-10-11 under memory pressure; the
-            % steps themselves took 2-4 s).
-            tRequest = closer.UserData;
+            % the window is deleted): the acquisition stops at its next block, the
+            % stopped action reads the generator output back and draws the last
+            % result again, and the window closes as in
+            % closeShowsStepsAndDisconnects. The mocks answer at once, so no
+            % time-out is involved: this is window processing, about 2 s on the
+            % lab laptop (2026-10-11); 6 s leaves room for a loaded PC. The
+            % simulated acquisition runs faster than real time, so the time is
+            % no proof that the measurement was stopped - the missing
+            % 'Repetition 1:' line below is. Not timed: the preparation before
+            % the request and deleting the window afterwards (the former limit
+            % of 20 s on the whole Start call failed at 20.1 s on 2026-10-11
+            % under memory pressure).
             tSteps = stampOf(stamps, 'Closing: window deleted.');
-            tc.assertFalse(isnan(tRequest), 'the close was requested');
-            tc.verifyLessThan(tSteps - tRequest, 1 + (1 + 2 * 2), sprintf(['close request at %.1f s, last closing ' ...
-                'step %.2f s later (the whole Start call, deleting the window included: %.1f s)'], ...
-                tRequest, tSteps - tRequest, tAll));
+            tc.verifyLessThan(tSteps - at.t, 6, sprintf(['close request at %.1f s, last closing step %.2f s later ' ...
+                '(the whole Start call, deleting the window included: %.1f s)'], at.t, tSteps - at.t, tAll));
             tc.verifyTrue(s.StopRequested, 'the running measurement was stopped first');
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
             tc.verifyFalse(s.Connected);
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: window close requested while busy - STOP requested first.')));
+            tc.verifyTrue(any(contains(s.LogLines, 'Error during swept sine, repetition 1: Measurement stopped by user.')), ...
+                'stopped inside the acquisition of repetition 1 (its error path: output off, partial data kept)');
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output off (confirmed).')));
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: Instruments disconnected.')));
-            % stopped (inside the acquisition, or before it started - a close request
-            % before the first measurement is honoured too), never completed
-            tc.verifyFalse(any(contains(s.LogLines, 'Repetition 4:')), strjoin(s.LogLines, newline));
+            % stopped inside repetition 1: it never completed (a close that waited
+            % for the measurement would log 'Repetition 1:' ... 'Repetition 4:')
+            tc.verifyFalse(any(contains(s.LogLines, 'Repetition 1:')), strjoin(s.LogLines, newline));
+            function closeInside()
+                if isnan(at.first) && any(contains(s.LogLines, 'Swept sine'))
+                    at.first = s.Rig.SampleCounter;                 % the sweep measurement has started
+                end
+                if isnan(at.t) && ~isnan(at.first) && s.Rig.SampleCounter - at.first >= n
+                    at.t = toc(t0); at.samples = s.Rig.SampleCounter - at.first; at.log = s.LogLines;
+                    tim.gui.closeApp(fig, app);                     % first close request: during the acquisition
+                end
+                if ~isempty(live), live(); end
+            end
         end
 
         function staleStopDoesNotAnswerLaterQuestions(tc)
@@ -1401,12 +1427,6 @@ function closeAndStamp(t, app, t0)
 % timer callback: close the window, then record when it is gone (s after t0)
 tim.gui.closeApp(app.Fig, app);
 t.UserData = toc(t0);
-end
-
-function requestCloseAndStamp(t, fig, app, t0)
-% timer callback: record when the close is requested (s after t0), then request it
-t.UserData = toc(t0);
-tim.gui.closeApp(fig, app);
 end
 
 function stamps = stampLog(s, t0)
