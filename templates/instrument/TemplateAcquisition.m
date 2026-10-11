@@ -45,7 +45,8 @@ classdef TemplateAcquisition < tim.instr.Acquisition
     %   sections 4, 8 and 11): streaming (onBlock as data arrive, at least
     %   every 0.25 s), exactly the configured sample rate, volts at the input
     %   (no sensitivity applied), device faults in integrity.channelFaults in
-    %   the driver's words, AbortFcn first on every abnormal end, the device
+    %   the driver's words, AbortFcn first on every abnormal end (the session
+    %   sets it to switch the source output off before the stop), the device
     %   stopped on every exit path (onCleanup), nothing sent after close().
     %   TODO one line: the device (vendor, model), its interface and the manual.
 

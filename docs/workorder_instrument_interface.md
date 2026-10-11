@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.2.0 (next version; not before the start-up work of 2026-10-10 is merged) |
-| Status | **software complete** on branch `wo-001` (2026-10-11, review fixes included; section 7); **hardware check pending** (§0.3) - software-verified in simulation only; merged into `main` (version 1.2.0) only after the owner's hardware check |
+| Status | **software complete** on branch `wo-001` (2026-10-11, review fixes included; section 7); owner decisions of 2026-10-11 recorded and implemented (§0 item 6); **hardware check pending** (§0.3, planned for 2026-10-12) - software-verified in simulation only; merged into `main` (version 1.2.0) only after the owner's hardware check |
 | Requested by | the owner (Woongji Kim) |
 | Scope | software only; hardware tests need the owner's approval and presence |
 | Depends on | nothing else; the in-tube hardware verification stays on hold independently |
@@ -43,6 +43,20 @@
      shared clock, block acquisition, no TEDS) at contract level on `SimulatedRig`: registered,
      selectable in the configuration, passing the contract tests and a simulated calibration +
      measurement through the session and the (hidden) GUI without driver-specific code there.
+6. **Decisions of 2026-10-11 - every pending recommendation approved by the owner**
+   (`docs/instrument_interface.md` section 13.4):
+   - D7: `config/user_config.json` stays in the old layout until after the hardware check (§0.3);
+     then it is rewritten in the new layout - after that check, not before.
+   - D8 (simulation through the real drivers on their mocks plus `simcombined`), D43 (the demo
+     source stays registered, simulation only) and D45 (a driver's defaults only in its
+     `describe().defaults`): as built.
+   - D24: the session sets `AbortFcn = @() Gen.outputOff()` at connect, so on the abnormal end of
+     an acquisition the output goes off before the acquisition's stop sequence - implemented; the
+     fault fixture regenerated from the code (no hand edit left).
+   - The bus order of the fault-fixture scenario "window closed twice inside a sweep" (ends with
+     `tim:instr:closed`) and after a Stop during the LAN-XI connect step: approved as built.
+   - The hardware check follows (the owner reconnects the instruments); only after it: version
+     1.2.0 and the merge into `main`.
 
 ## 1. Goal
 
@@ -230,15 +244,20 @@ first; no clicking or typing on the owner's screen; commit, never push unless as
 1. Task 7: no contract-level `SimulatedSource` / `SimulatedAcquisition`. The lab drivers run on
    their protocol mocks in simulation (the only path that exercises their commands and the
    bus-traffic tests), and the contract-level simulated driver is the combined `simcombined`,
-   which proves change B (D8).
-2. `AbortFcn` is not set by the session (D24): it would change the order on the bus after a
-   stalled stream and waits for the owner's approval. Until then the session switches the output
-   off in its error path after `acquire` returns; an interrupt is covered by the output guard.
-3. Bus traffic: two intended changes of order, both documented - closing the window inside a sweep
-   ends the measurement with `tim:instr:closed` (fault fixture edited in stage B), and a Stop during
-   the LAN-XI connect step returns the module to Idle from the driver, before the generator's
-   close lines instead of after them (fix stage; an explicit test, fixtures unchanged).
-4. §5 item 3: a driver's defaults are in its `describe().defaults`, not in `defaultConfig` (D45).
+   which proves change B (D8; approved by the owner 2026-10-11).
+2. `AbortFcn` was not set by the session until the owner approved it (D24): it changes the order
+   on the bus after a stalled stream or a Stop. Approved on 2026-10-11 and implemented: the session
+   sets it at connect, so the output goes off before the acquisition's stop sequence; the session
+   then disarms the source after `acquire` returns; an interrupt is covered by the output guard.
+3. Bus traffic: three intended changes of order, all documented and approved by the owner on
+   2026-10-11 - closing the window inside a sweep ends the measurement with `tim:instr:closed`
+   (fault fixture edited by hand in stage B), a Stop during the LAN-XI connect step returns the
+   module to Idle from the driver, before the generator's close lines instead of after them (fix
+   stage; an explicit test), and D24: on the abnormal end of an acquisition one `OUTP OFF` comes
+   before the REST stop. The fault fixture was regenerated from the code on 2026-10-11 (no hand
+   edit left); the normal-path fixture is unchanged.
+4. §5 item 3: a driver's defaults are in its `describe().defaults`, not in `defaultConfig` (D45;
+   approved by the owner 2026-10-11).
 5. §4 task 3 / acceptance: `validateConfig` asks the drivers, but a file is refused only where an
    instrument is needed (Connect, the session); loading warns (D29, extended in the fix stage), so
    old `user_config.json` files, files written by 1.1.0 and saved measurement folders still load.
@@ -251,6 +270,6 @@ first; no clicking or typing on the owner's screen; commit, never push unless as
   with the output off; a short measurement at a level the owner approves (not above the configured
   default 0.2 Vpp); Stop during a measurement; output-off read-back; closing. The steps are listed
   in `docs/hardware_status.md`. Only then: hardware-verified, version 1.2.0, merge into `main`.
-* After the owner's approval: `AbortFcn = @() Gen.outputOff()` in the session and the fault
-  fixture updated (D24).
+* After the hardware check: `config/user_config.json` rewritten in the new layout (D7, approved by
+  the owner 2026-10-11).
 * The NI and audio guidance (guide section 4.1) is not tried on a device: there is none in the lab.

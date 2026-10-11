@@ -578,6 +578,43 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function combinedDeviceStopsItsOutputFirstOnADeviceError(tc)
+            % D24 (approved by the owner 2026-10-11): connect sets the
+            % acquisition's AbortFcn = @() Gen.outputOff() for every driver pair
+            % (the lab pair: TestBusTraffic/outputOffBeforeTheStopOnAnAbnormalEnd).
+            % For a combined device it is the device's own re-entrant outputOff:
+            % when the device stalls while the output plays, the output stops
+            % (fade to 0 V) before the device stop and the 0 V write
+            c = tc.cfg;
+            c.generator.driver = 'simcombined'; c.daq.driver = 'simcombined';
+            sens = [11.2 11.5 10.9 11.3] * 1e-3;      % no TEDS: certificate values
+            for i = 1:4, c.mics(i).certificateSensitivity_VperPa = sens(c.mics(i).channel); end
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            quiet = warning('off', 'tim:emergency');
+            restoreWarn = onCleanup(@() warning(quiet));
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            tc.verifyClass(s.Daq.AbortFcn, 'function_handle', 'set by connect');
+            h = tim.sim.SimulatedCombined.testHooks(s.Daq);
+            fs = c.acquisition.sampleRate;
+            h.stallAfter(round((c.excitation.sweep.preRoll + 0.5) * fs));   % in the middle of the sweep
+            n0 = numel(h.traffic());
+            tc.verifyError(@() s.measure('sweep'), 'tim:simcombined:stalled');
+            t = h.traffic(); t = t(n0 + 1:end);
+            iHalt = find(strcmp(t, 'output stop'), 1);
+            iStop = find(strcmp(t, 'stop'), 1);
+            tc.assertNotEmpty(iHalt, ['the output was stopped by AbortFcn: ' strjoin(t(max(1, end - 4):end), ' | ')]);
+            tc.verifyLessThan(iHalt, iStop, 'output stopped before the device stop');
+            tc.verifyFalse(s.Gen.isOutputOn());
+            log = h.outputLog();
+            tc.verifyEqual(log(end, 4), 0, 'the output ends at 0 V');
+            h.stallAfter(Inf);
+            s.close();
+            tc.verifyEmpty(s.Daq.AbortFcn, 'released by close');
+            clear cleanup restoreWarn
+        end
+
         function sampleRateOfTheDataIsChecked(tc)
             % audit 2026-10-11: data delivered at another rate than the configured
             % one would shift the frequency axis - the session marks the

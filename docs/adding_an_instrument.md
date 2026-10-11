@@ -238,10 +238,12 @@ with exactly those methods, so that the driver reads the same on the hardware an
 `tim:<reg>:rate`), apply range, coupling and IEPE, and leave the device ready. `acquire` keeps the
 template's structure: start, read in a loop, `onBlock(n)` after every block and at least every
 0.25 s, a stall time-out, `onCleanup` that calls `AbortFcn` first and then stops the device on
-every abnormal exit, `close()` from inside `onBlock` ending with `tim:instr:closed`. Data are
-volts at the input (no sensitivity), or full-scale units with `dataUnit 'FS'`. Device flags go
-into `integrity.channelFaults` **in the driver's words** (`noteFaults`). TEDS: `Teds = {}` when
-the device reads none (the sensitivities then come from the certificate or nominal values).
+every abnormal exit (the session sets `AbortFcn` to switch the source output off, so the
+loudspeaker stops before your stop sequence), `close()` from inside `onBlock` ending with
+`tim:instr:closed`. Data are volts at the input (no sensitivity), or full-scale units with
+`dataUnit 'FS'`. Device flags go into `integrity.channelFaults` **in the driver's words**
+(`noteFaults`). TEDS: `Teds = {}` when the device reads none (the sensitivities then come from
+the certificate or nominal values).
 
 **Combined device** (3.5, 8.3). Leave the planning engine of `TemplateCombined` as it is
 (`acquire`, `render`, `apply`, `synthesize`, `haltOutput`, `finishOutput`, `endOutput`,

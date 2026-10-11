@@ -1,11 +1,13 @@
 % Bus traffic of the simulated fault-path scenario of tests/TestBusTraffic.m (recordFaults)
 % (protocol mocks, recorded by tim.instr.mockBusLog). One entry per line: "SCPI > command",
 % "SCPI < response", "REST METHOD path [body]", "STREAM open|close", "# section".
-% Recorded 2026-10-11 with commit d49e98db58246307c7758503552cdd13ad990ba2. Regenerate: TestBusTraffic.writeFixture('faults')
-% WO-001 stage B (edited by hand, nothing else changed): the session closes the acquisition with the contract
-% close(), so closing the window inside a sweep now ends the measurement with tim:instr:closed
-% (docs/instrument_interface.md Appendix B) instead of MATLAB:structRefFromNonStruct from the next
-% stream read, and the status request the old code sent after that error (module already Idle) is gone.
+% Recorded 2026-10-11 with commit 1ba47717c362270431f21397fe0715ca32689556. Regenerate: TestBusTraffic.writeFixture('faults')
+% Regenerated 2026-10-11 with the owner's approval (D24, docs/instrument_interface.md section 13.1)
+% on commit 1ba4771 plus the session change committed together with this file: the session
+% sets AbortFcn = @() Gen.outputOff() at connect, so on the abnormal end of an acquisition (stalled
+% stream, Stop) OUTP OFF comes before the REST stop. No hand edit: the scenario "window closed twice
+% inside a sweep" (ends with tim:instr:closed, without the status request the code before WO-001 sent
+% after its error) was approved by the owner on 2026-10-11 and is recorded from the code.
 # connect + prepareAcquisition
 SCPI > *IDN?
 SCPI < Agilent Technologies,33220A,MOCK0001,2.02-2.02-22-2
@@ -71,10 +73,10 @@ SCPI > OUTP ON
 SCPI > SYST:ERR?
 SCPI < +0,"No error"
 SCPI > *TRG
+SCPI > OUTP OFF
 REST PUT /rest/rec/measurements/stop
 REST GET /rest/rec/onchange
 STREAM close
-SCPI > OUTP OFF
 SCPI > OUTP OFF
 # -> error tim:lanxi:streamStalled
 # operator Stop in the middle of a sweep
@@ -116,10 +118,10 @@ SCPI > SYST:ERR?
 SCPI < +0,"No error"
 SCPI > *TRG
 SCPI > OUTP OFF
+SCPI > OUTP OFF
 REST PUT /rest/rec/measurements/stop
 REST GET /rest/rec/onchange
 STREAM close
-SCPI > OUTP OFF
 SCPI > OUTP OFF
 # -> error tim:session:stopped
 # operator cancels the excitation confirmation

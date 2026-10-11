@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Work order | WO-001 Part 1 (`docs/workorder_instrument_interface.md`; its §0 decides over older text) |
-| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). Part 2 (stage 6, section 14): the guide `docs/adding_an_instrument.md`, the templates `templates/instrument/` (tested by `tests/TestInstrumentTemplates.m`), the skill `.claude/skills/add-instrument/`, and the demo source `demo` made by following the guide. Fix stage after the review of the implementation (2026-10-11): loading only warns about driver limits, 0 V after the stop on every end of a combined device, block size from the driver in the contract cases, closing during connect / prepare, NI guidance (section 13.3). **Software-verified in simulation only**; the owner's hardware check (WO §0.3) is pending, and `AbortFcn` is not yet set by the session (D24, awaits the owner's approval). |
+| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). Part 2 (stage 6, section 14): the guide `docs/adding_an_instrument.md`, the templates `templates/instrument/` (tested by `tests/TestInstrumentTemplates.m`), the skill `.claude/skills/add-instrument/`, and the demo source `demo` made by following the guide. Fix stage after the review of the implementation (2026-10-11): loading only warns about driver limits, 0 V after the stop on every end of a combined device, block size from the driver in the contract cases, closing during connect / prepare, NI guidance (section 13.3). **Software-verified in simulation only**; the owner's hardware check (WO §0.3) is pending. Owner decisions of 2026-10-11 (section 13.4): D7, D8, D24, D43, D45 and two changes of the bus order approved; the session sets `AbortFcn` (D24) and the fault fixture is regenerated from the code. |
 | Applies to | `tim.app.MeasurementSession`, `tim.gui.Tubebench`, `+tim/+app`, `+tim/+cal`, `+tim/+val`, the drivers in `+tim/+instr` and `+tim/+sim` |
 
 This document is the contract between the measurement program and an instrument driver. A
@@ -52,8 +52,7 @@ Life cycle, as the session uses it:
 ```
 src = tim.instr.create('source', cfg, ctx)            % connect, identify, output OFF
 acq = tim.instr.create('acquisition', cfg, ctx, src)  % connect, identify, idle (src itself if combined)
-% planned (D24, after the owner's approval) - NOT set by the session as built:
-% acq.AbortFcn = @() src.outputOff()                  % abnormal end of acquire: output off first (8.1)
+acq.AbortFcn = @() src.outputOff()                    % abnormal end of acquire: output off first (8.1, D24)
 acq.prepare(c)                                        % channels, range, CCLD, TEDS -> ready
 src.configureSweep(s) ... src.armOutput(true)
 [data, info] = acq.acquire(n, @onBlock)               % onBlock switches the output on / off
@@ -414,12 +413,15 @@ The window's Stop and close callbacks also call `s.Gen.outputOff()` directly.
 4. **Abort first**: on every abnormal exit of `acquire` - its own error (stalled stream,
    time-out, transport fault), an error thrown by `onBlock`, an interrupt (via `onCleanup`) - the
    driver calls `AbortFcn` **before any stop or drain I/O**, once, ignoring any error it raises.
-   The session is to set `AbortFcn = @() s.Gen.outputOff()`, so the loudspeaker is not driven
-   while the driver stops its device (with an unreachable LAN-XI module: one HTTP time-out for
-   the stop request and one for the first status poll, about 20 s with the default settings).
-   **As built, the session does not set it yet** (D24: it changes the order on the bus and
-   waits for the owner's approval); until then the session switches the output off in its
-   error path, after `acquire` has returned.
+   The session sets `AbortFcn = @() s.Gen.outputOff()` when it connects (D24, approved by the
+   owner 2026-10-11), so the loudspeaker is not driven while the driver stops its device (with
+   an unreachable LAN-XI module: one HTTP time-out for the stop request and one for the first
+   status poll, about 20 s with the default settings). A combined device gets the same hook:
+   its re-entrant `outputOff` stops its output at once (section 8.3) before its own stop
+   sequence (stopped, then 0 V). After `acquire` has returned with the error, the session's
+   error path disarms the source (`armOutput(false)`, which switches the output off once more,
+   also when the error came before the driver could call the hook); the session's `close()`
+   clears the hook.
 5. `onBlock` may call SignalSource methods of the same or another object, and `close` of its own
    object (re-entrancy, section 2.2); the driver holds no lock while calling it.
 6. `onBlock` takes **one** input (the session's nested functions take one; a second argument
@@ -692,7 +694,11 @@ only `onCleanup` objects run. `guardedAcquire` therefore creates an output guard
 and `armOutput(false)` unless it was dismissed just before the normal return or after the error
 path switched the output off itself, so neither the normal path nor the error paths send an
 extra `OUTP OFF`. Every error path switches the output off, stops the acquisition and keeps the
-partial data (`s.LastPartial`, emergency file). This includes the time **between two
+partial data (`s.LastPartial`, emergency file). On the abnormal end of an acquisition the output
+goes off first, before the driver's stop sequence: the driver calls the `AbortFcn` the session
+set at connect (section 8.1 rule 4, D24); the session's error path then disarms the source
+(`armOutput(false)`), so the number of output-off commands is unchanged since the owner's
+approval of 2026-10-11 - one of them moved before the stop request. This includes the time **between two
 repetitions** of `measureSweep` / `measureStepped` (audit 2026-10-11): an error there - a Stop
 seen by the next repetition's check, an instrument error of the frequency reset - disarms the
 source (`armOutput(false)`, which also switches it off) and keeps the completed repetitions in
@@ -790,8 +796,8 @@ own driver tests (D42).
 | D4 | The session keeps its sample-count schedule; a combined block device runs it in a planning pass on the shared clock | a declarative excitation plan built by the session; device-specific `measure*` variants | no change to the measurement code and its Stop / output-off paths (the highest risk of the refactor, WO §6.2); identical bus traffic; one schedule for both kinds of device |
 | D5 | Registry = one list file + a static factory per class | scanning `+tim/+instr` with `meta.package`; class names in the configuration | explicit and fast; a typo in the configuration gives a clear error instead of running arbitrary code |
 | D6 | Role sections + `driver` + a sub-struct named after the driver; generic role settings stay outside; old files migrated on load | flat keys per driver; moving every acquisition key into the driver sub-struct | smallest change for the user: only the connection settings move; the acquisition settings mean the same for every DAQ, only their allowed values (and their defaults, D32) differ |
-| D7 | `user_config.json` stays in the old layout | rewrite it in the new layout | it is the owner's lab file; loading it unchanged proves the migration every day (owner decision pending) |
-| D8 | Simulation: real drivers over protocol mocks + one contract-level combined driver | contract-level `SimulatedSource` / `SimulatedAcquisition` for the app tests (WO task 7 text) | the protocol-mock path is the only one that exercises the real drivers end to end (and the bus-traffic tests need it); the combined driver covers both contracts at contract level and the case change B asks for; a separate simulated pair would add code without new coverage. **Owner decision pending** (WO §0 does not decide task 7). |
+| D7 | `user_config.json` stays in the old layout | rewrite it in the new layout | it is the owner's lab file; loading it unchanged proves the migration every day. **Approved by the owner 2026-10-11**: it stays in the old layout until after the hardware check (WO §0.3, `docs/hardware_status.md`) and is then rewritten in the new layout - after that check, not before |
+| D8 | Simulation: real drivers over protocol mocks + one contract-level combined driver | contract-level `SimulatedSource` / `SimulatedAcquisition` for the app tests (WO task 7 text) | the protocol-mock path is the only one that exercises the real drivers end to end (and the bus-traffic tests need it); the combined driver covers both contracts at contract level and the case change B asks for; a separate simulated pair would add code without new coverage. **Approved by the owner 2026-10-11** (WO §0 did not decide task 7). |
 | D9 | Products checked by the registry before any I/O, in hardware mode only | let MATLAB fail with "Undefined function"; check in every mode | clear `tim:instr:missingProduct`; the base requirements stay MATLAB + Signal Processing Toolbox; a driver runs on its mock without its toolbox, so the contract tests pass on any machine (D30) |
 | D10 | Session properties keep their names `Gen` and `Daq` (role names; one object for both roles when combined) | rename to `Source` / `Acquisition` | scripts, examples and many test lines use them; the names already describe roles |
 | D11 | Device flags are worded by the driver (`integrity.channelFaults`) | flag codes interpreted by the session | the session holds no LAN-XI vocabulary and today's texts stay |
@@ -807,7 +813,7 @@ own driver tests (D42).
 | D21 | Minimal contract: LAN-XI `shutdown`, the 33220A `Mode`, `MaxVpp`, `Load` are driver members, not contract; `minVpp`, `sweepTime`, step role `'both'` added | keep them in the contract | the session and the window do not need them after stage B (the session reads `cfg`; tests use only `OutputArmed`); the GUI amplitude lower limit (0.005 Vpk) is below the 33220A minimum (0.02 Vpp at INF) and was refused only at measure time |
 | D22 | Generic field `info.dataUnit` (`'V'` or `'FS'`), not `info.unit` | the review's `info.unit` | the LAN-XI `info.unit` is a per-signal cell from the stream, already stored in saved measurements and read by `tim.val.testA_acquisition`; giving one field two types would break readers |
 | D23 | `levelKnown` + measured `vppAtFullScale` (no default) for full-scale outputs | a static `maxVpp` for every source | the volts of an audio output depend on the device and its knob; without a measured conversion the amplitude limit and the power check protect nothing |
-| D24 | Abort hook as the property `AbortFcn` | a fourth `acquire` argument `onAbort` | set once at connect, so direct callers of `acquire` (`tim.val.channelIdentification`) are covered too. The driver side is implemented in stage A (no traffic change while `AbortFcn` is empty); **the session sets it only after the owner approves** (stage B), because it moves `OUTP OFF` before the REST stop on driver-error paths (fault fixture update) |
+| D24 | Abort hook as the property `AbortFcn` | a fourth `acquire` argument `onAbort` | set once at connect, so direct callers of `acquire` (`tim.val.channelIdentification`) are covered too. The driver side is implemented in stage A (no traffic change while `AbortFcn` is empty); the session was to set it only after the owner approved, because it moves `OUTP OFF` before the REST stop on the abnormal end of an acquisition (fault fixture update). **Approved by the owner 2026-10-11**: the session sets it at connect for every driver pair (section 8.1 rule 4), the fault fixture is regenerated from the code |
 | D25 | Re-entrant `outputOff` / `close` / `setTimeout`; `close` during `acquire` → `tim:instr:closed` | specify `onBlock` re-entry only | window callbacks run during every `pause` / `drawnow` inside a driver; a released System object would otherwise set itself up again and keep playing |
 | D26 | Exact sample rate or `tim:<driver>:rate`; the rate list or range is a capability; `checkConfig` refuses rates the device cannot run exactly | a static `isRateExact(fs)` member as the review proposed | `checkConfig` is already the static place that validates the driver's settings; one member less |
 | D27 | Rig `respond(x)` + `OutputLog`; `setGeneratorState` only for the 33220A mock | every source maps its state onto the 33220A fields | a sample-buffer mock cannot express its output as a 33220A state; generic safety assertions need what was really played |
@@ -826,9 +832,9 @@ own driver tests (D42).
 | D40 | Identity display: an "In use" row in INSTRUMENTS (one line per instrument) and an Instruments table in Setup > Connection, plus the lamp tooltips; "(simulated)" in simulation mode | tooltips only; an identity panel in place of the checklist | visible at a glance without hovering, the table has room for vendor, firmware and the settings; the LAN-XI mock reports the lab module's real serial number, which must not look like a connected instrument. The control panel still fits the 1920 × 1080 lab screen (about 920 px of content since the "In use" row holds three lines - review of 2026-10-11: a display name that wraps hid the second instrument -, limit 930) |
 | D41 | GUI limits of the EXCITATION fields from `capabilities()`; no sample-rate or range control in the window | keep 0.45 × sample rate and 0.005 Vpk; add selectors for sample rate and range | one rule for the window and `checkConfig`, so the window no longer accepts a level the source refuses only at measure time (33220A: 0.02 Vpp at `INF`); the input settings stay in the configuration (the window shows them and the allowed values, section 7.1) |
 | D42 | Templates are complete drivers of imaginary instruments that pass the contract tests on their own mocks (`tests/TestInstrumentTemplates`); every instrument fact is a line marked `TODO` | skeletons with empty methods; templates that are not run | a person starts from code that is known to meet the contract, and only replaces facts; a template that is never run breaks unnoticed; the `TODO` markers and the guide's "no `TODO` left" check make every placeholder visible (stage 6) |
-| D43 | The demo source `demo` stays registered, simulation only (`describe().simulation = 'only'`) | remove it after the dry run; keep it in `tests/support` | the guide's worked example stays checked by the contract tests and visible in the registry; `'only'` keeps it out of hardware mode (registry check 4) |
+| D43 | The demo source `demo` stays registered, simulation only (`describe().simulation = 'only'`) | remove it after the dry run; keep it in `tests/support` | the guide's worked example stays checked by the contract tests and visible in the registry; `'only'` keeps it out of hardware mode (registry check 4). **Approved by the owner 2026-10-11** |
 | D44 | The mock of a separate function generator couples to the rig through `setGeneratorState` (the rig's function-generator model); `respond(x)` for sample-producing sources (revises D27's "only for the 33220A mock") | a new rig coupling for every separate source | `generate(n)` already models a separate generator on its own clock (stepped sweep, trigger latency, clock offset) with generic quantities (function, frequency, Vpp, sweep, output); no change to the rig, the 33220A path or its bus traffic |
-| D45 | A driver's defaults only in `describe().defaults` (settings and inputs), not in `tim.app.defaultConfig` | WO §5.3 "defaults in `defaultConfig`" | as built since stage B (D6, D32): `defaultConfig` holds the default drivers' sub-structs; `loadConfig` / `migrateConfig` merge any registered driver's sub-struct onto its own defaults |
+| D45 | A driver's defaults only in `describe().defaults` (settings and inputs), not in `tim.app.defaultConfig` | WO §5.3 "defaults in `defaultConfig`" | as built since stage B (D6, D32): `defaultConfig` holds the default drivers' sub-structs; `loadConfig` / `migrateConfig` merge any registered driver's sub-struct onto its own defaults. **Approved by the owner 2026-10-11** |
 | D46 | The contract tests give an acquisition driver its own input defaults | keep the LAN-XI input values of `defaultConfig` | found while running the acquisition template: a DAQ without `'10 Vpeak'` / `'0.7 Hz'` failed `checkConfig` before any duty was tested - the test, not the contract, was shaped like the LAN-XI |
 | D47 | Acquisition and combined templates talk to the device through a small device-session object (`identify`, `configure`, `start`, `read` / `playRecord`, `stop`, `writeZero`, `close`) - a thin hardware class around the vendor interface, or the mock | the vendor interface (`daq`, `audioPlayerRecorder`) called directly in the driver | the driver reads the same on the hardware and on the mock; the mock emulates a few methods instead of a toolbox object; the toolbox is needed only by the hardware class (D9) |
 
@@ -845,7 +851,7 @@ the decision named.
 | 4 | Output off undefined for analog outputs | off = 0 V or disconnected; 0 V writes, fade | 3.1, 11.1 (1, 12), D18 | B (simcombined), Part 2 |
 | 5 | Read-back excludes DAQ / audio outputs | kinds `instrument` / `device` / `none`; window wording; `allowUnconfirmedOff`; WO §3 reworded | 3.2, 5, 9.1, D19 | A (registry), B (window) |
 | 6 | Amplitude limit meaningless for full-scale outputs | `levelKnown`, `vppAtFullScale` | 3.4, 5, 9.2, D23 | A (capability), Part 2 |
-| 7 | Output off only after the driver's stop sequence | `AbortFcn` called first; session wiring after owner approval | 4, 8.1 (4), 11.1 (8), D24 | A (driver), B (session, approval) |
+| 7 | Output off only after the driver's stop sequence | `AbortFcn` called first; set by the session at connect (approved by the owner 2026-10-11) | 4, 8.1 (4), 11.1 (8), D24 | A (driver); session 2026-10-11 (approval) |
 | 8 | MATLAB class mechanics | `fromConfig`; protected base properties; no base `delete`; second `close` sends nothing | 2, D20 | A |
 | 9 | Re-entrant calls | re-entrancy rules; `close` during `acquire` → `tim:instr:closed` | 2.2, 4, 8.1 (5), D25 | A |
 | 10 | Block source outside `acquire` | specified | 3.5, 8.3, D36 | B |
@@ -875,7 +881,7 @@ the code as built; every finding was reproduced or checked in the code first.
 | 2 | `close()` from `ProgressFcn` during `prepare` (window closed during the TEDS step): the LAN-XI driver sent the TEDS requests to the closed module (low) | closed check after every step report and in the TEDS poll; a TEDS failure no longer hides `tim:instr:closed`; the same check in `simcombined` and the templates | 2.2, 11.1 duty 9; contract case `closeFromProgressDuringPrepare` (every step) |
 | 3 | Files that 1.1.0 accepted and wrote no longer loaded (a level below the generator minimum - the 1.1.0 window wrote 0.01 Vpp -, `maxVpp` up to 20 Vpp at load `'50'`, a sweep over 500 s, connector `''`): the window did not start, Open measurement dropped "use the saved set-up" (medium) | loading only warns about driver limits (D29 extended); errors in the session (constructor and setters), the registry and the connected window; the generator minimum is checked for the swept sine and the selected signal only (another level is refused when played); LAN-XI connector `''` accepted (no `ConnectorSelect`, as 1.1.0). Not taken: `''` as "driver default" in `settingsFrom` - it would send `ConnectorSelect BNC` where 1.1.0 sent nothing, and turn an empty address into the default address | 9.2; `validateConfig`, `SignalSource.checkSourceConfig`, `LanXi.checkConfig`; `TestConfiguration/filesOfVersion110StillLoad`, `TestGui/fileOfVersion110WithLevelsBelowTheMinimum` |
 | 4 | Section 9.3 rule 2 contradicted `migrateConfig` (low) | text corrected (the keys always move to `generator.keysight33220a`) | 9.3 |
-| 5 | Section 1 showed the session setting `AbortFcn` (low) | marked as planned (D24) | 1 |
+| 5 | Section 1 showed the session setting `AbortFcn` (low) | marked as planned (D24); the session sets it since the owner's approval of 2026-10-11 (section 13.4) | 1 |
 | 6 | `TemplateCombined`: a device error while the output played skipped the 0 V write (fade and 0 V in one `try`); 0 V was never written after the stop (high) | `endOutput`: the rest of the fade, the stop, then 0 V - separate steps, each tried; 0 V after the stop on every end, the normal one included; `isOutputOn` true when 0 V could not be written; the template mock keeps its last value after `stop` and `close`; `simcombined` in the same order; guide step 10: 0 V DC at the output terminal | 3.1, 3.5, 11.1 duty 12; contract case `deviceStallWhilePlayingLeavesOutputAtZero` |
 | 7 | The block cases of the contract tests assumed B = 2048: a combined driver with another block failed 4 cases (medium) | actions in multiples of the driver's block (`settings.blockSamples`, `planUnit`); `TestInstrumentTemplates` runs them for a copy of the template with 4096 | 8.3, 11.3 |
 | 8 | No usable guidance for the device session of an NI device (queued output, Stop latency, underrun, 0 V after stop) (medium) | guide section 4.1, the queued-output note in 8.3, a class-load check of the session in step 9, a table for function-call interfaces in `ref_template.md`. Guidance only: there is no NI device in the lab | 8.3; guide 4.1, 9, 10 |
@@ -884,10 +890,26 @@ the code as built; every finding was reproduced or checked in the code first.
 | 11 | Documents inconsistent in four places (low) | WO §5 item 3 (defaults in `describe()`, D45), the reference to 3.4, the `maxVpp` wording of guide step 10, the README status date | - |
 | 12 | NI suitability: the IEPE current and the support-package check left open (low) | the Must item names the microphone data sheet; a commented `checkInstalled` skeleton in the acquisition and combined templates | guide 2, 4 |
 
+### 13.4 Owner decisions of 2026-10-11
+
+The owner approved every pending recommendation on 2026-10-11. The instruments are not connected;
+the owner's hardware check (WO §0.3, `docs/hardware_status.md`) follows, and only after it is
+`wo-001` merged into `main` as 1.2.0.
+
+| Item | Decision - approved by the owner 2026-10-11 | Status |
+|---|---|---|
+| D7 | `config/user_config.json` stays in the old layout (`formatVersion` 1) until after the hardware check; then it is rewritten in the new layout | old layout kept; the rewrite follows the hardware check (not done before it) |
+| D8 | simulation through the real drivers over their protocol mocks plus the contract-level combined driver `simcombined`; no contract-level `SimulatedSource` / `SimulatedAcquisition` | as built |
+| D24 | the session sets `AbortFcn = @() Gen.outputOff()` at connect for every driver pair (a combined device: its own re-entrant `outputOff`, section 8.3) | done: `MeasurementSession.connect` (`setAbortHook`), cleared by `close`; after `acquire` returned with an error the session disarms the source; fault fixture regenerated from the code (Appendix B); tests `TestBusTraffic/outputOffBeforeTheStopOnAnAbnormalEnd`, `TestEndToEnd/combinedDeviceStopsItsOutputFirstOnADeviceError` |
+| D43 | the demo source `demo` stays registered, simulation only | as built |
+| D45 | a driver's defaults only in its `describe().defaults`, not in `tim.app.defaultConfig` | as built |
+| Fault-fixture scenario "window closed twice inside a sweep" | the measurement ends with `tim:instr:closed`, without the status request the code before WO-001 sent after its error (the hand edit of stage B, section 14) | recorded from the code in the regenerated fault fixture; no hand edit left |
+| Bus order after a Stop during the LAN-XI connect step | the driver returns the module to Idle (status request) before the generator's close lines (section 13.3 #1) | as built; checked by `TestBusTraffic/stopDuringConnectReturnsTheModuleToIdle` |
+
 ## 14. Implementation plan
 
 Each stage ends with the full test suite and both bus-traffic fixtures passing unchanged (the
-fixtures are never regenerated during WO-001 except for an owner-approved change of order, D24).
+fixtures are never regenerated during WO-001 except for an owner-approved change of order, D24 - the fault fixture was regenerated on 2026-10-11, section 13.4).
 
 **Stage A - contract, existing drivers, registry, contract tests (WO tasks 1, 2, 8 and the
 registry).** Done on `wo-001` (stage 3 of the work order): both bus fixtures unchanged; the
@@ -919,14 +941,17 @@ until stage B switches the session to the registry.
 **Stage B - configuration, session, metadata, calibration, contract-level simulation (WO tasks
 3, 4, 6, 7).** Done on `wo-001` (stage 4 of the work order), with these differences from the plan:
 
-* Step 1: the output guard is in place; `AbortFcn = @() Gen.outputOff()` is **not** set by the
-  session yet - it still awaits the owner's approval (D24), and the fault fixture keeps today's
-  order after a stalled stream.
+* Step 1: the output guard is in place; `AbortFcn = @() Gen.outputOff()` was **not** set by the
+  session in stage B - it awaited the owner's approval (D24), and the fault fixture kept the old
+  order after a stalled stream. Approved by the owner on 2026-10-11: the session sets it at
+  connect and the fault fixture was regenerated from the code (section 13.4).
 * Step 3: closing the session uses the contract `close()` of each instrument, so closing the
   window inside a sweep ends the measurement with `tim:instr:closed` as planned in Appendix B. The
   fault fixture was edited by hand in that one scenario (the outcome line, and the status request
   the old code sent after the error to the module that was already Idle); every SCPI command and
-  the REST return-to-Idle sequence are unchanged. The normal-path fixture is unchanged.
+  the REST return-to-Idle sequence are unchanged. The normal-path fixture is unchanged. The owner
+  approved this scenario on 2026-10-11; the fault fixture was then regenerated from the code
+  (D24), with no hand edit left, and this scenario came out exactly as edited.
 * `tim.instr.create` checks 4-7 for both roles before the first instrument is opened.
 * The window parts the combined device needs (checklist and lamps from `connectionSteps`, step
   `role`, channel cards without TEDS, `isAcquiring`, `recent`, `isOutputOn(1)` worded by the
@@ -950,7 +975,8 @@ warning against them.
 
 1. Session safety first: `tim.app.outputGuard` in `guardedAcquire` with a unit test (destroying
    the guard before it is dismissed switches the mock output off and disarms it); after the
-   owner's approval `AbortFcn = @() Gen.outputOff()` and the fault fixture updated.
+   owner's approval `AbortFcn = @() Gen.outputOff()` and the fault fixture updated (done
+   2026-10-11, section 13.4).
 2. `defaultConfig` formatVersion 2; `tim.app.migrateConfig` (9.3); `validateConfig` generic +
    `checkConfig`, unknown-driver warning, `validateConfig(cfg, 'instruments')`; empty acquisition
    values = driver defaults; `driveEstimate` and `ampDirect` from `outputImpedance_ohm`;
@@ -1048,7 +1074,7 @@ f892d19 with the new tests: `closeFromProgressDuringPrepare` for `lanxi`, `simco
 templates, `deviceStallWhilePlayingLeavesOutputAtZero` for the combined template, the misplaced
 settings of the combined snippet). The bus traffic of the normal path and of the recorded fault
 paths is unchanged; the one intended change of order (a Stop during the LAN-XI connect step) is
-checked by its own test.
+checked by its own test (order approved by the owner 2026-10-11, section 13.4).
 
 Verified at the end of the fix stage (simulation only): full suite 299 / 299 in batch
 MATLAB (21 test classes); `TestBusTraffic` 5 / 5 with both fixtures unchanged; no new Code Analyzer
@@ -1169,11 +1195,16 @@ differing character.
   section markers and 5 outcome lines `# -> error <id>`): the stream stalls in the middle of a
   sweep; operator Stop in the middle of a sweep; the operator cancels the excitation
   confirmation; the loudspeaker power limit refuses the drive; the window is closed twice inside a
-  sweep (output off + `close(true)` from inside the acquisition). Today's order is recorded as it
-  is, e.g. after a stalled stream `OUTP OFF` follows the REST stop (D24). The fast close ended
-  with `MATLAB:structRefFromNonStruct` from the next stream read; since stage B it ends with
+  sweep (output off + `close(true)` from inside the acquisition). The order of that code was
+  recorded as it was, e.g. after a stalled stream `OUTP OFF` followed the REST stop. The fast close
+  ended with `MATLAB:structRefFromNonStruct` from the next stream read; since stage B it ends with
   `tim:instr:closed` and without the status request that followed (fixture edited by hand in that
-  scenario, 228 entries; see section 14).
+  scenario, 228 entries; see section 14). **Regenerated from the code on 2026-10-11** with the
+  owner's approval (D24, section 13.4; 228 entries, header note in the file, no hand edit left):
+  after the stalled stream and after the Stop one `OUTP OFF` (the `AbortFcn`) now comes before
+  `REST PUT /rest/rec/measurements/stop`, the other one (the disarm) after `STREAM close`; nothing
+  else changed - checked line by line against the previous file, and explicitly by
+  `TestBusTraffic/outputOffBeforeTheStopOnAnAbnormalEnd`.
 
 Deterministic: `rng(1, 'twister')`, `SimulatedRig` seed 1, mock stream seed 7; the mocks change
 state at once (one status poll per wait) and deliver a fixed block per read, so every scheduled
@@ -1181,4 +1212,5 @@ generator command falls on the same block; faults are placed on the number of sa
 produced. Normalised: the body of `PUT /rest/rec/module/time` (wall-clock ms). Not logged: stream
 reads (their number depends on the 0.3 s drain after a stop) and client time-outs (not on the
 bus). A fixture is regenerated only after an intended, owner-approved change of the bus traffic:
-`addpath tests; TestBusTraffic.writeFixture()` or `TestBusTraffic.writeFixture('faults')`.
+`addpath tests; TestBusTraffic.writeFixture()` or `TestBusTraffic.writeFixture('faults')` (an optional second
+argument adds a note, e.g. the approval, to the header).

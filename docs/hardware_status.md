@@ -165,8 +165,10 @@ Since 2026-10-11 the 33220A and the LAN-XI are driven through the instrument con
 driver registry (`docs/instrument_interface.md`, `docs/workorder_instrument_interface.md`). This is
 **SW-VERIFIED only**: the full test suite in simulation (299 / 299 on 2026-10-11), the contract
 tests of every driver, and the bus-traffic tests, which show that a simulated session sends the same
-SCPI commands and REST requests as the code before WO-001 (two documented changes of order on
-fault paths: closing the window inside a sweep, and a Stop during the LAN-XI connect step).
+SCPI commands and REST requests as the code before WO-001 (three documented changes of order on
+fault paths, approved by the owner on 2026-10-11: closing the window inside a sweep, a Stop during
+the LAN-XI connect step, and D24 - on a Stop or an error of the acquisition the generator output
+is switched off before the LAN-XI stop request, not after it).
 Nothing of WO-001 has run on the real instruments yet. The owner's check (WO-001 §0.3), each step
 only with the owner present; at the first surprise: output off at the generator, close the window,
 report:
@@ -199,9 +201,10 @@ report:
    owner agreed. Expected: the output LED is on only during the sweep; the sweep lies inside the
    record on ch1, ch2, ch4; no integrity error apart from ch3; the output LED off afterwards.
 6. **Stop during a measurement**: the same level, a longer sweep (e.g. 5 s, 4 repetitions); press
-   Stop in the middle. Expected: the output LED goes off at once; the window says "Measurement
-   stopped by the operator. Generator output off (confirmed)."; the partial data are kept; the
-   next measurement works without reconnecting.
+   Stop in the middle. Expected: the output LED goes off at once (since D24 the output is switched
+   off before the LAN-XI module is stopped); the window says "Measurement stopped by the
+   operator. Generator output off (confirmed)."; the partial data are kept; the next measurement
+   works without reconnecting.
 7. **Output-off read-back**: after steps 5 and 6 the status line shows no "Generator output not
    confirmed off"; the 33220A shows the output off (LED) - the read-back (`OUTP?`) and the
    instrument agree.

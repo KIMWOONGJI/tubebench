@@ -31,6 +31,9 @@ classdef MeasurementSession < handle
     %   switches the output off, stops the acquisition, preserves the data
     %   received so far (s.LastPartial, and an emergency file) and rethrows;
     %   an interrupt (Ctrl+C) switches it off through tim.app.outputGuard.
+    %   On every abnormal end of an acquisition the acquisition driver
+    %   switches the output off FIRST, before its own stop sequence
+    %   (s.Daq.AbortFcn = @() s.Gen.outputOff(), set by connect).
 
     properties (SetAccess = private)
         Cfg struct
@@ -90,7 +93,9 @@ classdef MeasurementSession < handle
             %CONNECT Build the selected drivers through the registry: the
             %   whole selection is checked before any I/O, then each driver
             %   connects, identifies itself and puts its instrument in the safe
-            %   state (output off), reporting its checklist steps.
+            %   state (output off), reporting its checklist steps. The
+            %   acquisition's AbortFcn then switches the source output off
+            %   first on every abnormal end of an acquisition (setAbortHook).
             c = obj.Cfg;
             obj.log('Connecting (%s mode)…', c.mode);
             % a session closed before connects again: its next close() must
@@ -108,6 +113,7 @@ classdef MeasurementSession < handle
                 obj.progressFailed(err);
                 rethrow(err);
             end
+            obj.setAbortHook();
             obj.logInstruments();
             obj.Connected = true;
             obj.setStatus('connected');
@@ -583,6 +589,11 @@ classdef MeasurementSession < handle
             for i = 1:numel(devices)
                 try, devices{i}.close(); catch, end
             end
+            % the abort hook is released with the instruments (for a combined
+            % device it refers to the object itself); connect sets it again
+            if ~isempty(obj.Daq)
+                try, obj.Daq.AbortFcn = []; catch, end
+            end
             obj.Connected = false; obj.Prepared = false;
             obj.setStatus('disconnected');
         end
@@ -603,6 +614,22 @@ classdef MeasurementSession < handle
     end
 
     methods (Access = private)
+        function setAbortHook(obj)
+            % D24 (approved by the owner 2026-10-11; docs/instrument_interface.md
+            % section 8.1 rule 4): on every abnormal end of an acquisition - its
+            % own error (stalled stream, time-out, transport fault), an error
+            % thrown by onBlock (a Stop), an interrupt - the acquisition driver
+            % calls AbortFcn BEFORE any stop or drain I/O, so the source output
+            % goes off before the driver stops its device (an unreachable LAN-XI
+            % module takes about 20 s for that). Set once here, so direct
+            % callers of acquire (tim.val.channelIdentification) are covered
+            % too. A combined device (Gen == Daq) gets the same hook: its
+            % re-entrant outputOff stops its output at once (section 8.3), then
+            % its own stop sequence runs (stopped, then 0 V).
+            gen = obj.Gen;
+            obj.Daq.AbortFcn = @() gen.outputOff();
+        end
+
         function logInstruments(obj)
             % one log line per instrument: role, display name and the identity it reported
             line = @(o) sprintf('%s – %s', o.metadata().displayName, o.identity().raw);
@@ -632,7 +659,10 @@ classdef MeasurementSession < handle
                 [data, info] = obj.Daq.acquire(nTotal, onBlock);
             catch err
                 obj.AcquireFailed = true;  % handled here, not again by failedOutsideAcquisition
-                obj.Gen.outputOff();
+                % the driver switched the output off through AbortFcn BEFORE its
+                % stop sequence (setAbortHook, D24); disarming switches it off
+                % once more - also when the error came before the driver could
+                % call the hook
                 obj.Gen.armOutput(false);
                 guard.dismiss();           % switched off here: no second output-off command
                 partial = struct('records', {prevRecords}, 'infos', {prevInfos}, 'error', err.message);

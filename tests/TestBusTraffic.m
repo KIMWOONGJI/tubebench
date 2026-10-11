@@ -15,19 +15,23 @@ classdef TestBusTraffic < matlab.unittest.TestCase
     %   stepped-sine measurement (5 steps, 2 repetitions); one noise
     %   measurement; close.
     %
-    %   Fault paths (tests/fixtures/bus_traffic_faults_sim.txt, recorded on the
-    %   code before WO-001 changed the drivers): the stream stalls in the
-    %   middle of a sweep (error raised by the acquisition driver); operator
-    %   Stop in the middle of a sweep; the operator cancels the excitation
-    %   confirmation; the loudspeaker power limit refuses the drive; the
-    %   window is closed twice inside a sweep (output off + close(true) from
-    %   inside the acquisition). The error that ends each scenario is part of
-    %   the log ('# -> error <identifier>'). These are the Stop / output-off
-    %   paths WO-001 §6.2 names as the highest refactoring risk: an intended
-    %   change of their order is an explicit, owner-approved fixture update.
-    %   A Stop during the LAN-XI connect step (stopDuringConnectReturnsTheModuleToIdle)
-    %   is checked against an explicit list: the status request moved from
-    %   the window's close to the driver (review of 2026-10-11).
+    %   Fault paths (tests/fixtures/bus_traffic_faults_sim.txt): the stream
+    %   stalls in the middle of a sweep (error raised by the acquisition
+    %   driver); operator Stop in the middle of a sweep; the operator cancels
+    %   the excitation confirmation; the loudspeaker power limit refuses the
+    %   drive; the window is closed twice inside a sweep (output off +
+    %   close(true) from inside the acquisition). The error that ends each
+    %   scenario is part of the log ('# -> error <identifier>'). These are the
+    %   Stop / output-off paths WO-001 §6.2 names as the highest refactoring
+    %   risk: an intended change of their order is an explicit, owner-approved
+    %   fixture update. First recorded on the code before WO-001 changed the
+    %   drivers; regenerated on 2026-10-11 with the owner's approval (D24: the
+    %   session sets AbortFcn, so OUTP OFF comes before the REST stop on the
+    %   abnormal end of an acquisition; outputOffBeforeTheStopOnAnAbnormalEnd),
+    %   with no hand edit left. A Stop during the LAN-XI connect step
+    %   (stopDuringConnectReturnsTheModuleToIdle) is checked against an
+    %   explicit list: the status request moved from the window's close to the
+    %   driver (review of 2026-10-11; order approved by the owner 2026-10-11).
     %
     %   Deterministic: fixed rng seed, SimulatedRig seed 1, mock stream seed
     %   7; the mocks change state at once (one status poll per wait) and the
@@ -39,7 +43,8 @@ classdef TestBusTraffic < matlab.unittest.TestCase
     %   number depends on the 0.3 s drain after a stop) and client time-outs
     %   (not sent on the bus).
     %
-    %   After an INTENDED change of the bus traffic, regenerate a fixture:
+    %   After an INTENDED, owner-approved change of the bus traffic, regenerate
+    %   a fixture (an optional note goes into its header):
     %       addpath tests; TestBusTraffic.writeFixture()           % normal path
     %       addpath tests; TestBusTraffic.writeFixture('faults')   % fault paths
 
@@ -65,9 +70,9 @@ classdef TestBusTraffic < matlab.unittest.TestCase
 
         function faultTrafficUnchanged(tc)
             [actual, info] = TestBusTraffic.recordFaults(tc.tmp);
-            tc.assertEqual(info.errors(1:4), {'tim:lanxi:streamStalled', 'tim:session:stopped', ...
-                'tim:session:notConfirmed', 'tim:session:speakerPower'}, 'every fault scenario ends with its error');
-            tc.assertNotEmpty(info.errors{5}, 'closing inside the sweep ends the measurement with an error');
+            tc.assertEqual(info.errors, {'tim:lanxi:streamStalled', 'tim:session:stopped', ...
+                'tim:session:notConfirmed', 'tim:session:speakerPower', 'tim:instr:closed'}, ...
+                'every fault scenario ends with its error (closing inside the sweep: tim:instr:closed)');
             expected = TestBusTraffic.readFixture('faults');
             msg = TestBusTraffic.firstDifference(expected, actual, 'faults');
             tc.verifyTrue(isempty(msg), msg);
@@ -110,8 +115,9 @@ classdef TestBusTraffic < matlab.unittest.TestCase
             % before the error propagates, as the object is never returned. The
             % code before WO-001 sent the same request from the window's
             % close(true), after the generator's close lines; now it comes before
-            % them - an intended change of order (review 2026-10-11), checked
-            % here and not part of the faults fixture recorded on that code
+            % them - an intended change of order (review 2026-10-11, approved by
+            % the owner 2026-10-11), checked here; the faults fixture has no
+            % scenario of the connect step
             c = TestBusTraffic.scenarioConfig(tc.tmp);
             tim.instr.mockBusLog('start');
             stopLog = onCleanup(@() tim.instr.mockBusLog('stop'));
@@ -126,6 +132,44 @@ classdef TestBusTraffic < matlab.unittest.TestCase
                 'SCPI > SWE:STAT OFF'; 'SCPI > SYST:LOC'; 'SCPI close'}], ...
                 'connect up to module/info, the status request of the driver, then the generator closed');
             clear stopLog
+        end
+
+        function outputOffBeforeTheStopOnAnAbnormalEnd(tc)
+            % D24 (approved by the owner 2026-10-11): connect sets the
+            % acquisition's AbortFcn = @() Gen.outputOff(), so on the abnormal
+            % end of an acquisition the generator output goes off BEFORE the
+            % LAN-XI stop request - after a stalled stream (error of the driver)
+            % and after a Stop (error out of onBlock, after the session's own
+            % OUTP OFF) - and the session's disarm follows the stop sequence.
+            % Before D24 both OUTP OFF of the error path came after STREAM close.
+            c = TestBusTraffic.scenarioConfig(tc.tmp);
+            quiet = warning('off', 'tim:emergency');
+            restoreWarn = onCleanup(@() warning(quiet));
+            s = tim.app.MeasurementSession(c);
+            closeSession = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            tc.verifyClass(s.Daq.AbortFcn, 'function_handle', 'set by connect');
+            midSweep = round((c.excitation.sweep.preRoll + 0.5 * c.excitation.sweep.duration) * c.acquisition.sampleRate);
+            tim.instr.mockBusLog('start');
+            stopLog = onCleanup(@() tim.instr.mockBusLog('stop'));
+            s.Daq.Http.StreamOptions = struct('StopAfterSamples', midSweep);
+            tc.verifyError(@() s.measure('sweep'), 'tim:lanxi:streamStalled');
+            s.Daq.Http.StreamOptions = struct();
+            stalled = tim.instr.mockBusLog('lines');
+            tim.instr.mockBusLog('start');
+            atSample(s, midSweep, @() s.requestStop());
+            tc.verifyError(@() s.measure('sweep'), 'tim:session:stopped');
+            s.BlockCallback = [];
+            stopped = tim.instr.mockBusLog('stop');
+            afterTrigger = @(L) L(find(strcmp(L, 'SCPI > *TRG'), 1, 'last') + 1:end);
+            stopSequence = {'REST PUT /rest/rec/measurements/stop'; 'REST GET /rest/rec/onchange'; 'STREAM close'};
+            tc.verifyEqual(afterTrigger(stalled), [{'SCPI > OUTP OFF'}; stopSequence; {'SCPI > OUTP OFF'}], ...
+                'stalled stream: output off (AbortFcn), the stop sequence, then the disarm');
+            tc.verifyEqual(afterTrigger(stopped), [{'SCPI > OUTP OFF'; 'SCPI > OUTP OFF'}; stopSequence; {'SCPI > OUTP OFF'}], ...
+                'Stop: output off (session, then AbortFcn), the stop sequence, then the disarm');
+            s.close();
+            tc.verifyEmpty(s.Daq.AbortFcn, 'released by close');
+            clear stopLog closeSession restoreWarn
         end
 
         function recorderIsOffByDefault(tc)
@@ -263,11 +307,15 @@ classdef TestBusTraffic < matlab.unittest.TestCase
             lines = lines(~startsWith(lines, '%') & ~cellfun(@isempty, lines));
         end
 
-        function writeFixture(which)
+        function writeFixture(which, note)
             %WRITEFIXTURE Record a scenario and store it as its fixture (only
-            %   after an intended change of the bus traffic): which = 'main'
-            %   (default, normal path) or 'faults' (fault paths).
+            %   after an intended, owner-approved change of the bus traffic):
+            %   which = 'main' (default, normal path) or 'faults' (fault paths);
+            %   note (char or cellstr, optional): comment lines for the header,
+            %   e.g. the approval and the change it records.
             if nargin < 1, which = 'main'; end
+            if nargin < 2, note = {}; end
+            note = cellstr(note);
             folder = tempname; mkdir(folder);
             removeFolder = onCleanup(@() rmdir(folder, 's'));
             switch which
@@ -288,6 +336,7 @@ classdef TestBusTraffic < matlab.unittest.TestCase
                 '% "SCPI < response", "REST METHOD path [body]", "STREAM open|close", "# section".'
                 sprintf('%% Recorded %s with commit %s. Regenerate: %s', ...
                 char(datetime('now'), 'yyyy-MM-dd'), swi.commit, regen)};
+            for i = 1:numel(note), head{end + 1, 1} = ['% ' note{i}]; end
             fid = fopen(TestBusTraffic.fixtureFile(which), 'w', 'n', 'UTF-8');
             closeFile = onCleanup(@() fclose(fid));
             fprintf(fid, '%s\n', head{:}, lines{:});
