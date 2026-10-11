@@ -7,7 +7,8 @@ function info = timeSignals(ax, meas, opts)
 %   One axes per DAQ channel (ax4 = 1 x 4 axes or uiaxes, top to bottom,
 %   created by the caller), shared time axis. Shown: sound pressure
 %   p = voltage / sensitivity [Pa] of repetition 1; channel voltages in mV
-%   when a sensitivity is missing. Column c of a record is DAQ channel c;
+%   when a sensitivity is missing; data in full-scale units (meas.unit 'FS',
+%   a driver with an unknown input scale) as they are. Column c of a record is DAQ channel c;
 %   its port and sensitivity are those of the microphone with channel c. A
 %   display high-pass at 20 Hz (2nd-order Butterworth applied forward and
 %   backward: zero phase, -6 dB at 20 Hz) removes the slow CCLD / DC
@@ -23,7 +24,7 @@ function info = timeSignals(ax, meas, opts)
 %         .note     explanation for the header of the view
 %         .lines    1 x C line handles, Tag 'timWave1'..'timWave4'
 %         .axes     the axes (top to bottom)
-%         .unit     'Pa' or 'mV'
+%         .unit     'Pa', 'mV' or 'FS'
 %         .scale    1 x C factors: displayed value = volts .* scale
 %   Live view (GUI): set(info.lines(c), 'XData', t, 'YData', v(:, c) * info.scale(c))
 %   and then tim.plots.fitAxes(info.axes(c)).
@@ -38,6 +39,9 @@ if hasData && isfield(meas, 'mics'), mics = meas.mics;
 elseif isfield(opts, 'mics'), mics = opts.mics;
 end
 [scale, unit] = displayScale(mics, nA);
+rawUnit = 'V';                                   % 'FS': a driver with an unknown input scale
+if hasData && isfield(meas, 'unit') && ~isempty(meas.unit), rawUnit = char(meas.unit); end
+if ~strcmp(rawUnit, 'V'), scale = ones(1, nA); unit = rawUnit; end   % no sensitivity layer
 [ch, port] = channelPorts(mics, nA);
 sim = isfield(opts, 'simulation') && opts.simulation;
 
@@ -124,11 +128,13 @@ if hasData
     nRep = numel(meas.records);
     if strcmp(unit, 'Pa')
         txt = 'Sound pressure p = voltage / sensitivity';
-    else
+    elseif strcmp(rawUnit, 'V')
         txt = 'Channel voltages in mV (no valid sensitivity for every channel)';
+    else
+        txt = sprintf('Channel signals in %s (input scale unknown, no sound pressure)', rawUnit);
     end
-    info.note = sprintf('%s; repetition 1 of %d; display high-pass 20 Hz (raw data unchanged, stored in V).', ...
-        txt, nRep);
+    info.note = sprintf('%s; repetition 1 of %d; display high-pass 20 Hz (raw data unchanged, stored in %s).', ...
+        txt, nRep, rawUnit);
     if ~isempty(gate)
         info.note = sprintf(['%s Grey: not analysed (before %.2f s and after %.2f s: generator output on/off, ' ...
             'start-frequency tone).'], info.note, gate(1), gate(4));
@@ -238,7 +244,11 @@ end
 note = '';
 if hasData
     note = 'Level: rms of the whole displayed record (repetition 1, > 20 Hz), re 20 µPa.';
-    if ~strcmp(unit, 'Pa'), note = 'No valid sensitivity for every channel: voltages in mV, no SPL.'; end
+    if strcmp(unit, 'mV')
+        note = 'No valid sensitivity for every channel: voltages in mV, no SPL.';
+    elseif ~strcmp(unit, 'Pa')
+        note = sprintf('Data in %s (input scale unknown): no SPL.', unit);
+    end
 end
 S = struct('title', 'Channels', 'columns', {cols}, 'data', {D}, 'note', note);
 end

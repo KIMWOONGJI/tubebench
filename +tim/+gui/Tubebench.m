@@ -53,6 +53,8 @@ classdef Tubebench < handle
         Cfg struct
         LastMeas = []
         LastRes = []
+        LastCfg = []            % configuration of LastMeas / LastRes: the one LastRes was computed with
+                                % (process), or the opened folder's config.json; written by Save measurement
         H struct = struct()     % UI handles
         Pages struct = struct() % tim.gui.ViewPage of every view
         WaveLines = gobjects(0) % lines of the time-signal view (live update)
@@ -2064,7 +2066,7 @@ classdef Tubebench < handle
                 app.log('Disconnected: a new configuration was loaded - press Connect again.');
             end
             app.Cfg = cfg; app.LastCheck = '';
-            app.LastMeas = []; app.LastRes = []; app.Saved = true; app.Opened = false;
+            app.LastMeas = []; app.LastRes = []; app.LastCfg = []; app.Saved = true; app.Opened = false;
             app.refreshFromCfg();
             app.refreshViews();
             app.setResultStatus();
@@ -2110,6 +2112,7 @@ classdef Tubebench < handle
             end
             m = S.meas; md = m.metadata;
             app.LastMeas = m; app.LastRes = res;
+            app.LastCfg = saved;         % the set-up of the saved results (Save writes it again)
             app.Saved = true; app.SavedDir = folder; app.Opened = true;
             app.refreshViews();
             app.setResultStatus();
@@ -2349,7 +2352,7 @@ classdef Tubebench < handle
             app.showTab(app.H.waveTab);
             app.prepareLive();
             m = app.Session.measure(app.Cfg.excitation.mode);
-            app.LastMeas = m; app.LastRes = []; app.Saved = false; app.SavedDir = ''; app.Opened = false;
+            app.LastMeas = m; app.LastRes = []; app.LastCfg = app.Cfg; app.Saved = false; app.SavedDir = ''; app.Opened = false;
             app.LastMeas.metadata.specimen = app.specimenName();   % name at Start (folder + metadata)
             app.process();
             app.setResultStatus();
@@ -2396,7 +2399,7 @@ classdef Tubebench < handle
             app.showTab(app.H.waveTab);
             app.prepareLive();
             m = app.Session.measureBackground(2);
-            app.LastMeas = m; app.LastRes = []; app.Saved = false; app.SavedDir = ''; app.Opened = false;
+            app.LastMeas = m; app.LastRes = []; app.LastCfg = app.Cfg; app.Saved = false; app.SavedDir = ''; app.Opened = false;
             app.refreshViews();
             app.setResultStatus();
             integ = m.channelInfo{1}.integrity;
@@ -2848,8 +2851,12 @@ classdef Tubebench < handle
                 sp = app.LastMeas.metadata.specimen;
             end
             if ~isempty(sp), name = [name '_' sp]; end
-            c = app.Cfg;                 % the mode of the DATA decides folder and label (not the selector)
-            md = app.LastMeas.metadata;
+            % config.json describes the results it is saved with: the configuration
+            % they were computed with (an opened folder: its config.json), not the
+            % window's set-up of now; folder and exports follow the window
+            c = app.Cfg;
+            if ~isempty(app.LastCfg), c = app.LastCfg; c.output = app.Cfg.output; end
+            md = app.LastMeas.metadata;          % the mode of the DATA decides folder and label (not the selector)
             if isfield(md, 'mode'), c.mode = md.mode; elseif isfield(md, 'WARNING'), c.mode = 'simulation'; end
             app.progressDialog('Saving the measurement', [done, {'Writing raw data, results, configuration and CSV files …'}], 0.25);
             d = tim.app.saveMeasurement(app.LastMeas, app.LastRes, c, name, []);   % figures below, with progress
@@ -2894,6 +2901,7 @@ classdef Tubebench < handle
             md = app.LastMeas.metadata;
             if isfield(md, 'mode'), c.mode = md.mode; elseif isfield(md, 'WARNING'), c.mode = 'simulation'; end
             app.LastRes = tim.app.processMeasurement(app.LastMeas, c, cal);
+            app.LastCfg = c;             % saved as config.json with these results
             app.log('%s', app.LastRes.summary);
             app.log('Processed with calibration %s%s; L1/d/L2 = %s/%s/%s mm, T = %g °C.', ...
                 app.LastRes.calibration.version, src, app.H.L1.Value, app.H.dTh.Value, app.H.L2.Value, app.H.temp.Value);

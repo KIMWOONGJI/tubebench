@@ -219,6 +219,34 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             tc.verifyEmpty(ax.Legend);
         end
 
+        function fullScaleDataHaveNoSoundPressure(tc)
+            % audit 2026-10-11 (docs/instrument_interface.md section 4.2): data in
+            % full-scale units (meas.unit 'FS', a driver with an unknown input
+            % scale) get no Pa / dB SPL - in the result and in the views
+            m = tc.mStep; m.unit = 'FS';
+            r = tim.app.processMeasurement(m, tc.cfg, []);
+            tc.verifyFalse(isfield(r.pressureSpectrum, 'PSD_Pa2perHz'));
+            tc.verifyEqual(r.pressureSpectrum.unit, 'FS');
+            tc.verifyTrue(all(isnan(r.toneLevels.spl_dB(:))), 'no dB SPL');
+            tc.verifyEqual(r.toneLevels.unit, 'FS');
+            ax = tc.axesFor(1);
+            info = tim.plots.spectrum(ax, m, r);
+            tc.verifySubstring(ax.YLabel.String, 'dB re 1 FS');
+            tc.verifySubstring(info.summary.columns{3}, 'dB re 1 FS');
+            ms = tc.mSweep; ms.unit = 'FS';
+            ax = tc.axesFor(1);
+            tim.plots.spectrum(ax, ms, []);
+            tc.verifySubstring(ax.YLabel.String, 'dB re 1 FS');
+            ax = tc.axesFor(4);
+            info = tim.plots.timeSignals(ax, ms);
+            tc.verifyEqual(info.unit, 'FS');
+            tc.verifyEqual(info.scale, ones(1, 4));
+            tc.verifySubstring(ax(1).YLabel.String, '[FS]');
+            % volts as before
+            tc.verifyTrue(isfield(tc.rStep.pressureSpectrum, 'PSD_Pa2perHz'));
+            tc.verifyTrue(all(isfinite(tc.rStep.toneLevels.spl_dB(:))));
+        end
+
         function spectrumWithoutSensitivityAndEmpty(tc)
             m = tc.mSweep;
             for c = 1:4, m.mics(c).sensitivity_VperPa = NaN; end

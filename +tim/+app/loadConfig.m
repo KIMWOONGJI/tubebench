@@ -5,8 +5,13 @@ function cfg = loadConfig(file)
 %   cfg = tim.app.loadConfig()          % defaults only
 %
 %   JSON has no NaN: a null (or missing field) keeps the default value,
-%   so unknown geometry stays NaN ("not provided"). Numeric arrays are
-%   returned with the default's orientation. Unknown fields are kept and
+%   so unknown geometry stays NaN ("not provided"). JSON has no Inf either
+%   (saveConfig writes null): an Inf comes back as the default. A list of
+%   texts written empty ([], as saveConfig writes {}) stays empty. Numeric
+%   arrays are returned with the default's orientation; a list of rows
+%   (analysis.validatedBands) written as one flat array [200, 3000] is read
+%   row by row. A list of objects (mics) whose entries leave out different
+%   keys fills each missing key from the default. Unknown fields are kept and
 %   reported as a warning (typo protection).
 %
 %   Instruments: a file of formatVersion 1 (generator.host / port / timeout,
@@ -80,19 +85,33 @@ for i = 1:numel(fu)
     elseif isstruct(dv) && isscalar(dv) && isstruct(uv) && isscalar(uv)
         [d.(k), un] = merge(dv, uv, p);
         unknown = [unknown, un]; %#ok<AGROW>
-    elseif isstruct(dv) && isstruct(uv)
-        % struct array (e.g. mics): take user entries, fill missing fields
+    elseif isstruct(dv) && (isstruct(uv) || (~isscalar(dv) && isStructCell(uv)))
+        % struct array (e.g. mics): take user entries, fill missing fields.
+        % Objects with different keys (one microphone without "serial")
+        % decode as a cell array of structs: merged element by element too
+        if iscell(uv), uv = reshape(uv, 1, []); else, uv = num2cell(reshape(uv, 1, [])); end
         out = repmat(dv(1), numel(uv), 1);
         for j = 1:numel(uv)
-            [out(j), un] = merge(dv(min(j, end)), uv(j), sprintf('%s(%d)', p, j));
+            [out(j), un] = merge(dv(min(j, end)), uv{j}, sprintf('%s(%d)', p, j));
             unknown = [unknown, un]; %#ok<AGROW>
         end
         d.(k) = out.';
+    elseif iscell(dv) && isempty(uv) && isnumeric(uv)
+        % a list written empty: saveConfig writes {} as [] (JSON cannot tell
+        % [] from null; for a list both mean "empty", not the default)
+        if iscolumn(dv) && ~isrow(dv), d.(k) = cell(0, 1); else, d.(k) = cell(1, 0); end
     elseif isempty(uv) && isnumeric(uv)
         % null -> keep default
     elseif isnumeric(dv) || islogical(dv)
         if isnumeric(uv) || islogical(uv)
             if isrow(dv) && iscolumn(uv), uv = uv.'; end
+            % a list of rows with a fixed number of columns (validatedBands,
+            % default zeros(0, 2)): one row is written as a flat array, which
+            % decodes as a column - read a flat array row by row
+            nc = size(dv, 2);
+            if nc > 1 && size(dv, 1) ~= 1 && isvector(uv) && size(uv, 2) ~= nc && mod(numel(uv), nc) == 0
+                uv = reshape(uv(:), nc, []).';
+            end
             if islogical(dv), uv = logical(uv); end
             d.(k) = uv;
         else
@@ -123,4 +142,9 @@ elseif isfield(u, 'driver') && strcmp(char(string(u.driver)), k)
     d.(k) = uv;
     done = true;
 end
+end
+
+function tf = isStructCell(v)
+% a cell array of scalar structs (jsondecode of objects with different keys)
+tf = iscell(v) && ~isempty(v) && all(cellfun(@(e) isstruct(e) && isscalar(e), v(:)));
 end

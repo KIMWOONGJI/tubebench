@@ -900,6 +900,16 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             m2 = m; m2.mics = m.mics([4 2 1 3]);                   % list order must not matter
             r2 = tim.app.processMeasurement(m2, c, []);
             tc.verifyEqual(r2.pressureSpectrum.PSD_Pa2perHz, P);
+            tc.verifyFalse(any(contains(r2.diagnostics.warnings, 'Microphone mapping')), 'same mapping, other order');
+            % audit 2026-10-11: reprocessed with a configuration whose mapping
+            % differs from the recorded one (re-cabled since): used, but reported
+            c3 = c; c3.mics(1).position = 1; c3.mics(2).position = 2;   % (listed ch2, ch1): ch2 in M1, ch1 in M2
+            r3 = tim.app.processMeasurement(m, c3, []);
+            w = r3.diagnostics.warnings(contains(r3.diagnostics.warnings, 'Microphone mapping'));
+            tc.verifyNumElements(w, 1);
+            tc.verifySubstring(w{1}, 'ch1 M2, ch2 M1, ch3 M3, ch4 M4');
+            tc.verifySubstring(w{1}, 'recorded with (ch1 M1, ch2 M2, ch3 M3, ch4 M4)');
+            tc.verifyEqual(r3.channelOfPosition, [2 1 3 4], 'the configuration''s mapping is used');
             clear cleanup
         end
 

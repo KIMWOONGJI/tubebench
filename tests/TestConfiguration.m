@@ -293,6 +293,65 @@ classdef TestConfiguration < matlab.unittest.TestCase
             tc.verifyEmpty(tim.instr.Instrument.misplacedSettings(tim.app.defaultConfig()));
         end
 
+        function valuesSurviveTheJsonRoundTrip(tc)
+            % audit 2026-10-11: one validated band (written as a flat array),
+            % emptied lists and a microphone entry without some keys load as
+            % they were meant
+            c = tim.app.defaultConfig();
+            c.geometry = c.simulation.Geometry;
+            c.analysis.validatedBands = [200 3000];
+            c.output.figureFormats = {};
+            c.amplifier.knownModels = {};
+            f = fullfile(tc.tmp, 'round.json');
+            tim.app.saveConfig(c, f);
+            c2 = tim.app.loadConfig(f);
+            tc.verifyEqual(c2.analysis.validatedBands, [200 3000], 'one band: 1 x 2');
+            tc.verifyEmpty(c2.output.figureFormats, 'an emptied list stays empty');
+            tc.verifyEmpty(c2.amplifier.knownModels);
+            c.analysis.validatedBands = [200 1000; 1500 3000];
+            tim.app.saveConfig(c, f);
+            tc.verifyEqual(tim.app.loadConfig(f).analysis.validatedBands, [200 1000; 1500 3000]);
+            % hand-written: one band as a flat array, two bands as a flat array
+            u = struct('analysis', struct('validatedBands', [200 3000]));
+            tc.verifyEqual(tim.app.loadConfig(tc.writeJson(u, 'flat1.json')).analysis.validatedBands, [200 3000]);
+            u.analysis.validatedBands = [200 1000 1500 3000];
+            tc.verifyEqual(tim.app.loadConfig(tc.writeJson(u, 'flat2.json')).analysis.validatedBands, [200 1000; 1500 3000]);
+            % a microphone entry without "serial" and "certificateDate"
+            u = tc.fixtureStruct('config_formatVersion2.json');
+            u.mics = num2cell(u.mics);
+            u.mics{2} = rmfield(u.mics{2}, {'serial', 'certificateDate'});
+            c3 = tc.verifyWarningFree(@() tim.app.loadConfig(tc.writeJson(u, 'mics.json')));
+            tc.verifyEqual([c3.mics.position], [1 2 3 4]);
+            d = tim.app.defaultConfig();
+            tc.verifyEqual(c3.mics(2).serial, d.mics(2).serial, 'missing key: the default');
+        end
+
+        function invalidCalibrationAndBandSettingsRefused(tc)
+            % audit 2026-10-11: settings that used to fail only deep inside the
+            % calibration or the analysis are refused when the file is checked
+            c = tim.app.defaultConfig();
+            b = c; b.calibration.positions = [2 2];
+            tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:calPositions');
+            b.calibration.positions = [1 5];
+            tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:calPositions');
+            b = c; b.calibration.coherenceMin = 1.5;
+            tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:calQuality');
+            b = c; b.calibration.snrMin_dB = NaN;
+            tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:calQuality');
+            b = c; b.analysis.validatedBands = [200; 3000];
+            tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:validatedBands');
+            b.analysis.validatedBands = [3000 200];
+            tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:validatedBands');
+            % the sweep gate needs room outside the band; the SNR a noise-only pre-roll
+            tc.verifyFalse(any(contains(tim.app.validateConfig(c), 'Swept sine')), 'default 80-5500 Hz');
+            for r = [109 5500; 80 4600; 120 4500]'
+                b = c; b.excitation.sweep.fStart = r(1); b.excitation.sweep.fStop = r(2);
+                tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'sweep gate cuts into the band edges')), mat2str(r'));
+            end
+            b = c; b.excitation.sweep.preRoll = 0.05;
+            tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'pre-roll 0.05 s')));
+        end
+
         function driveEstimateUsesTheDriversSourceImpedance(tc)
             % docs/instrument_interface.md D12: the drive estimate and the operator
             % text take the source impedance from the generator driver

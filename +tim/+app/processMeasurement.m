@@ -76,6 +76,21 @@ res.Hchannel = Hcal;
 
 % ---- channel -> position
 pos = [cfg.mics.position]; ch = [cfg.mics.channel];
+% the mapping the data were recorded with (meas.mics) - a configuration with
+% another mapping (re-cabled since, another file loaded) swaps microphones
+% in the wave decomposition: used as configured (e.g. to correct a known
+% cabling error), but reported
+if isfield(meas, 'mics') && isstruct(meas.mics) && all(isfield(meas.mics, {'channel', 'position'})) && ...
+        numel(meas.mics) == numel(ch)
+    recorded = zeros(1, 4); recorded([meas.mics.channel]) = [meas.mics.position];
+    used = zeros(1, 4); used(ch) = pos;
+    if ~isequal(recorded, used)
+        txt = @(m) strjoin(arrayfun(@(c) sprintf('ch%d M%d', c, m(c)), 1:4, 'UniformOutput', false), ', ');
+        res.diagnostics.warnings{end+1} = sprintf(['Microphone mapping of the configuration (%s) differs from the ' ...
+            'one this measurement was recorded with (%s): the results use the configuration''s mapping. Load the ' ...
+            'measurement''s own configuration unless the cabling was recorded wrongly.'], txt(used), txt(recorded));
+    end
+end
 Hp = zeros(numel(f), 4); cohP = ones(numel(f), 4); snrP = inf(numel(f), 4); calP = false(numel(f), 4);
 for i = 1:4
     Hp(:, pos(i)) = Hcal(:, ch(i));
@@ -100,13 +115,23 @@ res.analysis = tim.acoustics.analyzeFourMic(f, Hp, cfg.geometry, cfg.environment
 mics = struct([]);
 if isfield(meas, 'mics'), mics = tim.app.MeasurementSession.micsByChannel(meas.mics); end
 chCol = 1:4; if isfield(mics, 'channel'), chCol = [mics.channel]; end
+% data in full-scale units (a driver with an unknown input scale,
+% docs/instrument_interface.md section 4.2): no sensitivity layer, no Pa / dB SPL
+unit = 'V'; if isfield(meas, 'unit') && ~isempty(meas.unit), unit = char(meas.unit); end
+volts = strcmp(unit, 'V');
 try
     x = meas.records{1};
-    p = tim.acq.voltsToPascal(x - mean(x, 1), mics, 'V');
-    nfft = min(8192, 2^nextpow2(size(p, 1)));
-    [P, fp] = pwelch(p, hann(nfft, 'periodic'), nfft / 2, nfft, fs);
-    res.pressureSpectrum = struct('f', fp, 'PSD_Pa2perHz', P, 'channelOrder', chCol, ...
-        'note', 'Uses the sensitivity layer (TEDS/certificate/nominal) only.');
+    nfft = min(8192, 2^nextpow2(size(x, 1)));
+    if volts
+        p = tim.acq.voltsToPascal(x - mean(x, 1), mics, 'V');
+        [P, fp] = pwelch(p, hann(nfft, 'periodic'), nfft / 2, nfft, fs);
+        res.pressureSpectrum = struct('f', fp, 'PSD_Pa2perHz', P, 'channelOrder', chCol, ...
+            'note', 'Uses the sensitivity layer (TEDS/certificate/nominal) only.');
+    else
+        [P, fp] = pwelch(x - mean(x, 1), hann(nfft, 'periodic'), nfft / 2, nfft, fs);
+        res.pressureSpectrum = struct('f', fp, 'PSD', P, 'unit', unit, 'channelOrder', chCol, ...
+            'note', sprintf('Data in %s (input scale unknown): no sound pressure levels.', unit));
+    end
 catch err
     res.pressureSpectrum = struct('error', err.message);
 end
@@ -114,7 +139,9 @@ end
 % stepped record is a LINE spectrum (one narrow line per step, each holding
 % 1/nSteps of the record energy) - not a useful level display.
 if strcmp(meas.kind, 'stepped')
+    if ~volts, mics = struct([]); end           % no sensitivities: spl_dB NaN
     res.toneLevels = steppedLevels(sp, mics, chCol);
+    res.toneLevels.unit = unit;
 end
 res.summary = res.analysis.valid.summary;
 end

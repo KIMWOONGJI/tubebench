@@ -755,6 +755,16 @@ classdef TestGui < matlab.unittest.TestCase
             g = c.geometry;
             tc.verifySubstring(log, sprintf('IMPEDANCE TUBE fields kept; the saved results used D 29, s1 29, L1 %g,', ...
                 round(1e3 * (g.xFront - g.micPositions(2)), 3)));
+            % audit 2026-10-11: saved again without Reprocess - the new folder's
+            % config.json describes its result.mat (the opened set-up), not the
+            % window's set-up (L1 9 mm longer)
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            dAgain = app.SavedDir;
+            tc.assertNotEqual(dAgain, d);
+            cAgain = tim.app.loadConfig(fullfile(dAgain, 'config.json'));
+            tc.verifyEqual(cAgain.geometry.micPositions, c.geometry.micPositions, 'AbsTol', 1e-9);
+            S = load(fullfile(dAgain, 'result.mat'), 'res');
+            tc.verifyEqual(S.res.analysis.R, res.analysis.R);
             app.openMeasurement(fullfile(d, 'raw.mat'), true);      % file given; saved set-up into the fields
             g = app.currentGeometry();
             tc.verifyEqual(g.micPositions, c.geometry.micPositions, 'AbsTol', 1e-12);

@@ -93,6 +93,27 @@ assert(isequal(sort(pos), 1:4) && isequal(sort(ch), 1:4), 'tim:config:mics', ...
     'Each channel ch1–ch4 must be assigned to exactly one port M1–M4 (configuration: mics).');
 assert(ismember(cfg.analysis.refChannel, 1:4), 'tim:config:ref', ...
     'Reference channel (analysis.refChannel) must be 1, 2, 3 or 4.');
+vb = cfg.analysis.validatedBands;
+if ~(isnumeric(vb) && (isempty(vb) || (ismatrix(vb) && size(vb, 2) == 2 && all(vb(:, 1) < vb(:, 2)))))
+    error('tim:config:validatedBands', ['Validated bands (analysis.validatedBands) must be a list of bands ' ...
+        '[fLo fHi] with fLo < fHi, e.g. [[200, 3000]] (got %s).'], mat2str(vb));
+end
+if isfield(cfg, 'calibration')
+    cb = cfg.calibration;
+    if isfield(cb, 'positions')
+        ab = cb.positions;
+        if ~(isnumeric(ab) && numel(ab) == 2 && all(ismember(ab, 1:4)) && ab(1) ~= ab(2))
+            error('tim:config:calPositions', ['Calibration ports (calibration.positions) must be two different ' ...
+                'ports of M1–M4, e.g. [1, 2] (got %s).'], mat2str(ab));
+        end
+    end
+    if isfield(cb, 'coherenceMin') && ~(isscalar(cb.coherenceMin) && cb.coherenceMin > 0 && cb.coherenceMin <= 1)
+        error('tim:config:calQuality', 'Calibration coherence limit (calibration.coherenceMin) must be in (0, 1].');
+    end
+    if isfield(cb, 'snrMin_dB') && ~(isscalar(cb.snrMin_dB) && isfinite(cb.snrMin_dB))
+        error('tim:config:calQuality', 'Calibration SNR limit (calibration.snrMin_dB) must be a finite number of dB.');
+    end
+end
 fs = cfg.acquisition.sampleRate;
 assert(isscalar(fs) && isnumeric(fs) && fs > 0, 'tim:config:fs', ...
     'Sample rate (acquisition.sampleRate) must be a positive number of samples per second.');

@@ -340,7 +340,14 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   fields (geometry, temperature, pressure) and the active calibration, e.g. after correcting a
   distance or loading another calibration. Save measurement again to keep the new results (a new
   folder; the first one is not changed). This also works for a measurement opened with File > Open
-  measurement….
+  measurement…. Reprocess uses the channel-to-port assignment of the configuration loaded now; if
+  it differs from the one the measurement was recorded with (`meas.mics`), the message pane
+  says so ("Microphone mapping of the configuration … differs …"): load the measurement's own
+  configuration unless the cabling was recorded wrongly.
+* The `config.json` that Save measurement writes is the configuration the saved results were
+  computed with (after File > Open measurement… without Reprocess: the opened folder's
+  `config.json`), so it always describes `result.mat`; folder and figure formats follow the
+  window.
 
 ### Which buttons are available
 

@@ -10,7 +10,8 @@ function info = spectrum(ax, meas, res, opts)
 %   overlap - res.pressureSpectrum when res is given, else computed from
 %   meas in the same way). The analysis band is marked by two dashed lines.
 %   Without a valid sensitivity for every channel: PSD of the voltages in
-%   dB re 1 V²/Hz.
+%   dB re 1 V²/Hz; data in full-scale units (meas.unit 'FS', a driver with an
+%   unknown input scale) in dB re 1 FS²/Hz, without sensitivities.
 %   Stepped sine: the PSD of the record is a line spectrum (one narrow line
 %   per step, each holding 1/nSteps of the energy) and is no level display.
 %   Shown instead: the tone level of every step and channel from the sine
@@ -30,6 +31,7 @@ function info = spectrum(ax, meas, res, opts)
 
 if nargin < 4 || isempty(opts), opts = struct(); end
 o = defaults(opts, res);
+o.dataUnit = dataUnit(meas, res);              % 'V', or 'FS' (input scale unknown)
 P = tim.gui.palette();
 legend(ax, 'off');
 cla(ax); hold(ax, 'on');
@@ -52,7 +54,7 @@ if stepped && hasRes && isfield(res, 'toneLevels')
 end
 
 % ---- PSD (sweep / noise / background; stepped before processing in grey)
-[f, G, pa, fs] = psd(meas, res, hasMeas, hasRes);
+[f, G, pa, fs] = psd(meas, res, hasMeas, hasRes, o.dataUnit);
 if isempty(f)
     ylabel(ax, 'PSD [dB re (20 \muPa)^2/Hz]');
     hb = bandLines(ax, o.band);
@@ -65,13 +67,13 @@ if isempty(f)
     if hasMeas || hasRes, msg = 'No pressure spectrum available'; end
     if ~isempty(o.emptyText), msg = o.emptyText; end
     tim.plots.emptyState(ax, msg);
-    info.summary = psdSummary([], [], [], [], o.band, fs, true);
+    info.summary = psdSummary([], [], [], [], o.band, fs, true, o.dataUnit);
     return
 end
 if pa
     ref = 2e-5; ylabel(ax, 'PSD [dB re (20 \muPa)^2/Hz]');
 else
-    ref = 1; ylabel(ax, 'PSD [dB re 1 V^2/Hz]');
+    ref = 1; ylabel(ax, sprintf('PSD [dB re 1 %s^2/Hz]', o.dataUnit));
 end
 [ch, port] = channelPorts(meas, res, size(G, 2));
 keep = f >= 20;
@@ -99,13 +101,16 @@ else
     tim.plots.legend(ax, [h hb], [names, {bandName(o.band)}]);
     if pa
         info.note = 'One-sided Welch PSD of the sound pressure (repetition 1, whole record); dashed: analysis band.';
-    else
+    elseif strcmp(o.dataUnit, 'V')
         info.note = 'No valid sensitivity for every channel: PSD of the channel voltages; dashed: analysis band.';
+    else
+        info.note = sprintf(['Data in %s (input scale unknown): PSD of the channel signals, no sound pressure; ' ...
+            'dashed: analysis band.'], o.dataUnit);
     end
 end
 title(ax, titleOf(meas, res, o));
 info.lines = h;
-info.summary = psdSummary(f, G, ch, port, o.band, fs, pa);
+info.summary = psdSummary(f, G, ch, port, o.band, fs, pa, o.dataUnit);
 end
 
 % ---------------------------------------------------------------------------
@@ -133,7 +138,7 @@ for i = 1:numel(fn)
 end
 end
 
-function [f, G, pa, fs] = psd(meas, res, hasMeas, hasRes)
+function [f, G, pa, fs] = psd(meas, res, hasMeas, hasRes, vu)
 % one-sided PSD [Pa^2/Hz] from res.pressureSpectrum, else Welch from meas
 % (same estimate as tim.app.processMeasurement); volts^2/Hz without sensitivities
 f = []; G = []; pa = true; fs = 16384;
@@ -150,7 +155,7 @@ if ~hasMeas, return; end
 x = double(meas.records{1});
 x = x - mean(x, 1);
 s = nan(1, size(x, 2));
-if isfield(meas, 'mics') && isfield(meas.mics, 'sensitivity_VperPa') && numel(meas.mics) >= size(x, 2)
+if strcmp(vu, 'V') && isfield(meas, 'mics') && isfield(meas.mics, 'sensitivity_VperPa') && numel(meas.mics) >= size(x, 2)
     s = [meas.mics.sensitivity_VperPa];
     s = s(micIndex(meas.mics, size(x, 2)));         % column c = DAQ channel c
 end
@@ -180,7 +185,7 @@ for c = 1:C
         'MarkerSize', 5, 'MarkerFaceColor', col, 'MarkerEdgeColor', col);
 end
 hn = plot(ax, NaN, NaN, ':', 'Color', [0.35 0.35 0.35], 'LineWidth', 1.1);     % legend entry only
-if pa, ylabel(ax, 'Tone level [dB SPL]'); else, ylabel(ax, 'Tone level [dB re 1 V]'); end
+if pa, ylabel(ax, 'Tone level [dB SPL]'); else, ylabel(ax, sprintf('Tone level [dB re 1 %s]', o.dataUnit)); end
 names = arrayfun(@(c) channelName(ch(c), port(c)), 1:C, 'UniformOutput', false);
 tim.plots.fitAxes(ax, 'XRange', o.band, 'XInclude', [min(fk) max(fk)]);
 tim.plots.fitAxes(ax, 'Axis', 'y', 'YSteps', [1 2 5]);
@@ -189,7 +194,7 @@ info.lines = h;
 info.note = sprintf(['Stepped sine, %d steps: tone level of every step from the sine fit of the settled part ' ...
     '(markers); dotted: residual noise in the fit bandwidth.'], numel(fk));
 % summary
-unit = 'dB SPL'; if ~pa, unit = 'dB re 1 V'; end
+unit = 'dB SPL'; if ~pa, unit = ['dB re 1 ' o.dataUnit]; end
 cols = {'Channel', 'Port', sprintf('Min tone level [%s]', unit), sprintf('Max tone level [%s]', unit), ...
     'Median SNR [dB]'};
 D = cell(C, numel(cols));
@@ -226,9 +231,9 @@ function s = freqText(f)
 s = sprintf('%g', f);
 end
 
-function S = psdSummary(f, G, ch, port, band, fs, pa)
+function S = psdSummary(f, G, ch, port, band, fs, pa, vu)
 % band level = 10 log10(sum(PSD) df / p0^2): integral of the PSD over the band
-unit = 'dB SPL'; if ~pa, unit = 'dB re 1 V'; end
+unit = 'dB SPL'; if ~pa, unit = ['dB re 1 ' vu]; end
 cols = {'Channel', 'Port', sprintf('Level %g–%g Hz [%s]', band(1), band(2), unit), ...
     sprintf('Overall %g Hz – %.4g kHz [%s]', 20, fs / 2000, unit)};
 if isempty(f)
@@ -249,6 +254,21 @@ for c = 1:C
 end
 S = struct('title', 'Levels', 'columns', {cols}, 'data', {D}, ...
     'note', 'Level = PSD integrated over the frequency range (mean over the whole record, incl. pre- and post-roll).');
+end
+
+function u = dataUnit(meas, res)
+% unit of the recorded data: 'V', or 'FS' from a driver with an unknown input
+% scale (meas.unit; a result keeps it in toneLevels / pressureSpectrum)
+u = 'V';
+if ~isempty(meas) && isstruct(meas) && isfield(meas, 'unit') && ~isempty(meas.unit)
+    u = char(meas.unit);
+elseif ~isempty(res) && isstruct(res)
+    if isfield(res, 'pressureSpectrum') && isfield(res.pressureSpectrum, 'unit')
+        u = char(res.pressureSpectrum.unit);
+    elseif isfield(res, 'toneLevels') && isfield(res.toneLevels, 'unit')
+        u = char(res.toneLevels.unit);
+    end
+end
 end
 
 function S = emptySummary()
