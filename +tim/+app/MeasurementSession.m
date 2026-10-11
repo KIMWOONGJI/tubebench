@@ -620,10 +620,10 @@ classdef MeasurementSession < handle
             % own error (stalled stream, time-out, transport fault), an error
             % thrown by onBlock (a Stop), an interrupt - the acquisition driver
             % calls AbortFcn BEFORE any stop or drain I/O, so the source output
-            % goes off before the driver stops its device (an unreachable LAN-XI
-            % module takes about 20 s for that). Set once here, so direct
-            % callers of acquire (tim.val.channelIdentification) are covered
-            % too. A combined device (Gen == Daq) gets the same hook: its
+            % goes off before the driver stops its device (stopping an
+            % unreachable network module can take about 20 s). Set once here,
+            % so direct callers of acquire (tim.val.channelIdentification) are
+            % covered too. A combined device (Gen == Daq) gets the same hook: its
             % re-entrant outputOff stops its output at once (section 8.3), then
             % its own stop sequence runs (stopped, then 0 V).
             gen = obj.Gen;

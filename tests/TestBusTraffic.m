@@ -336,7 +336,7 @@ classdef TestBusTraffic < matlab.unittest.TestCase
                 '% "SCPI < response", "REST METHOD path [body]", "STREAM open|close", "# section".'
                 sprintf('%% Recorded %s with commit %s. Regenerate: %s', ...
                 char(datetime('now'), 'yyyy-MM-dd'), swi.commit, regen)};
-            for i = 1:numel(note), head{end + 1, 1} = ['% ' note{i}]; end
+            for i = 1:numel(note), head{end + 1, 1} = ['% ' note{i}]; end %#ok<AGROW>
             fid = fopen(TestBusTraffic.fixtureFile(which), 'w', 'n', 'UTF-8');
             closeFile = onCleanup(@() fclose(fid));
             fprintf(fid, '%s\n', head{:}, lines{:});
