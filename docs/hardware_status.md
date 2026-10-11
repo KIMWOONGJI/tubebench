@@ -55,6 +55,8 @@ LAN-XI capabilities reported by `/rest/rec/module/info`:
 | Rigid termination (Test D), empty tube (Test E), stepped vs sweep (Test G) | **PENDING** | the automatic empty-tube check of both calibrations passed (section "In-tube sessions"); Test D, the repeated Test E after it (H7) and Test G not run; the geometry is still the CAD design (calipers pending) |
 | GUI | SW-VERIFIED | simulation only |
 | Session gates that exist only in hardware mode: amplifier gain required (`tim:session:gainRequired`), excitation confirmation in the command window (scripts), settle wait of the inputs | SW-VERIFIED | a hardware-mode session on test-only drivers that run the unchanged 33220A and LAN-XI drivers on their protocol mocks, with no network I/O (`TestSessionHardwareMode`, owner decision 2026-10-11). On the instruments: **PENDING** (the confirmation and the settling in the window: hardware check steps 4-5 below) |
+| Swept-sine analysis of 2026-10-11 (owner decisions): frequency lines centred on their frequency; an end of a sweep without the margin outside the band gets another window edge (limits 91 / 4952 Hz for 120–4500 Hz, also in the configuration check) | SW-VERIFIED | simulation (`TestDsp`, `TestConfiguration`, `TestPlotsMeasurement`); the five lab folders and both lab calibrations reprocessed read-only in memory: the gate rule bit-identical (the lab sweeps keep the margin), the centred lines change the results slightly (section "After the merge"). The fallback on real records: **PENDING** (hardware check step 9) |
+| File > Open measurement… offers the recorded microphone mapping for Reprocess; one close request during it closes the window (its questions count as cancelled) | SW-VERIFIED | hidden-window tests (`TestGui`); hardware check step 10 |
 | Instrument interface of 1.2.0 (WO-001, branch `wo-001`: drivers through the registry, configuration by driver name, identity display in the window; review fixes of 2026-10-11) | SW-VERIFIED | simulation only (contract tests, bus-traffic fixtures, hidden-window tests). **PENDING** the owner's hardware check (WO-001 §0.3) - steps in the section "Pending: hardware check of the refactored drivers" below |
 
 ## Observation from the first hardware acquisition (IMPORTANT)
@@ -164,24 +166,34 @@ and the temperature have not been measured. Those rows stay **PENDING** above.
 
 Since 2026-10-11 the 33220A and the LAN-XI are driven through the instrument contract and the
 driver registry (`docs/instrument_interface.md`, `docs/workorder_instrument_interface.md`). This is
-**SW-VERIFIED only**: the full test suite in simulation (334 tests on 2026-10-11; `run_tests('fast')` 298 / 298), the contract
-tests of every driver, and the bus-traffic tests, which show that a simulated session sends the same
-SCPI commands and REST requests as the code before WO-001 (three documented changes of order on
-fault paths, approved by the owner on 2026-10-11: closing the window inside a sweep, a Stop during
-the LAN-XI connect step, and D24 - on a Stop or an error of the acquisition the generator output
-is switched off before the LAN-XI stop request, not after it).
+**SW-VERIFIED only**: the full test suite in simulation (337 tests in 22 classes, `run_tests()`
+337 / 337 on 2026-10-11 at commit b05a7cf), the contract tests of every driver, and the
+bus-traffic tests, which show that a simulated session sends the same SCPI commands and REST
+requests as the code before WO-001 (three documented changes of order on fault paths,
+approved by the owner on 2026-10-11: closing the window inside a sweep, a Stop during the LAN-XI
+connect step, and D24 - on a Stop or an error of the acquisition the generator output is switched
+off before the LAN-XI stop request, not after it).
+The same branch changes three things the check below looks at as well (owner decisions of
+2026-10-11, simulation only so far): **D24** (above); the **sweep gate** - a sweep that does not
+reach far enough beyond the analysis band is analysed with another window edge at that end (start
+at or below 91 Hz and stop at or above 4952 Hz for the band 120–4500 Hz at Δf = 2 Hz; the lab
+sweep 80–5500 Hz keeps the gate at both ends, and its frequency lines are now centred on their
+frequency, `docs/theory.md` section 4); and the **recorded microphone mapping** that File > Open
+measurement… offers for Reprocess when the configuration's mapping differs.
 Nothing of WO-001 has run on the real instruments yet. The owner's check (WO-001 §0.3), each step
 only with the owner present; at the first surprise: output off at the generator, close the window,
 report:
 
 1. **Reconnect** the 33220A (LAN, 169.254.2.20:5025) and the LAN-XI 3676 (169.254.64.156) as on
    2026-10-08, no address or firmware change; the microphones on their channels; amplifier at
-   minimum gain (or direct drive), loudspeaker connected only for steps 5-7. Check out `wo-001`;
-   `config/user_config.json` stays as it is. Expected: both instruments answer as before; the
-   33220A output LED off.
+   minimum gain (or direct drive), loudspeaker connected only for steps 5-9. Check out `wo-001`;
+   `config/user_config.json` stays as it is (D7: it is rewritten in the new layout only after this
+   check). Expected: both instruments answer as before; the 33220A output LED off.
 2. **The lab file loads unchanged**: `cfg = tim.app.loadConfig('config/user_config.json')` gives
    no warning; `cfg.generator.driver` `'keysight33220a'`, `cfg.daq.driver` `'lanxi'`,
-   `cfg.daq.lanxi.connector` `'BNC'`, `cfg.generator.maxVpp` 2.
+   `cfg.daq.lanxi.connector` `'BNC'`, `cfg.generator.maxVpp` 2; `tim.app.validateConfig(cfg)` has
+   no "Swept sine: let the sweep start at or below 91 Hz …" line (the lab sweep 80–5500 Hz keeps
+   the margin of the sweep gate).
 3. **Connect and identify with the output off** (script, nothing is switched on):
    `s = tim.app.MeasurementSession(cfg); s.connect(); disp(s.Gen.identity()); disp(s.Daq.identity()); s.Gen.isOutputOn(1)`,
    then `s.close()`. Expected: 33220A `MY44032054`, firmware 2.02; LAN-XI 3676-B-040, s/n 110283,
@@ -197,36 +209,85 @@ report:
    "Generator: 33220A s/n MY44032054" and "LAN-XI: 3676-B-040 s/n 110283" without "(simulated)",
    and Setup > Connection lists vendor, model, serial number and firmware of both. Output LED off.
 5. **A short measurement at an approved level**: the owner states the level, at most the
-   configured default 0.2 Vpp (EXCITATION amplitude ≤ 0.1 Vpk; e.g. 0.05 Vpp first), swept sine,
-   one repetition, the amplifier record entered; answer the excitation confirmation only after the
-   owner agreed. Expected: the output LED is on only during the sweep; the sweep lies inside the
-   record on ch1, ch2, ch4; no integrity error apart from ch3; the output LED off afterwards.
+   configured default 0.2 Vpp (EXCITATION amplitude ≤ 0.1 Vpk; e.g. 0.05 Vpp first), swept sine
+   80–5500 Hz, one repetition, the amplifier record entered; answer the excitation confirmation
+   only after the owner agreed. Expected: the output LED is on only during the sweep; the sweep
+   lies inside the record on ch1, ch2, ch4; no integrity error apart from ch3; the output LED off
+   afterwards. **Sweep gate at both ends**: no "Sweep … too close to the analysis band" warning in
+   the message pane; in Measurement > Time signals the grey parts lie before and after the sweep
+   and the header note reads "Grey: not analysed (before … s and after … s: generator output
+   on/off, start-frequency tone)" (`res.diagnostics.excitation(1).gateEnds` = `{'gate', 'gate'}`).
 6. **Stop during a measurement**: the same level, a longer sweep (e.g. 5 s, 4 repetitions); press
-   Stop in the middle. Expected: the output LED goes off at once (since D24 the output is switched
-   off before the LAN-XI module is stopped); the window says "Measurement stopped by the
-   operator. Generator output off (confirmed)."; the partial data are kept; the next measurement
-   works without reconnecting.
+   Stop in the middle. Expected (**D24**): the output LED goes off at once - the output is switched
+   off before the LAN-XI module is stopped; the message pane shows "Error during swept sine,
+   repetition k: Measurement stopped by user. Generator output commanded off (not read back).
+   Partial data saved to …" and then "Measurement stopped by the operator. Generator output off
+   (confirmed)."; the partial data are kept; the next measurement works without reconnecting.
 7. **Output-off read-back**: after steps 5 and 6 the status line shows no "Generator output not
    confirmed off"; the 33220A shows the output off (LED) - the read-back (`OUTP?`) and the
    instrument agree.
-8. **Closing**: close the window while connected, once idle and once during a measurement.
-   Expected: the closing window lists "Generator output off (confirmed)" and "Instruments
+8. **Closing**: close the window while connected, once idle and once during a measurement (one
+   close request). Expected: during the measurement the running repetition stops at once (output
+   LED off, "Error during swept sine, repetition k: Measurement stopped by user …" as in step 6),
+   then the closing window lists "Generator output off (confirmed)" and "Instruments
    disconnected"; the output LED stays off; the generator is back in local mode; at the next
    Connect the checklist step "LAN-XI recorder state Idle" reads "Idle" (not "was ... returned
    to Idle").
+9. **Sweep gate at an end without the margin** (optional; the same approved level, one
+   repetition): EXCITATION swept sine 120–4500 Hz (the analysis band itself). Expected: at Start
+   the message pane shows "CHECK: Swept sine: let the sweep start at or below 91 Hz and stop at or
+   above 4952 Hz …"; after the measurement the warning "Sweep 120-4500 Hz too close to the
+   analysis band for the sweep gate: the analysis window starts at the detected excitation …; the
+   window is extended past the end of the sweep by the gate's ring-down margin …"; the Time
+   signals note says that the analysed part includes the output-on transient and the
+   start-frequency tone and continues past the sweep end by the ring-down margin; `gateEnds` =
+   `{'detected start', 'ring-down margin'}`. Then set the sweep back to 80–5500 Hz. This is the
+   first run of the fallback on real records (lab trigger latency 0.13–0.28 s); simulation only so
+   far.
+10. **Open measurement and the microphone mapping**: save the measurement of step 5 (a new folder
+    under `data/`), then File > Open measurement… on that folder. Expected: no mapping question
+    (recorded and configured mapping both ch1 M1, ch2 M2, ch3 M3, ch4 M4); the message pane ends
+    with "Reprocess uses the IMPEDANCE TUBE fields and the active calibration (…)" without a
+    mapping clause; Reprocess gives the saved results again (do not save). Optional, without the
+    instruments: File > Load configuration… (it disconnects them) with a copy of the lab file
+    **outside** `config/` (e.g. in `%TEMP%`) whose `mics` swap ch1 and ch2, open the folder again:
+    the question "Use the recorded mapping" / "Keep the configuration's mapping" appears; "Use the
+    recorded mapping" and Reprocess give the saved results; open the folder once more and close
+    the window while the question is open - one close request closes it (the question counts as
+    cancelled). Start the program again with `config/user_config.json`.
 
 | Step | Status | Date, result |
 |---|---|---|
 | 1-2 reconnect, lab file loads | **PENDING** | |
 | 3 connect and identify, output off | **PENDING** | |
 | 4 window: instruments in use, identities | **PENDING** | |
-| 5 short measurement at an approved level (≤ 0.2 Vpp) | **PENDING** | |
-| 6 Stop during a measurement | **PENDING** | |
+| 5 short measurement at an approved level (≤ 0.2 Vpp), sweep gate at both ends | **PENDING** | |
+| 6 Stop during a measurement (D24: output off before the LAN-XI stop) | **PENDING** | |
 | 7 output-off read-back | **PENDING** | |
 | 8 closing (idle, during a measurement) | **PENDING** | |
+| 9 sweep gate at an end without the margin (optional) | **PENDING** | |
+| 10 Open measurement and the microphone mapping | **PENDING** | |
 
 Only when every step has passed on the real instruments: HW-VERIFIED here, version 1.2.0
 (`tim.app.softwareVersion`) and the merge of `wo-001` into `main`.
+
+## After the merge (1.2.0)
+
+* **Reprocess the five lab folders into NEW folders** (`data/20261009_192503_sweep`,
+  `20261009_201658_sweep`, `20261010_234024_sweep`, `20261010_234354_sweep_cyl75`,
+  `20261010_235332_sweep_metasil-cell1`): since 2026-10-11 every swept-sine frequency line is
+  centred on its frequency (`docs/theory.md` section 4, step 3), which changes every saved sweep
+  result slightly - measured read-only in memory on these folders: median phase change of the raw
+  relative responses 3.5–6.2·10⁻⁴ rad, on the valid lines |ΔR| ≤ 6·10⁻³ and |ΔZt| ≤ 2.4·10⁻³ ρc,
+  0–2 lines per folder change validity. Reprocessing writes a new folder; the saved folders are
+  never overwritten (`tim.app.saveMeasurement`). Which calibration to use (the existing files,
+  whose C_k come from the old line band, or calibrations recomputed from their saved raw
+  switching sweeps) is an open owner question. The sweep-gate change does not affect them (the
+  lab sweeps keep the margin; bit-identical results).
+* **Rewrite `config/user_config.json` in the new layout** (`formatVersion` 2, D7, approved by the
+  owner 2026-10-11): load it with `tim.app.loadConfig`, write it with `tim.app.saveConfig`, review
+  the diff (only the layout may change: `generator.driver`, `daq.driver`, the driver sub-structs),
+  and check that it loads without a warning and gives the same configuration as before.
 
 ## Required hardware tests (in this order)
 

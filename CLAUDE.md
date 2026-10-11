@@ -88,7 +88,8 @@ The analysis uses only the relative responses between channels.
    `sineResponse` for stepped sines, `welchResponse` for noise).
 2. The complex switching calibration is applied (`tim.cal.*`; C_k = g_k/g_ref, from
    `tim.app.runCalibration`).
-3. The columns are reordered from **DAQ channel to tube position** using `cfg.mics(c).position`.
+3. The columns are reordered from **DAQ channel to tube position** using `cfg.mics(c).position`
+   (Reprocess of an opened measurement: the recorded mapping by default, `tim.app.useRecordedMapping`).
 4. `tim.acoustics.analyzeFourMic` runs the wave decomposition and computes R, τ, TL, the transfer
    impedance and the validity masks. `tim.acoustics.transferMatrix` gives the two-port matrix
    (scripts only).
@@ -154,7 +155,9 @@ stored with every measurement. When releasing, bump the version number and date 
 
 - **Safety and hardware.**
   - The generator output may be armed only inside `MeasurementSession.measure*()`. Every error
-    path must switch the output off, stop the acquisition and keep the partial data.
+    path must switch the output off, stop the acquisition and keep the partial data. The output
+    goes off first: the session sets the acquisition's `AbortFcn` to the source's `outputOff` at
+    connect (D24), so a driver calls it before its own stop sequence.
   - Ask the user before raising excitation levels.
   - Do not change instrument IP addresses, firmware, drivers, firewall or licences without
     approval.

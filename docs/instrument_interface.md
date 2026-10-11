@@ -1095,6 +1095,15 @@ alone (it passed in the fast run before, on the same code but a comment) -, `Tes
 both app simulations 36 / 36; `TestBusTraffic` 6 / 6 with `bus_traffic_sim.txt` unchanged byte for
 byte. The instruments were not connected; the hardware check follows.
 
+**Review of the owner-decision stages (2026-10-11).** Four findings, none in the contract, the
+drivers or the bus traffic (both fixtures unchanged); the decisions of section 13.4 stand. The one
+on this interface: `TestGui/closeDuringMeasurementStopsFirst` now requests the close from the
+session's block callback inside repetition 1, so the window's close runs the D24 path of a
+running acquisition (the stop of the acquisition, its error path, then the closing steps); before,
+its timer fired while the window was still preparing the measurement. The hardware check in
+`docs/hardware_status.md` (ten steps) includes the D24 order at a Stop and at a close during a
+measurement. Verified (simulation only): `run_tests()` 337 / 337 (22 classes) in one batch MATLAB.
+
 ## Appendix A - Inventory of the instrument-specific code before WO-001 (commit 8ff47f3)
 
 Line numbers as of 8ff47f3. "→" names the stage that changed it; every item is done (stage C

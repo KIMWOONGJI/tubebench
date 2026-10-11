@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.2.0 (next version; not before the start-up work of 2026-10-10 is merged) |
-| Status | **software complete** on branch `wo-001` (2026-10-11, review fixes included; section 7); owner decisions of 2026-10-11 recorded and implemented (§0 item 6); **hardware check pending** (§0.3, planned for 2026-10-12) - software-verified in simulation only; merged into `main` (version 1.2.0) only after the owner's hardware check |
+| Status | **software complete** on branch `wo-001` (2026-10-11, review fixes included; section 7); owner decisions of 2026-10-11 recorded and implemented, and the review of those stages fixed (§0 item 6); **hardware check pending** (§0.3, planned for 2026-10-12) - software-verified in simulation only; merged into `main` (version 1.2.0) only after the owner's hardware check |
 | Requested by | the owner (Woongji Kim) |
 | Scope | software only; hardware tests need the owner's approval and presence |
 | Depends on | nothing else; the in-tube hardware verification stays on hold independently |
@@ -62,6 +62,13 @@
      hardware-only session branches tested on test-only drivers without I/O
      (`tests/TestSessionHardwareMode`); a test-only hook for a Stop before the session exists; GUI
      timing tests that time only the operation they guard.
+   - Review of these stages (2026-10-11), four findings, all fixed: the configuration check uses
+     the sweep-gate limits of the analysis (outer line edges, `tim.dsp.sweepGateLimits`: 91 /
+     4952 Hz for 120–4500 Hz, it used 92 / 4950 Hz); the Time signals note names an end without
+     the margin, whose switching transient is analysed; a close request or Stop during an action
+     of a window without a session cancels that action's questions (Open measurement… closed only
+     after a second request); `TestGui/closeDuringMeasurementStopsFirst` closes the window inside
+     the acquisition (its timer fired before the measurement had started).
    - The hardware check follows (the owner reconnects the instruments); only after it: version
      1.2.0 and the merge into `main`.
 
@@ -273,10 +280,15 @@ first; no clicking or typing on the owner's screen; commit, never push unless as
 
 **What remains**
 
-* The owner's hardware check (§0.3): reconnect the 33220A and the LAN-XI 3676; connect and identify
-  with the output off; a short measurement at a level the owner approves (not above the configured
-  default 0.2 Vpp); Stop during a measurement; output-off read-back; closing. The steps are listed
-  in `docs/hardware_status.md`. Only then: hardware-verified, version 1.2.0, merge into `main`.
-* After the hardware check: `config/user_config.json` rewritten in the new layout (D7, approved by
-  the owner 2026-10-11).
+* The owner's hardware check (§0.3, planned for 2026-10-12): reconnect the 33220A and the LAN-XI
+  3676; connect and identify with the output off; a short measurement at a level the owner
+  approves (not above the configured default 0.2 Vpp) with the sweep gate at both ends; Stop
+  during a measurement (D24: output off before the LAN-XI stop); output-off read-back; closing;
+  optionally the sweep gate at an end without the margin; Open measurement and the microphone
+  mapping. The ten steps are listed in `docs/hardware_status.md`. Only then: hardware-verified,
+  version 1.2.0, merge into `main`.
+* After the merge (`docs/hardware_status.md`, "After the merge"): `config/user_config.json`
+  rewritten in the new layout (D7, approved by the owner 2026-10-11), and the five lab folders
+  reprocessed into new folders because every swept-sine line is now centred on its frequency
+  (which calibration they use is an open owner question).
 * The NI and audio guidance (guide section 4.1) is not tried on a device: there is none in the lab.
