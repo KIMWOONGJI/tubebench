@@ -326,12 +326,66 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyError(@() tim.app.runCalibration(s, struct('prompt', @prompt)), 'tim:session:stopped');
             tc.verifyLessThanOrEqual(nStep, 3, 'no further step after the abort');
             tc.verifyEqual(s.Rig.Sample.type, tc.cfg.simulation.Sample.type, 'specimen restored after the abort');
+            % audit 2026-10-11: and the virtual microphones back in their ports
+            home = zeros(1, 4); home([tc.cfg.mics.channel]) = [tc.cfg.mics.position];
+            tc.verifyEqual(s.Rig.MicPosOfChannel, home, 'microphones back in their measurement ports');
             tc.verifyFalse(s.Gen.isOutputOn());
             tc.verifyFalse(s.InOperation);
             tc.verifyEmpty(dir(fullfile(tc.cfg.output.calibrationDir, '*.mat')), 'nothing saved');
             % a later stand-alone measurement works again (flag cleared)
             m = s.measure('sweep');
             tc.verifyTrue(m.integrityOk);
+            clear cleanup
+        end
+
+        function deadChannelLeavesOnlyItUncalibrated(tc)
+            % audit 2026-10-11: an input without signal (unplugged microphone,
+            % cable fault) used to abort the whole calibration and discard every
+            % sweep. Now that channel stays uncalibrated, the others and all raw
+            % sweeps are saved, and the empty-tube check is skipped as documented
+            c = tc.cfg;
+            c.simulation.Gain = [1 1.02 1e-6 1.03];                % ch3 dead
+            c.excitation.sweep.duration = 1;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            [cal, file, raw] = tim.app.runCalibration(s);
+            tc.verifyTrue(isfile(file), 'calibration saved');
+            tc.verifyFalse(any(cal.valid(:, 3)), 'ch3 not calibrated');
+            tc.verifyGreaterThan(nnz(cal.valid(:, 2)), 0.9 * numel(cal.f));
+            tc.verifyGreaterThan(nnz(cal.valid(:, 4)), 0.9 * numel(cal.f));
+            tc.verifyNumElements(raw, 6, 'every switching sweep kept (3 channels x I, II)');
+            S = load(file, 'raw');
+            tc.verifyNumElements(S.raw, 6);
+            tc.verifyFalse(cal.meta.emptyCheck.performed);
+            tc.verifySubstring(cal.meta.emptyCheck.text, 'not all channels calibrated');
+            tc.verifyTrue(any(contains(s.LogLines, 'C3 (ch3/ch1): no valid frequency line')));
+            clear cleanup
+        end
+
+        function overloadedCalibrationIsRecorded(tc)
+            % audit 2026-10-11: switching sweeps that fail the data integrity
+            % check (here: clipped inputs) are recorded with the calibration and
+            % reported for every measurement processed with it; a clipped
+            % empty-tube check sweep is not evaluated
+            c = tc.cfg;
+            c.simulation.SourceGain = 4 * 3000;                   % far above the 10 Vpeak range
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            ws = warning('off', 'all'); restore = onCleanup(@() warning(ws));
+            cal = tim.app.runCalibration(s);
+            clear restore
+            tc.verifyNumElements(cal.meta.integrity, 6);
+            tc.verifyFalse(any([cal.meta.integrity.ok]), 'every sweep clipped');
+            tc.verifyNotEmpty(cal.meta.integrity(1).problems);
+            tc.verifyFalse(cal.meta.emptyCheck.performed);
+            tc.verifySubstring(cal.meta.emptyCheck.text, 'not evaluated: data integrity problems');
+            ctx = tim.cal.calibrationContext(cal, c);
+            tc.verifyFalse(ctx.integrityOk);
+            tc.verifyTrue(any(contains(ctx.warnings, 'data integrity problems')));
+            tc.verifyTrue(any(contains(s.LogLines, 'has data integrity problems')));
             clear cleanup
         end
 

@@ -300,7 +300,10 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
     failed, or another acquisition module or other input settings (driver, model, serial number,
     sample rate, range, filter, CCLD) than when it was made - the calibration factors include the
     DAQ inputs. A calibration made before version 1.2.0 does not record them and is not checked
-    for them. The tooltip lists the reasons;
+    for them. Also another microphone on a channel (the TEDS serial number read at Connect, else
+    the configured `mics(i).serial`; the factors include the microphones), and a calibration
+    computed from sweeps that failed the data integrity check (clipping, overload, device
+    flags). The tooltip lists the reasons;
   * "… (used at Connect)" (grey): a calibration file chosen while not connected; it is loaded at
     the next Connect. "… not found" (red): the configured file does not exist.
 * **Load calibration…** loads a `CAL-*.mat` file from the calibration folder. The file name is
@@ -917,7 +920,8 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | `tim:gen:amplitude` | requested amplitude above `generator.maxVpp`, or changed at the front panel |
 | `tim:gen:scpiError` | the 33220A reported an error (message included); output switched off |
 | "Excitation not detected" | amplifier off or muted, loudspeaker disconnected, level too low |
-| Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed, other mode, or another acquisition module or input settings: check the set-up and recalibrate |
+| Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed, other mode, another acquisition module or input settings, another microphone on a channel, or calibration sweeps with data integrity problems: check the set-up and recalibrate |
+| Calibration message "C3 (ch3/ch1): no valid frequency line" | no usable signal on that input (microphone unplugged, cable or CCLD fault): the calibration of the other channels is saved, that channel stays uncalibrated and the empty-tube check is skipped; repair the input and calibrate again |
 | Few valid frequency lines | Results > Validity: "no valid calibration" (load or run a calibration), low coherence / low SNR (amplitude, repetitions), termination not anechoic (τ, TL), velocity mismatch (thick specimen: thin-element Z_t not applicable) |
 | Transfer impedance view empty, "Thin-element model not applicable" | the specimen is thick (k·d > 1): use Reflection and transmission and Transmission loss |
 | A view shows "Preparing the view…" | the views are prepared in the background during the first half minute after the start (section 2); after a running action it is prepared first. "This view could not be prepared" names the cause in Messages: close and start the program again |

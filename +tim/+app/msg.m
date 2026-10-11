@@ -96,6 +96,11 @@ switch key
             '측정 전에 L1, d, L2가 장착한 시편과 맞는지 확인하세요.'];
         t.en = ['Calibration complete. Replace the empty specimen section with the specimen section holding the specimen ' ...
             '(same orientation, flanges sealed). Before measuring, check that L1, d and L2 describe the mounted specimen.'];
+    case 'calAborted'          % the calibration ended before it was saved
+        t.ko = ['교정이 중단되었습니다 (저장되지 않음). 측정 전에 모든 마이크를 측정 포트(설정된 채널-포트 배정)로 ' ...
+            '되돌리고 시편이 든 시편 섹션을 장착하세요.'];
+        t.en = ['Calibration ended before it was saved. Before measuring, return all microphones to their measurement ' ...
+            'ports (channel-to-port assignment as configured) and mount the specimen section.'];
     case 'calDoneButton'
         t.ko = '측정'; t.en = 'Measure';
     case 'calContinueButton'   % operator steps without a measurement (prepare, mount the specimen)

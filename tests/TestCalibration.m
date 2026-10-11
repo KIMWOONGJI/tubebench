@@ -108,6 +108,48 @@ classdef TestCalibration < matlab.unittest.TestCase
             tc.verifySubstring(tim.cal.calibrationContext(cal, cfg, ch).warnings{1}, 'module serial number 120000');
         end
 
+        function calibrationContextMicrophonesAndIntegrity(tc)
+            % audit 2026-10-11: C_k includes the microphones - an exchange since
+            % the calibration (TEDS serial numbers per channel) is reported, and
+            % so is a calibration computed from sweeps that failed the data
+            % integrity check
+            cfg = tim.app.defaultConfig();
+            mics = struct('channel', {1, 2, 3, 4}, 'position', {1, 2, 3, 4}, 'serial', {'', '', '', ''}, ...
+                'tedsSerial', {3001001, 3001002, 3001003, 3001004});
+            cal = struct('version', 'CAL-M', 'meta', struct('mode', cfg.mode, 'mics', mics));
+            meas = struct('mics', mics);
+            c = tim.cal.calibrationContext(cal, cfg, meas);
+            tc.verifyTrue(c.micsKnown); tc.verifyTrue(c.micsMatch);
+            tc.verifyFalse(any(contains(c.warnings, 'Microphones changed')));
+            meas.mics(2).tedsSerial = 3001003; meas.mics(3).tedsSerial = 3001002;   % ch2 / ch3 exchanged
+            c = tim.cal.calibrationContext(cal, cfg, meas);
+            tc.verifyFalse(c.micsMatch);
+            w = c.warnings(contains(c.warnings, 'Microphones changed'));
+            tc.verifyNumElements(w, 1);
+            tc.verifySubstring(w{1}, 'ch2 TEDS s/n 3001003 (calibration: 3001002)');
+            tc.verifySubstring(w{1}, 'ch3 TEDS s/n 3001002 (calibration: 3001003)');
+            meas.mics(2).tedsSerial = NaN; meas.mics(3).tedsSerial = NaN;   % no TEDS: unknown, no warning
+            tc.verifyTrue(tim.cal.calibrationContext(cal, cfg, meas).micsMatch);
+            % configured serial numbers when no TEDS is read (and from cfg without a measurement)
+            cal.meta.mics(1).serial = '1234567'; cal.meta.mics(1).tedsSerial = NaN;
+            meas.mics(1).serial = '7654321';
+            tc.verifySubstring(strjoin(tim.cal.calibrationContext(cal, cfg, meas).warnings), ...
+                'ch1 s/n 7654321 (calibration: 1234567)');
+            c2 = cfg; c2.mics(1).serial = '1234567';
+            tc.verifyTrue(tim.cal.calibrationContext(cal, c2).micsMatch);
+            c2.mics(1).serial = '1111111';
+            tc.verifyFalse(tim.cal.calibrationContext(cal, c2).micsMatch);
+            % integrity of the switching sweeps
+            cal = struct('version', 'CAL-I', 'meta', struct('mode', cfg.mode, 'integrity', ...
+                struct('channel', {2, 2, 3}, 'config', {'I', 'II', 'I'}, 'ok', {true, false, true}, ...
+                'problems', {{}, {'clipped'}, {}})));
+            c = tim.cal.calibrationContext(cal, cfg);
+            tc.verifyFalse(c.integrityOk);
+            tc.verifySubstring(strjoin(c.warnings), 'data integrity problems (ch2 configuration II');
+            cal.meta.integrity(2).ok = true;
+            tc.verifyTrue(tim.cal.calibrationContext(cal, cfg).integrityOk);
+        end
+
         function exactSwitching(tc)
             [cref, ck, pa, pb] = tc.scenario(25);
             HI = (ck .* pb) ./ (cref .* pa);

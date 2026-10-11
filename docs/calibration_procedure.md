@@ -123,6 +123,21 @@ the step list of the Calibration view has one row per step.
   not entered, or a channel without any valid frequency line), step 11 only returns the
   microphones. Its bar says "The empty-tube check (Test E) is skipped: …" with the reason; the
   button reads Continue and nothing is measured.
+* A channel whose configurations I and II give no usable frequency line at all (microphone
+  unplugged, cable or CCLD fault, a dead input) does not end the calibration: the log and its row
+  say "C3 (ch3/ch1): no valid frequency line … channel not calibrated", `C_3` is not valid, the
+  other channels and every raw sweep are saved, and step 11 skips the empty-tube check ("not all
+  channels calibrated"). Repair the input and calibrate again; until then the four-microphone
+  results are not valid (R needs only the channels in M1/M2).
+* **Data integrity**: every switching sweep is checked like a measurement (clipping, overload,
+  device flags such as LAN-XI INVALID / OVERRUN). A failing sweep turns its row red and logs
+  "Warning: configuration I of ch3 has data integrity problems (…)". The factors are still
+  computed (a clipped sweep can give a wrong `C_k` with high coherence): `cal.meta.integrity`
+  records the result of every sweep, and every measurement processed with this calibration gets
+  the warning "Calibration … was computed from sweeps with data integrity problems" ("– check"
+  in the CALIBRATION line). Repeat the calibration at a lower level. A check sweep (step 11) with
+  integrity problems is not evaluated: `cal.meta.emptyCheck.text = 'not evaluated: data integrity
+  problems in the check sweep (…)'`.
 * Another reference channel or other calibration ports change the table accordingly: the
   reference microphone always starts in port a, and the two microphones that are not calibrated go
   to the remaining ports in ascending order.
@@ -171,7 +186,9 @@ the step list of the Calibration view has one row per step.
 In **simulation** mode the bar does not wait (to practise the steps with the bar:
 `app.PromptInSimulation = true`): the program moves the virtual microphones, and the
 virtual tube holds the empty specimen section during the calibration and gets its specimen back
-afterwards (also after an error or Stop).
+afterwards (also after an error or Stop). The virtual microphones also return to their
+measurement ports after an error, Stop or Cancel (before, a later simulated measurement read
+swapped microphones).
 
 The **Formula** tab (section 2) lists the calibration equations together with all other
 equations.
@@ -206,7 +223,9 @@ measurements are complete, **before** the question of step 11, and becomes the a
 at once. What is kept depends on when the calibration ends:
 
 * **Steps 1–10** (preparation and switching measurements): nothing is saved; the calibration that
-  was active before stays active. The running step is marked red.
+  was active before stays active. The running step is marked red. In hardware mode an end in
+  steps 2–10 adds to the log "Calibration ended before it was saved. Before measuring, return all
+  microphones to their measurement ports … and mount the specimen section."
 * **Step 11, at its question**: the calibration file was already written before this question and is
   the active calibration. Cancel calibration (or Stop) keeps it and records
   `cal.meta.emptyCheck.text = 'not performed: cancelled by the operator – calibration saved without the empty-tube check'`
@@ -246,14 +265,18 @@ set-up (`tube`: specimen section "empty", its length, the geometry and the envir
 
 The calibration also records the acquisition chain (`acquisition`: driver, module model, serial
 number and firmware, sample rate, range, filter, CCLD), because the calibration factors are ratios
-of chain gains that include the DAQ inputs.
+of chain gains that include the DAQ inputs, and the data integrity of every switching sweep
+(`integrity`: channel, configuration, ok, problems).
 
 `tim.app.processMeasurement` compares this set-up with every measurement
 (`res.calibration.context`): port distances, temperature (more than 3 K → recalibrate), simulation
-vs hardware, the Test E result and the acquisition chain recorded with the measurement (another
+vs hardware, the Test E result, the acquisition chain recorded with the measurement (another
 module or other input settings → recalibrate; a calibration made before version 1.2.0 has no
-record of it and is not checked for it). Differences are logged as warnings ("CALIBRATION: …")
-and shown as "– check" in the CALIBRATION line of the window; nothing is invalidated.
+record of it and is not checked for it), the microphone on every channel (`micsMatch`: the TEDS
+serial numbers where both sides read one, else the configured serial numbers; a microphone moved
+to another channel → recalibrate) and the integrity of the calibration sweeps (`integrityOk`).
+Differences are logged as warnings ("CALIBRATION: …") and shown as "– check" in the CALIBRATION
+line of the window; nothing is invalidated.
 
 ### Acceptance criteria (suggested; enter your own in the lab book)
 
