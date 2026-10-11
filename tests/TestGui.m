@@ -189,7 +189,12 @@ classdef TestGui < matlab.unittest.TestCase
             % cancel option; timers keep running while it waits.
             % (uiconfirm needs a visible window: it appears for about 1 s)
             n0 = numel(findall(groot, 'Type', 'figure'));
-            app = tim.gui.Tubebench('', 'Visible', 'on');
+            % BuildDelay 600 s: the background preparation of the views does not
+            % start during this test. Its 1-3 s steps would run inside the dialog's
+            % opening and its wait (they take MATLAB's event loop), so the counting
+            % timer got only 3 ticks in 2.5 s and the close came while uiconfirm
+            % was still opening the dialog (2026-10-11, loaded PC)
+            app = tim.gui.Tubebench('', 'Visible', 'on', 'BuildDelay', 600);
             tc.addTeardown(@() delete(app));
             % start window (user request 2026-10-10): steps shown while the main
             % window was built hidden, closed when the main window appeared.
@@ -210,15 +215,32 @@ classdef TestGui < matlab.unittest.TestCase
             tick = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.1, 'UserData', 0, ...
                 'TimerFcn', @(t, ~) set(t, 'UserData', t.UserData + 1));
             % (closer after 2.5 s: under load the dialog itself needs up to ~1 s to appear)
-            closer = timer('StartDelay', 2.5, 'TimerFcn', @(~, ~) tim.gui.closeApp(app.Fig, app));
+            t0 = tic;
+            closer = timer('StartDelay', 2.5, 'UserData', NaN, ...
+                'TimerFcn', @(t, ~) closeAndStamp(t, app, t0));
             tc.addTeardown(@() delete([tick closer]));
             tc.addTeardown(@() stop([tick closer]));
             start(tick); start(closer);
-            t0 = tic;
             sel = app.ask('Move the microphones', 'Step', {'Done', 'Abort'}, 1, 2, 'question');
+            tReturned = toc(t0);
             stop(tick);
             tc.verifyEqual(sel, 'Abort');
-            tc.verifyLessThan(toc(t0), 8);
+            % Timed: only what this test guards - from the moment the window is
+            % gone (end of the close request, which deletes it) to the return of
+            % ask(). Its wait loop checks the window at every poll (pause 0.1 s),
+            % so it returns at the next poll; 2 s (20 polls) leaves room for a
+            % loaded PC and still fails a dialog that does not notice the closed
+            % window. Not timed: the close itself (deleting the uifigure took
+            % about 14 s on 2026-10-11 with 0.7 GB of free memory), which runs
+            % inside the closer's callback and is not what ask() can influence.
+            % Under load the close can also come while uiconfirm is still opening
+            % the dialog (it lets timers run, e.g. a background view step): ask()
+            % then returns the cancel option as well (found 2026-10-11, when
+            % uiconfirm raised "invalid or deleted figure handle" in this test).
+            tClosed = closer.UserData;
+            tc.assertFalse(isnan(tClosed), 'the window was closed while the dialog waited');
+            tc.verifyLessThan(tReturned - tClosed, 2, sprintf(['ask() returned %.2f s after the window was deleted ' ...
+                '(close requested at %.1f s; returned at %.1f s)'], tReturned - tClosed, 2.5, tReturned));
             tc.verifyGreaterThan(tick.UserData, 3, 'timers run while the dialog waits');
         end
 
@@ -305,10 +327,26 @@ classdef TestGui < matlab.unittest.TestCase
             s = app.Session; fig = app.Fig;
             tc.assertTrue(s.Connected);
             t0 = tic;
+            stamps = stampLog(s, t0);
             tim.gui.closeApp(fig, app);
-            tc.verifyLessThan(toc(t0), 10);
+            tAll = toc(t0);
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
             tc.verifyFalse(s.Connected, 'instruments released');
+            % Timed: only the closing steps this test guards - from the close
+            % request to the last step, "Closing: window deleted.", logged right
+            % before the window is deleted. closeNow waits at most for the
+            % read-back of the generator output (isOutputOn, 1 s time-out) and, in
+            % close(true), for one unanswered request per instrument at the
+            % shortened 2 s time-out before it gives up on it; the mocks answer
+            % every request at once. A close that takes longer than these
+            % time-outs together (1 + 2 x 2 s) waited for something that never
+            % answers. Not timed: deleting the window after that step (a uifigure
+            % with every view; about 14 s on 2026-10-11 with 0.7 GB of free
+            % memory, when the former limit of 10 s on the whole call failed at
+            % 16.3 s although the steps took about 1 s).
+            tSteps = stampOf(stamps, 'Closing: window deleted.');
+            tc.verifyLessThan(tSteps, 1 + 2 * 2, sprintf(['closing steps took %.2f s (the whole call, deleting ' ...
+                'the window included: %.1f s)'], tSteps, tAll));
             % the steps shown in the closing dialog are also logged by the session
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output off (confirmed).')));
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: Instruments disconnected.')));
@@ -325,12 +363,31 @@ classdef TestGui < matlab.unittest.TestCase
             app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
             s = app.Session; fig = app.Fig;
-            closer = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) tim.gui.closeApp(fig, app));
+            t0 = tic;
+            stamps = stampLog(s, t0);
+            closer = timer('StartDelay', 1.0, 'UserData', NaN, 'TimerFcn', @(t, ~) requestCloseAndStamp(t, fig, app, t0));
             tc.addTeardown(@() delete(closer));
             start(closer);
-            t0 = tic;
             feval(app.H.start.ButtonPushedFcn, app.H.start, []);   % returns when stopped + closed
-            tc.verifyLessThan(toc(t0), 20);
+            tAll = toc(t0);
+            % Timed: only what this test guards - from the close request to the
+            % last closing step ("Closing: window deleted.", logged right before
+            % the window is deleted). The request stops the action at its next
+            % check (every received block; the mocks deliver at once); the stopped
+            % action reads the generator output back (1 s time-out) and the window
+            % then closes as in closeShowsStepsAndDisconnects (at most 1 + 2 x 2 s
+            % of time-outs). Longer than these time-outs together means the close
+            % waited for something, e.g. for the measurement to end. Not timed:
+            % the preparation of the measurement before the request and deleting
+            % the window afterwards (the former limit of 20 s on the whole Start
+            % call failed at 20.1 s on 2026-10-11 under memory pressure; the
+            % steps themselves took 2-4 s).
+            tRequest = closer.UserData;
+            tSteps = stampOf(stamps, 'Closing: window deleted.');
+            tc.assertFalse(isnan(tRequest), 'the close was requested');
+            tc.verifyLessThan(tSteps - tRequest, 1 + (1 + 2 * 2), sprintf(['close request at %.1f s, last closing ' ...
+                'step %.2f s later (the whole Start call, deleting the window included: %.1f s)'], ...
+                tRequest, tSteps - tRequest, tAll));
             tc.verifyTrue(s.StopRequested, 'the running measurement was stopped first');
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
             tc.verifyFalse(s.Connected);
@@ -1278,6 +1335,41 @@ end
 function closeAndWait(fig, app)
 tim.gui.closeApp(fig, app);
 pause(0.5);                     % a pending timer tick would run here
+end
+
+function closeAndStamp(t, app, t0)
+% timer callback: close the window, then record when it is gone (s after t0)
+tim.gui.closeApp(app.Fig, app);
+t.UserData = toc(t0);
+end
+
+function requestCloseAndStamp(t, fig, app, t0)
+% timer callback: record when the close is requested (s after t0), then request it
+t.UserData = toc(t0);
+tim.gui.closeApp(fig, app);
+end
+
+function stamps = stampLog(s, t0)
+% the session's log lines from now on with the time they were written (s
+% after t0); stamps is a containers.Map (a handle the callback fills: 1, 2, ...
+% -> struct t, line). The window's own callback still receives every line.
+stamps = containers.Map('KeyType', 'double', 'ValueType', 'any');
+cb = s.StatusCallback;
+s.StatusCallback = @(line) addStamp(line, cb, stamps, t0);
+end
+
+function addStamp(line, cb, stamps, t0)
+stamps(stamps.Count + 1) = struct('t', toc(t0), 'line', line); %#ok<NASGU> (a handle: the caller's Map)
+if ~isempty(cb), cb(line); end
+end
+
+function t = stampOf(stamps, text)
+% time of the first stamped log line that contains text (NaN: not logged)
+t = NaN;
+for k = 1:stamps.Count
+    e = stamps(k);
+    if contains(e.line, text), t = e.t; return; end
+end
 end
 
 function stopAndBreakLink(h, hooks)

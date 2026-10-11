@@ -276,8 +276,9 @@ classdef Tubebench < handle
             %   uiconfirm and a wait loop. (A blocking uiconfirm does not return
             %   when the window is closed meanwhile - found in a test on
             %   2026-10-09.) Timers keep running while it waits (pulsing
-            %   ports). Closing the window or STOP returns the cancel option; a
-            %   hidden window (scripts, tests) returns the default option.
+            %   ports). Closing the window (also while the dialog is being
+            %   opened) or STOP returns the cancel option; a hidden window
+            %   (scripts, tests) returns the default option.
             if nargin < 7, icon = 'question'; end
             % STOP already pending (e.g. pressed during the microphone animation)
             % or window gone: do not open a dialog that nobody would close
@@ -291,8 +292,16 @@ classdef Tubebench < handle
             function setAnswer(s)
                 answer = s;
             end
-            uiconfirm(app.Fig, msg, title, 'Options', options, 'DefaultOption', defaultIdx, ...
-                'CancelOption', cancelIdx, 'Icon', icon, 'CloseFcn', @(~, ev) setAnswer(ev.SelectedOption));
+            try
+                uiconfirm(app.Fig, msg, title, 'Options', options, 'DefaultOption', defaultIdx, ...
+                    'CancelOption', cancelIdx, 'Icon', icon, 'CloseFcn', @(~, ev) setAnswer(ev.SelectedOption));
+            catch err
+                % the window was closed while the dialog was being opened (opening
+                % it lets timers run, e.g. a close request): the cancel option, as
+                % when it is closed while the dialog waits (found 2026-10-11 under load)
+                if ~isvalid(app) || ~isvalid(app.Fig), sel = options{cancelIdx}; return; end
+                rethrow(err);
+            end
             while isempty(answer)
                 if ~isvalid(app) || ~isvalid(app.Fig) || app.stopPending()
                     answer = options{cancelIdx};
