@@ -748,7 +748,7 @@ classdef TestGui < matlab.unittest.TestCase
                 end
             end
             for n = {'mode','connect','disconnect','exMode','fStart','fStop','dur','amp','reps', ...
-                    'ampModel','ampGain','spkZ','spkP','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
+                    'ampModel','ampGain','genLoad','spkZ','spkP','ampAt','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
                     'temp','pres','loadCal','runCal','save','reprocess','status','drive','fLimits','calLabel', ...
                     'specimen','resultStatus','durEst','instr'}
                 tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
@@ -1036,6 +1036,78 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifySubstring(h.drive.Text, 'Estimated loudspeaker drive');
         end
 
+        function excitationChainControls(tc)
+            % owner requests 2026-10-12 (WO-003): the amplifier gain is a plain
+            % number; the generator load is chosen in the window from the
+            % driver's loads (High Z in direct drive, fixed while connected); the
+            % loudspeaker impedance and its power limit share one row; in direct
+            % drive the amplitude may be given at the loudspeaker - the generator
+            % level follows from the source impedance (50 ohm) and the nominal
+            % loudspeaker impedance, and is what the configuration stores
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.amplifier.model = 'none (direct drive)'; c.amplifier.gainFactor = 1; c.amplifier.gain_dB = 0;
+            c.amplifier.knownModels = {'none (direct drive)'};               % as the lab file
+            c.loudspeaker.impedance_ohm = 8; c.generator.maxVpp = 2; c.excitation.sweep.amplitudeVpp = 0.2;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            texts = get(findall(app.Fig, 'Type', 'uilabel'), 'Text');
+            for t = {'Amplifier gain [×]', 'Generator load', 'Loudspeaker [Ω]', 'Speaker limit [W]', 'Amplitude of'}
+                tc.verifyTrue(any(strcmp(texts, t{1})), ['label ' t{1}]);
+            end
+            tc.verifyFalse(any(strcmp(texts, 'Power limit [W]')), 'old label');
+            tc.verifyEqual(h.ampGain.ValueDisplayFormat, '%.4g', 'a plain number, no "×" in the field');
+            tc.verifySameHandle(h.spkZ.Parent, h.spkP.Parent, 'impedance and power limit on one row');
+            tc.verifyTrue(all(ismember({'none (direct drive)', 'power amplifier'}, h.ampModel.Items)), ...
+                'an amplifier can be chosen without typing');
+            % generator load: the 33220A's loads; High Z and locked in direct drive
+            tc.verifyEqual(h.genLoad.ItemsData, {'INF', '50'});
+            tc.verifyEqual(h.genLoad.Items, {'High Z', '50 Ω'});
+            tc.verifyEqual(h.genLoad.Value, 'INF');
+            tc.verifyEqual(char(h.genLoad.Enable), 'off', 'direct drive: High Z');
+            h.ampModel.Value = 'power amplifier';
+            feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));
+            tc.verifyEqual(char(h.genLoad.Enable), 'on', 'with an amplifier');
+            tc.verifyEqual(char(h.ampAt.Enable), 'off', 'the loudspeaker level only in direct drive');
+            h.genLoad.Value = '50';
+            feval(h.genLoad.ValueChangedFcn, h.genLoad, struct('PreviousValue', 'INF'));
+            tc.verifyEqual(app.Cfg.generator.load, '50');
+            tc.verifyEqual(h.amp.Limits(1), 0.005, 'AbsTol', 1e-12, 'smallest level at 50 Ω: 10 mVpp');
+            tc.verifyTrue(any(contains(cellstr(h.log.Value), 'Generator load: 50 Ω, was High Z')));
+            h.ampModel.Value = 'none (direct drive)';
+            feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'power amplifier'));
+            tc.verifyEqual(h.genLoad.Value, 'INF', 'back to direct drive: High Z');
+            tc.verifyEqual(app.Cfg.generator.load, 'INF');
+            % the level at the loudspeaker: 0.1 Vpk programmed = 0.1 * 8/58 Vpk at the loudspeaker
+            tc.verifyEqual(h.amp.Value, 0.1, 'AbsTol', 1e-12);
+            h.ampAt.Value = 'loudspeaker';
+            feval(h.ampAt.ValueChangedFcn, h.ampAt, struct('PreviousValue', 'generator'));
+            tc.verifyEqual(h.amp.Value, 0.1 * 8 / 58, 'RelTol', 1e-9, 'the same level, at the loudspeaker');
+            tc.verifyEqual(h.amp.Limits, [0.01 1] * 8 / 58, 'RelTol', 1e-9, 'the generator limits at the loudspeaker');
+            h.amp.Value = 0.01;                                       % 10 mVpk at the loudspeaker
+            feval(h.amp.ValueChangedFcn, h.amp, struct('PreviousValue', 0.1 * 8 / 58));
+            tc.verifySubstring(h.drive.Text, 'Estimated loudspeaker drive: 0.01 Vpk');
+            tc.verifySubstring(h.drive.Text, 'Generator 0.0725 Vpk');
+            h.spkZ.Value = 4;                                         % the loudspeaker voltage is kept
+            feval(h.spkZ.ValueChangedFcn, h.spkZ, struct('PreviousValue', 8));
+            tc.verifyEqual(h.amp.Value, 0.01, 'AbsTol', 1e-12);
+            tc.verifySubstring(h.drive.Text, 'Generator 0.135 Vpk');   % 0.01 * 54/4
+            h.spkZ.Value = 8;
+            feval(h.spkZ.ValueChangedFcn, h.spkZ, struct('PreviousValue', 4));
+            feval(h.connect.ButtonPushedFcn, h.connect, []);            % reads the fields
+            tc.assertTrue(app.Session.Prepared);
+            tc.verifyEqual(app.Session.Cfg.excitation.sweep.amplitudeVpp, 2 * 0.01 * 58 / 8, 'RelTol', 1e-9, ...
+                'the configuration stores the generator level');
+            tc.verifyEqual(app.Session.Cfg.ui.amplitudeAt, 'loudspeaker');
+            tc.verifyEqual(char(h.genLoad.Enable), 'off', 'fixed while connected');
+            % choosing an amplifier shows the same generator level as the generator's
+            h.ampModel.Value = 'power amplifier';
+            feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));
+            tc.verifyEqual(h.ampAt.Value, 'generator');
+            tc.verifyEqual(h.amp.Value, 0.01 * 58 / 8, 'RelTol', 1e-9);
+        end
+
         function connectRefusedBeforeTheSessionExists(tc)
             % audit 2026-10-11: a Connect refused by the session's own checks
             % before any instrument is contacted (here a configured calibration
@@ -1197,6 +1269,45 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifySubstring(log, 'Stop requested by the operator: generator output commanded off.');
             tc.verifySubstring(log, 'The generator output could not be confirmed off.', 'the read-back is logged');
             tc.verifyFalse(contains(log, 'output switched off'), 'never claimed off without a read-back');
+        end
+
+        function connectionCheckWhileIdle(tc)
+            % WO-003 (owner decision 2026-10-12; the 33220A drops an idle
+            % connection unnoticed): the window checks the connections while
+            % idle - every 60 s in hardware mode, here called directly (a hidden
+            % or simulation window has no idle timer). A dropped connection is
+            % re-opened and logged; one that cannot be turns the lamp red, asks
+            % for Disconnect / Connect and stops the idle check; Start then ends
+            % before anything is armed, with the reason in English
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H; P = tim.gui.palette();
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertTrue(app.Session.Prepared);
+            tc.verifyEmpty(app.LinkTimer, 'no idle timer in a hidden window or in simulation');
+            r = app.checkConnectionNow();
+            tc.verifyEqual(unique({r.state}), {'ok'});
+            hk = tim.instr.Keysight33220A.testHooks(app.Session.Gen);
+            hk.dropConnection();
+            r = app.checkConnectionNow();
+            tc.verifyEqual(r(1).state, 'reconnected');
+            log = strjoin(cellstr(h.log.Value), newline);
+            tc.verifySubstring(log, 'Generator: connection re-opened (the instrument had closed it): 33220A s/n MOCK0001, output off.');
+            tc.verifyNotEqual(h.lamp(1).Color, P.fail);
+            hk.dropConnection(); hk.breakLink();
+            ws = warning('off', 'tim:gen:outputOff'); tc.addTeardown(@() warning(ws));
+            r = app.checkConnectionNow();
+            tc.verifyEqual(r.state, 'lost');
+            tc.verifyEqual(h.lamp(1).Color, P.fail, 'Generator lamp red');
+            tc.verifyEqual(h.status.Text, 'Connection lost - Disconnect and Connect');
+            tc.verifyFalse(app.LinkChecking);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            log = strjoin(cellstr(h.log.Value), newline);
+            tc.verifySubstring(log, 'Error (measurement): The connection to the generator was lost and could not be re-opened');
+            tc.verifySubstring(log, 'The connection to the generator is lost, so its output state cannot be read back.');
+            tc.verifyFalse(any(strcmp(hk.traffic(), '> OUTP ON')), 'nothing armed');
         end
 
         function windowTitleMenusAndAbout(tc)

@@ -103,7 +103,7 @@ classdef Tubebench < handle
         ShownTime double = NaN     % s after the start of the constructor: main window shown
         ReadyTime double = NaN     % s after the start of the constructor: every view prepared
         TimerTag char = ''         % Tag of every timer of this window (tests count only their own window's)
-        % ---- connection check while idle (the 33220A drops an idle connection unnoticed, 2026-10-12)
+        % ---- connection check while idle (the lab generator drops an idle connection unnoticed, 2026-10-12)
         LinkTimer = []             % checks the instruments' connections while idle (hardware, visible window)
         LinkCheckPeriod double = 60   % s between two idle checks
         LinkChecking logical = false  % a check is running: an action clicked meanwhile is not started
@@ -635,10 +635,10 @@ classdef Tubebench < handle
             bar = 26; rw = 24; sp = 4;
             rowH = {bar, 26, 22, 22, 45, ...                %  1- 5 INSTRUMENTS: bar, mode + connect, status, lamps, in use (3 lines)
                 sp, bar, rw, 16, rw, 30, ...                %  6-11 IMPEDANCE TUBE: spacer, bar, D/T/p, names, distances, info
-                sp, bar, rw, rw, rw, rw, rw, rw, rw, 30, ...% 12-21 EXCITATION: spacer, bar, 7 field rows, drive
-                sp, bar, 22, 28, ...                        % 22-25 CALIBRATION: spacer, bar, status, buttons
-                sp, bar, rw, 36, 26, ...                    % 26-30 MEASUREMENT: spacer, bar, specimen, start / stop, background
-                sp, bar, 22, 28};                           % 31-34 RESULTS: spacer, bar, status, buttons
+                sp, bar, rw, rw, rw, rw, rw, rw, rw, rw, 30, ...% 12-22 EXCITATION: spacer, bar, 8 field rows, drive
+                sp, bar, 22, 28, ...                        % 23-26 CALIBRATION: spacer, bar, status, buttons
+                sp, bar, rw, 36, 26, ...                    % 27-31 MEASUREMENT: spacer, bar, specimen, start / stop, background
+                sp, bar, 22, 28};                           % 32-35 RESULTS: spacer, bar, status, buttons
             left = uigridlayout(g, [numel(rowH) 1], 'RowHeight', rowH, 'ColumnWidth', {'1x'}, ...
                 'Scrollable', 'on', 'RowSpacing', 4, 'Padding', [10 8 10 8], 'BackgroundColor', P.ui.panel);
             left.Layout.Row = 1; left.Layout.Column = 1;
@@ -739,29 +739,43 @@ classdef Tubebench < handle
             app.label(rg, 'Repetitions', 'Number of repetitions (averaged).');
             h.reps = uieditfield(rg, 'numeric', 'Limits', [1 100], 'RoundFractionalValues', 'on', ...
                 'ValueChangedFcn', @(~, ~) app.updateDrive());
+            % the chain from the generator to the loudspeaker, then the level
+            % (owner requests 2026-10-12, WO-003: the gain as a plain number,
+            % the generator load in the window, the loudspeaker's two values on
+            % one row, the level also as the loudspeaker voltage in direct drive)
             r = r + 1; rg = app.rowGrid(left, r, ex);
-            app.label(rg, 'Amplitude [Vpk]', 'Generator amplitude in Vpk (details: tooltip of the field).');
-            h.amp = uieditfield(rg, 'numeric', 'Limits', [0.005 10], 'ValueChangedFcn', @(~, ~) app.updateDrive());
-            app.label(rg, 'Duration', 'Expected duration of one measurement.');
-            h.durEst = uilabel(rg, 'Text', '', 'FontColor', P.ui.muted);
-            r = r + 1; rg = app.rowGrid(left, r, ex);
-            app.label(rg, 'Amplifier', 'Power amplifier between the generator and the loudspeaker.');
+            app.label(rg, 'Amplifier', ['Power amplifier between the generator and the loudspeaker. Type the model of ' ...
+                'your amplifier into the list and press Enter to add it.']);
             h.ampModel = uidropdown(rg, 'Editable', 'on', 'Items', {'none (direct drive)', 'power amplifier'}, ...
-                'Tooltip', 'Select, or type the model of the power amplifier (typed models are added).', ...
+                'Tooltip', ['Select an entry, or type the model of your power amplifier and press Enter: it is added ' ...
+                'to the list and saved with the configuration (File > Save configuration).'], ...
                 'ValueChangedFcn', @(~, ~) app.onAmpModel(true));
             h.ampModel.Layout.Column = [2 4];
             r = r + 1; rg = app.rowGrid(left, r, ex);
-            app.label(rg, 'Amplifier gain', 'Voltage gain of the power amplifier as a factor (×10 = 20 dB).');
-            h.ampGain = uieditfield(rg, 'numeric', 'Limits', [0 Inf], 'ValueDisplayFormat', '×%.4g', ...
-                'Tooltip', 'Voltage gain of the power amplifier as a factor (×10 = 20 dB); used to estimate the loudspeaker drive.', ...
-                'ValueChangedFcn', @(~, ~) app.onGainChanged());
-            app.label(rg, 'Loudspeaker [Ω]', 'Nominal loudspeaker impedance.');
-            h.spkZ = uieditfield(rg, 'numeric', 'Limits', [0.5 1000], 'ValueChangedFcn', @(~, ~) app.updateDrive(), ...
-                'Tooltip', 'Nominal loudspeaker impedance [Ω].');
+            app.label(rg, 'Amplifier gain [×]', 'Voltage gain of the power amplifier as a factor: 10 = 20 dB.');
+            h.ampGain = uieditfield(rg, 'numeric', 'Limits', [0 Inf], 'ValueDisplayFormat', '%.4g', ...
+                'Tooltip', ['Voltage gain of the power amplifier as a plain number, e.g. 10 for 20 dB; used to ' ...
+                'estimate the loudspeaker drive.'], 'ValueChangedFcn', @(~, ~) app.onGainChanged());
+            app.label(rg, 'Generator load', 'Output load setting of the generator, sent to it at Connect.');
+            h.genLoad = uidropdown(rg, 'Items', {'High Z'}, 'ItemsData', {'INF'}, ...
+                'ValueChangedFcn', @(~, ev) app.onGenLoad(ev.PreviousValue));
             r = r + 1; rg = app.rowGrid(left, r, ex);
-            app.label(rg, 'Power limit [W]', 'Loudspeaker power limit.');
+            app.label(rg, 'Loudspeaker [Ω]', 'Nominal impedance of the loudspeaker.');
+            h.spkZ = uieditfield(rg, 'numeric', 'Limits', [0.5 1000], 'ValueChangedFcn', @(~, ~) app.onSpeakerChanged(), ...
+                'Tooltip', 'Nominal impedance of the loudspeaker [Ω].');
+            app.label(rg, 'Speaker limit [W]', 'Power limit of the loudspeaker.');
             h.spkP = uieditfield(rg, 'numeric', 'Limits', [1e-4 1000], 'ValueChangedFcn', @(~, ~) app.updateDrive(), ...
-                'Tooltip', 'Loudspeaker power limit [W]: an excitation above this estimated loudspeaker power is refused.');
+                'Tooltip', 'Power limit of the loudspeaker [W]: an excitation above this estimated loudspeaker power is refused.');
+            r = r + 1; rg = app.rowGrid(left, r, ex);
+            app.label(rg, 'Amplitude of', 'Which voltage the amplitude field gives.');
+            h.ampAt = uidropdown(rg, 'Items', {'generator', 'loudspeaker (direct drive)'}, ...
+                'ItemsData', {'generator', 'loudspeaker'}, 'ValueChangedFcn', @(~, ev) app.onAmpAt(ev.PreviousValue));
+            h.ampAt.Layout.Column = [2 4];
+            r = r + 1; rg = app.rowGrid(left, r, ex);
+            h.ampLabel = app.label(rg, 'Amplitude [Vpk]', 'Amplitude in Vpk (details: tooltip of the field).');
+            h.amp = uieditfield(rg, 'numeric', 'Limits', [0.005 10], 'ValueChangedFcn', @(~, ~) app.updateDrive());
+            app.label(rg, 'Duration', 'Expected duration of one measurement.');
+            h.durEst = uilabel(rg, 'Text', '', 'FontColor', P.ui.muted);
             r = r + 1; h.drive = uilabel(left, 'Text', '', 'FontSize', 11, 'WordWrap', 'on', 'VerticalAlignment', 'top');
             h.drive.Layout.Row = r; h.drive.Layout.Column = 1;
             % ---------------- CALIBRATION
@@ -1489,27 +1503,128 @@ classdef Tubebench < handle
             L = app.excitationLimits();
             h.fStart.Limits = [L.fMin L.fMax]; h.fStop.Limits = [L.fMin L.fMax];
             h.fStop.Tooltip = sprintf('Stop frequency of the excitation [Hz]; at most %.6g Hz = %s.', L.fMax, L.fText);
-            lim = c.generator.maxVpp / 2;
-            lo = L.minVpp / 2; if lo >= lim, lo = lim / 2; end
-            h.amp.Limits = [lo, lim];
-            app.excitationToUi(h.exMode.Value);
-            h.amp.Value = min(max(c.excitation.sweep.amplitudeVpp / 2, h.amp.Limits(1)), lim);
-            h.amp.Tooltip = sprintf(['Generator amplitude [Vpk], %s; from %.3g Vpk (smallest level of the generator ' ...
-                'at load %s) up to the amplitude limit %.3g Vpk (configuration generator.maxVpp = %.3g Vpp)'], ...
-                loadText(c), lo, char(string(c.generator.load)), lim, c.generator.maxVpp);
+            app.loadsToUi();                                   % generator load: the driver's loads
+            % (a generic 'power amplifier' entry stays in the list, so that
+            % choosing an amplifier never needs typing - owner request 2026-10-12)
             items = c.amplifier.knownModels; if ischar(items), items = {items}; end
-            if ~any(strcmp(items, 'none (direct drive)')), items = [{'none (direct drive)'}, items(:).']; end
+            items = [{'none (direct drive)', 'power amplifier'}, ...
+                reshape(items(~ismember(items, {'none (direct drive)', 'power amplifier'})), 1, [])];
             if ~isempty(c.amplifier.model) && ~any(strcmp(items, c.amplifier.model)), items{end+1} = c.amplifier.model; end
             h.ampModel.Items = items;
             if isempty(c.amplifier.model), h.ampModel.Value = items{1}; else, h.ampModel.Value = c.amplifier.model; end
             gf = c.amplifier.gainFactor; if ~(gf > 0), gf = 0; end      % 0 = gain not entered
             h.ampGain.Value = gf;
             app.GainEntered = gf > 0 || startsWith(lower(h.ampModel.Value), 'none');   % the configuration states the gain
+            at = 'generator';
+            if isfield(c, 'ui') && isfield(c.ui, 'amplitudeAt'), at = char(c.ui.amplitudeAt); end
+            if ~startsWith(lower(h.ampModel.Value), 'none') || ~any(strcmp(at, h.ampAt.ItemsData)), at = 'generator'; end
+            h.ampAt.Value = at;
+            app.ampToUi(c.excitation.sweep.amplitudeVpp / 2);  % in the unit of 'Amplitude of', with its limits
+            app.excitationToUi(h.exMode.Value);
             app.onAmpModel(false);
             app.onTubeChanged();
             if isempty(app.Session), app.refreshCards(); end
             app.buildCalSteps();
             app.refreshCalLabel();
+        end
+
+        function loadsToUi(app)
+            % generator output load: the loads the configured generator driver
+            % accepts (capabilities().source.loads), the configured one selected
+            h = app.H; c = app.Cfg;
+            loads = {'INF'};
+            try, loads = tim.instr.driverInfo(c.generator.driver).capabilities.source.loads; catch, end
+            h.genLoad.Items = cellfun(@loadName, loads, 'UniformOutput', false);
+            h.genLoad.ItemsData = loads;
+            ld = char(string(c.generator.load));
+            if any(strcmp(ld, loads)), h.genLoad.Value = ld; else, h.genLoad.Value = loads{1}; end
+        end
+
+        function k = speakerFactor(app)
+            % loudspeaker voltage per volt of programmed generator amplitude in
+            % direct drive, with the loudspeaker impedance of the field and the
+            % configured load and generator driver (tim.app.driveEstimate)
+            c = app.Cfg;
+            c.amplifier.model = 'none (direct drive)';
+            c.loudspeaker.impedance_ohm = app.H.spkZ.Value;
+            d = tim.app.driveEstimate(c, 2);                   % 1 Vpk programmed
+            k = d.Vspk_pk;
+        end
+
+        function [lo, lim] = generatorLimits(app)
+            % generator amplitude range [Vpk]: the smallest level of the generator
+            % at the configured load up to the safety limit generator.maxVpp
+            c = app.Cfg; L = app.excitationLimits();
+            lim = c.generator.maxVpp / 2;
+            lo = L.minVpp / 2; if lo >= lim, lo = lim / 2; end
+        end
+
+        function ampToUi(app, genVpk)
+            % generator amplitude [Vpk] -> the amplitude field, in the unit that
+            % 'Amplitude of' selects (the generator, or the loudspeaker in direct
+            % drive: WO-003), with the generator's limits in that unit
+            h = app.H; c = app.Cfg;
+            [lo, lim] = app.generatorLimits();
+            genVpk = min(max(genVpk, lo), lim);
+            if strcmp(h.ampAt.Value, 'loudspeaker')
+                k = app.speakerFactor();
+                h.amp.Limits = [lo lim] * k;
+                h.amp.Value = min(max(genVpk * k, h.amp.Limits(1)), h.amp.Limits(2));
+                h.amp.Tooltip = sprintf(['Loudspeaker voltage [Vpk], direct drive, at the nominal %g Ω; the generator is ' ...
+                    'set to the matching level (%s, source impedance %g Ω): %.3g to %.3g Vpk at the loudspeaker = ' ...
+                    '%.3g to %.3g Vpk at the generator (configuration generator.maxVpp = %.3g Vpp)'], h.spkZ.Value, ...
+                    loadText(c), app.sourceImpedance(), lo * k, lim * k, lo, lim, c.generator.maxVpp);
+            else
+                h.amp.Limits = [lo lim];
+                h.amp.Value = genVpk;
+                h.amp.Tooltip = sprintf(['Generator amplitude [Vpk], %s; from %.3g Vpk (smallest level of the generator ' ...
+                    'at load %s) up to the amplitude limit %.3g Vpk (configuration generator.maxVpp = %.3g Vpp)'], ...
+                    loadText(c), lo, char(string(c.generator.load)), lim, c.generator.maxVpp);
+            end
+        end
+
+        function v = ampFromUi(app)
+            % generator amplitude [Vpk] of the amplitude field (the programmed level)
+            v = app.H.amp.Value;
+            if strcmp(app.H.ampAt.Value, 'loudspeaker')
+                v = v / app.speakerFactor();
+                [~, lim] = app.generatorLimits();
+                v = min(v, lim);                               % (rounding at the limit)
+            end
+        end
+
+        function Rs = sourceImpedance(app)
+            % source impedance of the configured generator driver [Ω] (0 = not known)
+            Rs = 0;
+            try, Rs = tim.instr.driverInfo(app.Cfg.generator.driver).capabilities.source.outputImpedance_ohm; catch, end
+        end
+
+        function onAmpAt(app, previous)
+            % 'Amplitude of' changed: the same physical level, in the other unit
+            h = app.H; v = h.amp.Value;
+            if strcmp(previous, 'loudspeaker'), v = v / app.speakerFactor(); end
+            app.Cfg.ui.amplitudeAt = h.ampAt.Value;
+            app.ampToUi(v);
+            app.updateDrive();
+        end
+
+        function onSpeakerChanged(app)
+            % loudspeaker impedance changed: an amplitude given at the loudspeaker
+            % is kept (the generator level follows), and its limits follow
+            if strcmp(app.H.ampAt.Value, 'loudspeaker'), app.ampToUi(app.ampFromUi()); end
+            app.updateDrive();
+        end
+
+        function onGenLoad(app, previous)
+            % generator output load changed (not connected: sent to the generator
+            % at the next Connect); the programmed amplitude keeps its number,
+            % its limits follow the load
+            h = app.H;
+            app.Cfg.generator.load = h.genLoad.Value;
+            app.ampToUi(h.amp.Value);
+            app.log('Generator load: %s, was %s (%s). Sent to the generator at the next Connect.', ...
+                loadName(h.genLoad.Value), loadName(previous), loadText(app.Cfg));
+            app.updateDrive();
         end
 
         function tubeToUi(app, gm, env)
@@ -1730,17 +1845,19 @@ classdef Tubebench < handle
             c.amplifier.gainFactor = app.gainValue();             % NaN = not entered ...
             c.amplifier.gain_dB = 20 * log10(app.gainValue());    % ... also here (driveEstimate falls back to gain_dB)
             c.loudspeaker.impedance_ohm = app.H.spkZ.Value; c.loudspeaker.maxPower_W = app.H.spkP.Value;
-            d = tim.app.driveEstimate(c, 2 * app.H.amp.Value);
+            gen = app.ampFromUi();                                % programmed generator level [Vpk]
+            d = tim.app.driveEstimate(c, 2 * gen);
             lim = c.generator.maxVpp / 2;
             if isnan(d.P_W)
                 txt = sprintf('Generator %.3g Vpk (limit %.3g Vpk). Amplifier gain not entered: no drive estimate.', ...
-                    app.H.amp.Value, lim);
+                    gen, lim);
                 col = P.fail;
             else
-                txt = sprintf('Estimated loudspeaker drive: %.3g Vpk, %s peak, %s (limit %s). Generator limit %.3g Vpk.', ...
-                    d.Vspk_pk, app.siText(d.Ipk, 'A'), app.siText(d.P_W, 'W'), app.siText(d.limit_W, 'W'), lim);
+                % both levels (WO-003): the loudspeaker's and the programmed generator's
+                txt = sprintf('Estimated loudspeaker drive: %.3g Vpk, %s peak, %s (limit %s). Generator %.3g Vpk (limit %.3g Vpk).', ...
+                    d.Vspk_pk, app.siText(d.Ipk, 'A'), app.siText(d.P_W, 'W'), app.siText(d.limit_W, 'W'), gen, lim);
                 col = P.ui.muted;
-                if d.P_W > d.limit_W || app.H.amp.Value > lim, col = P.fail; txt = [txt ' Above the limit.']; end
+                if d.P_W > d.limit_W || gen > lim * (1 + 1e-9), col = P.fail; txt = [txt ' Above the limit.']; end
                 if ~app.GainEntered, col = P.fail; txt = [txt ' Enter the gain set on the amplifier.']; end
             end
             if isfield(c, 'loudspeaker') && isfield(c.loudspeaker, 'ratedPower_W') && app.H.spkP.Value > c.loudspeaker.ratedPower_W
@@ -1796,9 +1913,14 @@ classdef Tubebench < handle
             app.Cfg.excitation.mode = h.exMode.Value;
             % f start/stop, sweep time or number of steps, repetitions of the selected signal
             app.uiToExcitation(h.exMode.Value);
-            app.Cfg.excitation.sweep.amplitudeVpp = 2 * h.amp.Value;      % GUI in Vpk, config/generator in Vpp
-            app.Cfg.excitation.stepped.amplitudeVpp = 2 * h.amp.Value;
-            app.Cfg.excitation.noise.amplitudeVpp = 2 * h.amp.Value;
+            % GUI in Vpk (of the generator, or of the loudspeaker in direct drive),
+            % config / generator in Vpp of the generator
+            gen = app.ampFromUi();
+            app.Cfg.excitation.sweep.amplitudeVpp = 2 * gen;
+            app.Cfg.excitation.stepped.amplitudeVpp = 2 * gen;
+            app.Cfg.excitation.noise.amplitudeVpp = 2 * gen;
+            app.Cfg.ui.amplitudeAt = h.ampAt.Value;
+            if isempty(app.Session), app.Cfg.generator.load = h.genLoad.Value; end   % fixed while connected
             app.Cfg.amplifier.model = h.ampModel.Value;
             app.Cfg.amplifier.gainFactor = app.gainValue();          % NaN = not entered
             app.Cfg.amplifier.gain_dB = 20 * log10(app.gainValue());
@@ -1971,7 +2093,8 @@ classdef Tubebench < handle
                     txt = 'Generator output off (confirmed).';
                 end
             catch err
-                if any(strcmp(err.identifier, {'tim:scpi:connectionLost', 'tim:instr:connectionLost', 'tim:scpi:closed'}))
+                if any(strcmp(err.identifier, {'tim:scpi:connectionLost', 'tim:instr:connectionLost', 'tim:scpi:closed'})) ...
+                        || strcmp(s.LostRole, 'source')       % the connection check found it lost
                     txt = ['The connection to the generator is lost, so its output state cannot be read back. ' ...
                         'Check the output at the generator, then Disconnect and Connect.'];
                 else
@@ -2053,8 +2176,8 @@ classdef Tubebench < handle
         function c = inputControls(app)
             % every field / selector of the control panel and the drawing options
             h = app.H;
-            c = {h.mode, h.exMode, h.fStart, h.fStop, h.dur, h.amp, h.reps, h.ampModel, h.ampGain, h.spkZ, h.spkP, ...
-                h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen};
+            c = {h.mode, h.exMode, h.fStart, h.fStop, h.dur, h.amp, h.reps, h.ampModel, h.ampGain, h.genLoad, ...
+                h.spkZ, h.spkP, h.ampAt, h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen};
             if app.isBuilt('tube')
                 c = [c, {h.secChk, h.dimChk}];   % 3D redraw (~1 s) would stall the data stream
             end
@@ -2075,7 +2198,7 @@ classdef Tubebench < handle
             h.stop.Enable = 'off';
             h.save.Enable = onoff(~isempty(app.LastMeas));
             h.reprocess.Enable = onoff(~isempty(app.LastMeas) && ~strcmp(app.LastMeas.kind, 'background'));
-            h.ampGain.Enable = onoff(~startsWith(lower(h.ampModel.Value), 'none'));
+            app.chainEnable();
             if connected
                 h.mode.Tooltip = sprintf('connected in %s mode - Disconnect to change the mode', s.Cfg.mode);
             else
@@ -2642,16 +2765,60 @@ classdef Tubebench < handle
             elseif changed
                 app.GainEntered = false; h.ampGain.Value = 0;   % the gain of the new amplifier is not known yet
             end
-            h.ampGain.Enable = matlab.lang.OnOffSwitchState(~direct && ~app.Busy);
+            if ~direct && strcmp(h.ampAt.Value, 'loudspeaker')
+                % the loudspeaker voltage is given only in direct drive: the same
+                % generator level, now shown as the generator's
+                gen = h.amp.Value / app.speakerFactor();
+                h.ampAt.Value = 'generator'; app.Cfg.ui.amplitudeAt = 'generator';
+                app.ampToUi(gen);
+                if changed, app.log('Amplitude: the generator''s (the loudspeaker voltage is given only in direct drive).'); end
+            end
+            if direct && isempty(app.Session) && ~strcmp(h.genLoad.Value, 'INF') && any(strcmp(h.genLoad.ItemsData, 'INF'))
+                % direct drive needs High Z (validateConfig): the loudspeaker gets the open-circuit voltage
+                h.genLoad.Value = 'INF'; app.Cfg.generator.load = 'INF';
+                app.ampToUi(h.amp.Value);
+                if changed, app.log('Generator load: High Z for direct drive.'); end
+            end
             if app.GainEntered, h.ampGain.BackgroundColor = 'w'; else, h.ampGain.BackgroundColor = P.ui.attention; end
             if ~direct
-                h.ampGain.Tooltip = sprintf(['Voltage gain of "%s" as a factor (×10 = 20 dB). ' ...
+                h.ampGain.Tooltip = sprintf(['Voltage gain of "%s" as a plain number, e.g. 10 for 20 dB. ' ...
                     'Generator voltage × gain = amplifier output; used for the loudspeaker power check.'], v);
             end
+            app.chainEnable();
             if changed && ~direct && ~app.GainEntered
                 app.log('Amplifier "%s" selected. Enter its voltage gain (Amplifier gain).', v);
             end
             app.updateDrive();
+        end
+
+        function chainEnable(app)
+            % amplifier gain, generator load and 'Amplitude of' follow the
+            % amplifier and the connection (all locked while an action runs)
+            h = app.H;
+            onoff = @(tf) matlab.lang.OnOffSwitchState(tf);
+            direct = startsWith(lower(h.ampModel.Value), 'none');
+            free = ~app.Busy;
+            h.ampGain.Enable = onoff(~direct && free);
+            h.ampAt.Enable = onoff(direct && free);
+            h.genLoad.Enable = onoff(~direct && isempty(app.Session) && free && numel(h.genLoad.ItemsData) > 1);
+            if ~isempty(app.Session)
+                h.genLoad.Tooltip = sprintf(['Output load setting of the generator, sent to it at Connect: %s. Fixed while ' ...
+                    'connected - Disconnect to change it.'], loadText(app.Cfg));
+            elseif direct
+                h.genLoad.Tooltip = ['Direct drive: High Z - the programmed amplitude is the open-circuit voltage that ' ...
+                    'drives the loudspeaker. 50 Ω is for an amplifier with a 50 Ω input.'];
+            else
+                h.genLoad.Tooltip = ['Output load setting of the generator, sent to it at Connect. High Z: the programmed ' ...
+                    'amplitude is the open-circuit voltage (amplifier with a high-impedance input). 50 Ω: it is the voltage ' ...
+                    'across a 50 Ω load (amplifier with a 50 Ω input). The source impedance of the generator does not change.'];
+            end
+            if direct
+                h.ampAt.Tooltip = sprintf(['generator: the programmed amplitude (open-circuit voltage). loudspeaker: the ' ...
+                    'voltage at the loudspeaker; the generator is set to it through its %g Ω source impedance and the ' ...
+                    'nominal loudspeaker impedance (the real impedance varies with frequency).'], app.sourceImpedance());
+            else
+                h.ampAt.Tooltip = 'With an amplifier the amplitude is the generator''s (the loudspeaker voltage is given only in direct drive).';
+            end
         end
 
         function g = gainValue(app)
@@ -3380,6 +3547,12 @@ classdef Tubebench < handle
             if isvalid(fig), delete(fig); end
         end
     end
+end
+
+function t = loadName(ld)
+% a generator output load as the window shows it: 'INF' -> 'High Z', '50' -> '50 Ω'
+ld = char(string(ld));
+if strcmpi(ld, 'INF'), t = 'High Z'; else, t = [ld ' Ω']; end
 end
 
 function t = loadText(c)

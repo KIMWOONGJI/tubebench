@@ -123,6 +123,10 @@ action is also available from scripts (`start_here.m`).
 - A hidden window (`'Visible','off'`, as used by the tests) builds everything synchronously, and
   its prompts (`ask`, `askBar`) return the default answer. A Stop or close request during an
   action (also in a window without a session) makes them return the cancel answer.
+- Connection check (1.2.1): the 33220A drops an idle socket silently. The session calls the
+  drivers' `checkConnection()` before every excitation (a dropped connection is re-opened, a lost
+  one raises `tim:instr:connectionLost` before anything is armed); a visible hardware window
+  repeats it every 60 s while idle (`LinkTimer`, `checkConnectionNow`, never during an action).
 
 **Calibration** (`tim.app.runCalibration`) is a sequence of operator steps. The microphones swap
 ports through a `prompt` callback: in the GUI this is the operator bar, in a script the command

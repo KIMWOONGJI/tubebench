@@ -580,13 +580,14 @@ classdef MeasurementSession < handle
             %CHECKCONNECTION The instruments' connections still work (the
             %   drivers' checkConnection): before every excitation (measure*)
             %   and from the window every 60 s while it is idle (hardware). An
-            %   instrument that dropped its connection unnoticed - the 33220A
+            %   instrument that dropped its connection unnoticed - the lab generator
             %   does now and then (hardware check 2026-10-12) - is re-opened
             %   by its driver and the session logs it; one that cannot be
             %   re-opened stops here with tim:instr:connectionLost, before
             %   anything is configured or armed. r: struct array role,
             %   state ('ok' | 'reconnected'), detail.
             obj.requireConnected();
+            obj.LostRole = '';
             devs = {obj.Gen, 'source'};
             if ~obj.isCombined(), devs(end+1, :) = {obj.Daq, 'acquisition'}; end
             r = struct('role', {}, 'state', {}, 'detail', {});
@@ -784,6 +785,12 @@ classdef MeasurementSession < handle
             meas.mics = obj.Mics;
             meas.timestamp = char(datetime('now'), 'yyyy-MM-dd HH:mm:ss.SSS');
             meas.metadata = tim.app.collectMetadata(obj);
+            if isfield(settings, 'amplitudeVpp')
+                % the drive of this excitation: the programmed generator level
+                % (settings.amplitudeVpp) and the estimated loudspeaker voltage,
+                % current and power (WO-003: both values recorded)
+                meas.metadata.drive = tim.app.driveEstimate(obj.Cfg, settings.amplitudeVpp);
+            end
             raw = {};
             if obj.Cfg.output.saveRawStream
                 b = obj.Daq.rawBytes();      % last repetition's undecoded bytes (empty: the driver keeps none)

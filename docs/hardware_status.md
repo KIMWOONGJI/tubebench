@@ -307,8 +307,8 @@ of `wo-001` into `main` followed on 2026-10-12.
    The transport (`ScpiTcpTransport`, `tcpclient`) is unchanged since 1.1.0, and the owner had seen
    the same before. Fix planned for 1.2.1: a check of the connection before every measurement or
    calibration with an automatic reconnect (same serial number, output off, `OUTP:LOAD`), an English
-   message, the lamp, and the reset handled by `tcpclient`'s `ErrorOccurredFcn` instead of a stack
-   trace in the command window.
+   message and the lamp (built in 1.2.1, branch `wo-003`; the stack trace MATLAB's tcpclient prints
+   in the command window on the reset cannot be suppressed - harmless).
 2. **ch3** has worked normally in every measurement (integrity and signal check OK); the fault of
    2026-10-08 has not recurred.
 3. **Signal check levels** (1 s without excitation, after the 3 s settle wait) were 66–72 dB SPL at
@@ -317,6 +317,38 @@ of `wo-001` into `main` followed on 2026-10-12.
    investigated (low-frequency settling after the 0.7 Hz high-pass, room or electrical noise).
 4. At 0.05 Vpp (direct drive, about 3.4 mVpk at the loudspeaker) most lines failed coherence or SNR
    (1403 / 1473 of 2191, no calibration loaded); at 0.5 and 1 Vpp none did.
+
+## Pending: hardware check of 1.2.1 (WO-003, branch `wo-003`)
+
+SW-VERIFIED only (simulation, the protocol mock and a fake instrument on 127.0.0.1): the connection
+check before every excitation and every 60 s while the window is idle, with the automatic re-opening
+of a connection the generator dropped (`docs/workorder_after_hardware_check.md` section 1); the
+EXCITATION controls (generator load, the amplitude at the loudspeaker in direct drive). The owner's
+check, at the approved level 0.025 Vpk (0.05 Vpp), empty specimen section:
+
+1. **Idle drop**: Connect and leave the window idle for at least 30 min, then a short measurement
+   (1 repetition). Expected: no error; the message pane shows any re-opening ("Generator: connection
+   re-opened (the instrument had closed it): 33220A s/n MY44032054, output off.") - from the
+   minute check or before the measurement - and the measurement runs; the output LED is on only
+   during the sweep.
+2. **Lost connection**: connected and idle, pull the generator's LAN cable for about 2 min. Expected:
+   within a minute the Generator lamp turns red and the status reads "Connection lost - Disconnect
+   and Connect"; nothing is switched on. Plug the cable back, Disconnect → Connect, one short
+   measurement works.
+3. **Generator load**: not connected, choose "power amplifier" (no excitation), Generator load 50 Ω,
+   Connect: Setup > Connection shows "load 50"; Disconnect, back to "none (direct drive)": the list
+   returns to High Z; Connect shows "load INF".
+4. **Amplitude at the loudspeaker**: direct drive, "Amplitude of: loudspeaker", 0.00345 Vpk (= 0.025
+   Vpk programmed at 8 Ω). Expected: the excitation confirmation and the log line "Excitation
+   confirmed" show generator 0.025 Vpk and loudspeaker about 0.00345 Vpk; the saved measurement has
+   `metadata.drive` with both.
+
+| Step | Status | Date, result |
+|---|---|---|
+| 1 idle drop, re-opened before the measurement | **PENDING** | |
+| 2 lost connection (cable pulled) | **PENDING** | |
+| 3 generator load in the window | **PENDING** | |
+| 4 amplitude at the loudspeaker | **PENDING** | |
 
 ## After the merge (1.2.0)
 

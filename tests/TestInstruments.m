@@ -242,6 +242,52 @@ classdef TestInstruments < matlab.unittest.TestCase
             tc.verifyTrue(any(startsWith(log, '(late reply discarded) 1')));
         end
 
+        function scpiConnectionDroppedAndReopened(tc)
+            % WO-003 (hardware check 2026-10-12: the 33220A drops an idle
+            % connection): when the instrument side closes the connection, the
+            % next query fails with an English error of the transport (no MATLAB
+            % text) and never hangs; reopen() connects again and the queries are
+            % answered; a local fake instrument (127.0.0.1 only)
+            port = 0; srv = [];
+            for p = 50500 + randperm(200, 20)
+                try
+                    srv = tcpserver("127.0.0.1", p); port = p; break
+                catch
+                end
+            end
+            tc.assumeNotEmpty(srv, 'no free local port for the fake instrument');
+            servers = containers.Map('KeyType', 'double', 'ValueType', 'any');
+            servers(1) = srv;
+            tc.addTeardown(@() deleteServers(servers));
+            configureTerminator(srv, "LF");
+            configureCallback(srv, "terminator", @(s, ~) answerFake(s));
+            ws = warning('off', 'all'); restore = onCleanup(@() warning(ws));
+            tr = tim.instr.ScpiTcpTransport('127.0.0.1', port, 2);
+            tc.addTeardown(@() tr.close());
+            tc.verifyEqual(tr.query('OUTP?'), '0');
+            delete(srv);                                       % the instrument drops the connection
+            pause(0.3);
+            t0 = tic; id = '';
+            try
+                tr.query('OUTP?');
+            catch err
+                id = err.identifier;
+                tc.verifyFalse(contains(err.message, char([54620 51116])), 'English text');   % (no Korean MATLAB message)
+            end
+            tc.verifyLessThan(toc(t0), 4, 'bounded by the time-out');
+            tc.verifyTrue(any(strcmp(id, {'tim:scpi:connectionLost', 'tim:scpi:timeout'})), ...
+                sprintf('the dropped connection is reported (%s)', id));
+            srv2 = tcpserver("127.0.0.1", port);               % the instrument listens again
+            servers(2) = srv2; %#ok<NASGU> (a handle: the teardown deletes it)
+            configureTerminator(srv2, "LF");
+            configureCallback(srv2, "terminator", @(s, ~) answerFake(s));
+            tr.reopen();
+            tc.verifyTrue(tr.isOpen());
+            tc.verifyEqual(tr.query('OUTP?'), '0', 'answered on the new connection');
+            tc.verifyTrue(any(startsWith(tr.Log(:, 3), 're-opening the connection to 127.0.0.1')));
+            clear restore
+        end
+
         function overloadDetected(tc)
             cfg = tim.app.defaultConfig();
             cfg.geometry = cfg.simulation.Geometry;
@@ -283,4 +329,22 @@ function guardedThenAborted(gen)
 % where only destructors and onCleanup objects run)
 guard = tim.app.outputGuard(gen); %#ok<NASGU>
 error('test:abort', 'aborted inside the measurement');
+end
+
+function answerFake(s)
+% fake 33220A on 127.0.0.1 (scpiConnectionDroppedAndReopened)
+cmd = strtrim(readline(s));
+switch cmd
+    case "*IDN?", writeline(s, "Agilent Technologies,33220A,FAKE0001,2.02-2.02-22-2");
+    case "OUTP?", writeline(s, "0");
+    case "SYST:ERR?", writeline(s, "+0,""No error""");
+end
+end
+
+function deleteServers(m)
+% the fake instruments of a test (containers.Map of tcpserver objects)
+k = keys(m);
+for i = 1:numel(k)
+    try, delete(m(k{i})); catch, end
+end
 end

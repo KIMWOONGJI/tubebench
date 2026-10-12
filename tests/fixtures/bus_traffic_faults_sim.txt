@@ -1,13 +1,8 @@
 % Bus traffic of the simulated fault-path scenario of tests/TestBusTraffic.m (recordFaults)
 % (protocol mocks, recorded by tim.instr.mockBusLog). One entry per line: "SCPI > command",
 % "SCPI < response", "REST METHOD path [body]", "STREAM open|close", "# section".
-% Recorded 2026-10-11 with commit 1ba47717c362270431f21397fe0715ca32689556. Regenerate: TestBusTraffic.writeFixture('faults')
-% Regenerated 2026-10-11 with the owner's approval (D24, docs/instrument_interface.md section 13.1)
-% on commit 1ba4771 plus the session change committed together with this file: the session
-% sets AbortFcn = @() Gen.outputOff() at connect, so on the abnormal end of an acquisition (stalled
-% stream, Stop) OUTP OFF comes before the REST stop. No hand edit: the scenario "window closed twice
-% inside a sweep" (ends with tim:instr:closed, without the status request the code before WO-001 sent
-% after its error) was approved by the owner on 2026-10-11 and is recorded from the code.
+% Recorded 2026-10-12 with commit cca851e7cdc502e7e44ee700af9e1196540bfcc9. Regenerate: TestBusTraffic.writeFixture('faults')
+% Regenerated 2026-10-12 with the owner's approval (WO-003): the connection check OUTP? before every excitation; faults: the reconnection scenario.
 # connect + prepareAcquisition
 SCPI > *IDN?
 SCPI < Agilent Technologies,33220A,MOCK0001,2.02-2.02-22-2
@@ -36,6 +31,8 @@ REST GET /rest/rec/channels/input/default
 REST PUT /rest/rec/channels/input {"channels":[{"ConnectorSelect":"BNC","bandwidth":"6.4 kHz","bridgeCompletion":"None","bridgeExcCurrent":0,"bridgeExcOn":false,"bridgeExcVoltage":0,"bridgeQuarterCompletionImpedance":"Off","bridgeRemoteSenseWiring":"None","bridgeShunt":false,"bridgeSingleEnd":false,"bridgeSupplyType":"DC Voltage","ccld":true,"channel":1,"destinations":["socket"],"enabled":true,"filter":"0.7 Hz","floating":false,"hats":false,"name":"M1","polvolt":false,"range":"10 Vpeak","transducer":{"requires200V":false,"requiresCcld":false,"sensitivity":1,"serialNumber":0,"type":{"model":"","number":"None","prefix":"","variant":""},"unit":"V"}},{"ConnectorSelect":"BNC","bandwidth":"6.4 kHz","bridgeCompletion":"None","bridgeExcCurrent":0,"bridgeExcOn":false,"bridgeExcVoltage":0,"bridgeQuarterCompletionImpedance":"Off","bridgeRemoteSenseWiring":"None","bridgeShunt":false,"bridgeSingleEnd":false,"bridgeSupplyType":"DC Voltage","ccld":true,"channel":2,"destinations":["socket"],"enabled":true,"filter":"0.7 Hz","floating":false,"hats":false,"name":"M2","polvolt":false,"range":"10 Vpeak","transducer":{"requires200V":false,"requiresCcld":false,"sensitivity":1,"serialNumber":0,"type":{"model":"","number":"None","prefix":"","variant":""},"unit":"V"}},{"ConnectorSelect":"BNC","bandwidth":"6.4 kHz","bridgeCompletion":"None","bridgeExcCurrent":0,"bridgeExcOn":false,"bridgeExcVoltage":0,"bridgeQuarterCompletionImpedance":"Off","bridgeRemoteSenseWiring":"None","bridgeShunt":false,"bridgeSingleEnd":false,"bridgeSupplyType":"DC Voltage","ccld":true,"channel":3,"destinations":["socket"],"enabled":true,"filter":"0.7 Hz","floating":false,"hats":false,"name":"M3","polvolt":false,"range":"10 Vpeak","transducer":{"requires200V":false,"requiresCcld":false,"sensitivity":1,"serialNumber":0,"type":{"model":"","number":"None","prefix":"","variant":""},"unit":"V"}},{"ConnectorSelect":"BNC","bandwidth":"6.4 kHz","bridgeCompletion":"None","bridgeExcCurrent":0,"bridgeExcOn":false,"bridgeExcVoltage":0,"bridgeQuarterCompletionImpedance":"Off","bridgeRemoteSenseWiring":"None","bridgeShunt":false,"bridgeSingleEnd":false,"bridgeSupplyType":"DC Voltage","ccld":true,"channel":4,"destinations":["socket"],"enabled":true,"filter":"0.7 Hz","floating":false,"hats":false,"name":"M4","polvolt":false,"range":"10 Vpeak","transducer":{"requires200V":false,"requiresCcld":false,"sensitivity":1,"serialNumber":0,"type":{"model":"","number":"None","prefix":"","variant":""},"unit":"V"}}],"fileFormat":"wav","maxSize":2.147483647E+9,"name":"Default setup","recordingMode":"Single"}
 REST GET /rest/rec/onchange
 # stream stalls in the middle of a sweep (error raised by the acquisition driver)
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -80,6 +77,8 @@ STREAM close
 SCPI > OUTP OFF
 # -> error tim:lanxi:streamStalled
 # operator Stop in the middle of a sweep
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -125,6 +124,8 @@ STREAM close
 SCPI > OUTP OFF
 # -> error tim:session:stopped
 # operator cancels the excitation confirmation
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -154,6 +155,8 @@ SCPI < LOG
 SCPI > OUTP OFF
 # -> error tim:session:notConfirmed
 # loudspeaker power limit below the drive (direct drive, 1 uW limit)
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -182,7 +185,66 @@ SCPI > SWE:SPAC?
 SCPI < LOG
 SCPI > OUTP OFF
 # -> error tim:session:speakerPower
+# the generator dropped its connection while idle: re-opened before the sweep (WO-003)
+SCPI ! connection lost while sending "OUTP?"
+SCPI reconnect
+SCPI > *IDN?
+SCPI < Agilent Technologies,33220A,MOCK0001,2.02-2.02-22-2
+SCPI > OUTP OFF
+SCPI > *CLS
+SCPI > OUTP:LOAD INF
+SCPI > VOLT:UNIT VPP
+SCPI > SYST:ERR?
+SCPI < +0,"No error"
+SCPI > OUTP OFF
+SCPI > SWE:STAT OFF
+SCPI > FUNC SIN
+SCPI > FREQ 80.000000
+SCPI > VOLT:OFFS 0
+SCPI > VOLT 0.2000
+SCPI > FREQ:STAR 80.000000
+SCPI > FREQ:STOP 5500.000000
+SCPI > SWE:SPAC LOG
+SCPI > SWE:TIME 1.000000
+SCPI > TRIG:SOUR BUS
+SCPI > OUTP:TRIG:SLOP POS
+SCPI > OUTP:TRIG ON
+SCPI > SWE:STAT ON
+SCPI > SYST:ERR?
+SCPI < +0,"No error"
+SCPI > FREQ:STAR?
+SCPI < +8.0000000000000E+01
+SCPI > FREQ:STOP?
+SCPI < +5.5000000000000E+03
+SCPI > SWE:TIME?
+SCPI < +1.0000000000000E+00
+SCPI > VOLT?
+SCPI < +2.0000000000000E-01
+SCPI > SWE:SPAC?
+SCPI < LOG
+REST GET /rest/rec/onchange
+REST GET /rest/rec/destination/socket
+STREAM open port 1536
+REST POST /rest/rec/measurements
+REST GET /rest/rec/onchange
+SCPI > VOLT?
+SCPI < +2.0000000000000E-01
+SCPI > OUTP ON
+SCPI > SYST:ERR?
+SCPI < +0,"No error"
+SCPI > *TRG
+SCPI > *OPC?
+SCPI < 1
+SCPI > OUTP OFF
+REST PUT /rest/rec/measurements/stop
+REST GET /rest/rec/onchange
+STREAM close
+REST GET /rest/rec/onchange
+SCPI > OUTP OFF
+# -> no error
 # window closed twice inside a sweep: output off + close(true) from inside the acquisition
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN

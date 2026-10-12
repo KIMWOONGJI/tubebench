@@ -10,13 +10,18 @@ classdef ScpiTcpTransport < handle
     %
     %   A LOST CONNECTION. The 33220A drops an idle socket connection now and
     %   then without telling the PC (hardware check 2026-10-12): the next
-    %   command reaches nobody, the instrument answers it with a reset. The
-    %   reset arrives in tcpclient's ErrorOccurredFcn (registered here, so
-    %   MATLAB prints no stack trace in the command window) and marks the
-    %   connection lost; isOpen() is then false, and every write or query
-    %   raises tim:scpi:connectionLost (English text) instead of MATLAB's
-    %   message. reopen() opens a new connection to the same address; the
-    %   driver decides when (Keysight33220A.checkConnection).
+    %   command reaches nobody and the instrument answers it with a reset.
+    %   tcpclient (R2022b) reports that reset only in its own background
+    %   handler, which prints a stack trace in the command window ("현재 연결은
+    %   원격 호스트에 의해 강제로 끊겼습니다" on a Korean system; there is no
+    %   public way to suppress it, and ErrorOccurredFcn is not called), lets
+    %   the pending readline run into its time-out and fails the next
+    %   writeline. So a query on a dropped connection ends with
+    %   tim:scpi:timeout, a write with tim:scpi:connectionLost (English text;
+    %   isOpen() is false afterwards). reopen() opens a new connection to the
+    %   same address; the driver decides when (Keysight33220A.checkConnection).
+    %   The readline time-out warning of tcpclient is not shown: the
+    %   transport raises its own error instead.
 
     properties (SetAccess = private)
         Host char
@@ -27,8 +32,7 @@ classdef ScpiTcpTransport < handle
     properties (Access = private)
         Client = []
         Desynchronised logical = false   % a query timed out: its answer may still arrive
-        Lost = []              % containers.Map: 'lost' (logical), 'message' - shared with the
-                               % ErrorOccurredFcn of the client (no reference back to obj)
+        Lost logical = false             % a write failed: the connection is gone (until reopen)
     end
 
     methods
@@ -50,9 +54,6 @@ classdef ScpiTcpTransport < handle
             catch err
                 obj.connectionLost(err, cmd);
             end
-            % a reset noticed while the command was sent (the connection was
-            % already gone): this command reached nobody either
-            if obj.lost(), obj.connectionLost([], cmd); end
         end
 
         function resp = query(obj, cmd, timeout)
@@ -66,17 +67,17 @@ classdef ScpiTcpTransport < handle
             old = obj.Client.Timeout;
             obj.Client.Timeout = timeout;
             restore = onCleanup(@() obj.restoreTimeout(old));
+            quiet = warning('off', 'transportlib:client:ReadlineWarning');   % (our own error below)
+            restoreWarn = onCleanup(@() warning(quiet));
+            if obj.Desynchronised, obj.resynchronise(); end
+            obj.discardInput();
+            obj.addLog('>', cmd);
             try
-                if obj.Desynchronised, obj.resynchronise(); end
-                obj.discardInput();
-                obj.addLog('>', cmd);
                 writeline(obj.Client, cmd);
-                resp = readline(obj.Client);
             catch err
-                if startsWith(err.identifier, 'tim:scpi:'), rethrow(err); end
                 obj.connectionLost(err, cmd);
             end
-            if obj.lost(), obj.connectionLost([], cmd); end
+            resp = readline(obj.Client);
             if isempty(resp) || (isstring(resp) && ismissing(resp))
                 obj.Desynchronised = true;      % its answer may still arrive
                 error('tim:scpi:timeout', 'No response to "%s" within %.1f s.', cmd, timeout);
@@ -87,7 +88,7 @@ classdef ScpiTcpTransport < handle
 
         function tf = isOpen(obj)
             %ISOPEN The connection is open and not known to be lost.
-            tf = ~isempty(obj.Client) && ~obj.lost();
+            tf = ~isempty(obj.Client) && ~obj.Lost;
         end
 
         function reopen(obj)
@@ -96,7 +97,7 @@ classdef ScpiTcpTransport < handle
             obj.Client = [];
             obj.addLog('*', sprintf('re-opening the connection to %s:%d', obj.Host, obj.Port));
             obj.open();
-            obj.Desynchronised = false;
+            obj.Lost = false; obj.Desynchronised = false;
         end
 
         function setTimeout(obj, timeout)
@@ -117,33 +118,19 @@ classdef ScpiTcpTransport < handle
     methods (Access = private)
         function open(obj)
             try
-                c = tcpclient(obj.Host, obj.Port, 'Timeout', obj.Timeout, 'ConnectTimeout', obj.Timeout);
+                obj.Client = tcpclient(obj.Host, obj.Port, 'Timeout', obj.Timeout, 'ConnectTimeout', obj.Timeout);
             catch err
                 error('tim:scpi:connect', ...
                     'Cannot open TCP socket %s:%d (%s). Check cabling, IP address and that no other program holds the socket.', ...
                     obj.Host, obj.Port, err.message);
             end
-            configureTerminator(c, "LF");
-            box = containers.Map({'lost', 'message'}, {false, ''});
-            try
-                c.ErrorOccurredFcn = @(~, evt) noteError(box, evt);
-            catch
-                % (a MATLAB without ErrorOccurredFcn: the errors of writeline /
-                % readline still mark the connection lost)
-            end
-            obj.Lost = box;
-            obj.Client = c;
-        end
-        function tf = lost(obj)
-            tf = ~isempty(obj.Lost) && obj.Lost('lost');
+            configureTerminator(obj.Client, "LF");
         end
         function connectionLost(obj, err, cmd)
-            % mark the connection lost and raise the English error
-            if ~isempty(obj.Lost), obj.Lost('lost') = true; end
-            raw = '';
-            if ~isempty(err), raw = err.message; elseif ~isempty(obj.Lost), raw = obj.Lost('message'); end
+            % a write failed: mark the connection lost, raise the English error
+            obj.Lost = true;
             obj.addLog('!', sprintf('connection lost while sending "%s": %s', cmd, ...
-                strtrim(regexprep(raw, '\s+', ' '))));
+                strtrim(regexprep(err.message, '\s+', ' '))));
             error('tim:scpi:connectionLost', ['The connection to %s:%d was closed while sending "%s": the ' ...
                 'instrument dropped it or the link is down.'], obj.Host, obj.Port, cmd);
         end
@@ -151,13 +138,13 @@ classdef ScpiTcpTransport < handle
             if isempty(obj.Client)
                 error('tim:scpi:closed', 'SCPI transport to %s is closed.', obj.Host);
             end
-            if obj.lost()
+            if obj.Lost
                 error('tim:scpi:connectionLost', 'The connection to %s:%d was closed by the instrument or the link.', ...
                     obj.Host, obj.Port);
             end
         end
         function restoreTimeout(obj, t)
-            if ~isempty(obj.Client), try, obj.Client.Timeout = t; catch, end, end
+            if ~isempty(obj.Client), obj.Client.Timeout = t; end
         end
         function discardInput(obj)
             % a late reply already received: logged and dropped
@@ -173,7 +160,11 @@ classdef ScpiTcpTransport < handle
             % the timed-out query may arrive before or after the *IDN? is sent
             obj.discardInput();
             obj.addLog('>', '*IDN?');
-            writeline(obj.Client, '*IDN?');
+            try
+                writeline(obj.Client, '*IDN?');
+            catch err
+                obj.connectionLost(err, '*IDN?');
+            end
             for i = 1:10
                 r = readline(obj.Client);
                 if isempty(r) || (isstring(r) && ismissing(r))
@@ -194,13 +185,4 @@ classdef ScpiTcpTransport < handle
             if size(obj.Log, 1) > 2000, obj.Log(1:1000, :) = []; end
         end
     end
-end
-
-function noteError(box, evt)
-% ErrorOccurredFcn of the tcpclient: a reset or a closed connection (no
-% stack trace in the command window; the next write / query reports it)
-msg = 'connection error';
-try, msg = char(evt.Message); catch, end
-box('lost') = true;      % (box is a handle: the transport reads it)
-box('message') = msg; %#ok<NASGU>
 end

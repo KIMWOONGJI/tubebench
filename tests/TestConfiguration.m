@@ -400,6 +400,31 @@ classdef TestConfiguration < matlab.unittest.TestCase
             tc.verifySubstring(tim.app.msg('en', 'ampDirect', 0, 8, 1, 2, 3, 4), 'via the 0 Ω generator output');
         end
 
+        function loudspeakerVoltageGivesTheGeneratorLevel(tc)
+            % owner decision 2026-10-12 (WO-003): in direct drive the level may be
+            % given at the loudspeaker; tim.app.generatorAmplitude is the inverse
+            % of the drive estimate (33220A at High Z, 8 ohm: 10 mVpk at the
+            % loudspeaker = 72.5 mVpk programmed); ui.amplitudeAt is checked
+            c = tim.app.defaultConfig();
+            c.amplifier.model = 'none (direct drive)';
+            tc.verifyEqual(c.ui.amplitudeAt, 'generator', 'default');
+            for Z = [4 8 16]
+                c.loudspeaker.impedance_ohm = Z;
+                vpp = tim.app.generatorAmplitude(c, 0.01);
+                tc.verifyEqual(tim.app.driveEstimate(c, vpp).Vspk_pk, 0.01, 'RelTol', 1e-12, sprintf('%g ohm', Z));
+            end
+            c.loudspeaker.impedance_ohm = 8;
+            tc.verifyEqual(tim.app.generatorAmplitude(c, 0.01) / 2, 0.01 * 58 / 8, 'RelTol', 1e-12);
+            a = c; a.amplifier.model = 'power amplifier'; a.amplifier.gainFactor = 10;
+            tc.verifyError(@() tim.app.generatorAmplitude(a, 0.01), 'tim:gui:input', 'direct drive only');
+            c.ui.amplitudeAt = 'loudspeaker';
+            tc.verifyFalse(any(contains(tim.app.validateConfig(c), 'only with direct drive')), 'loudspeaker level with direct drive');
+            a.ui.amplitudeAt = 'loudspeaker';
+            tc.verifyTrue(any(contains(tim.app.validateConfig(a), 'only with direct drive')));
+            c.ui.amplitudeAt = 'speaker';
+            tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:ui');
+        end
+
         function recordedMappingForReprocessing(tc)
             % owner decision 2026-10-11: a saved measurement is reprocessed with
             % the channel-to-port mapping it was recorded with

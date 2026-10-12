@@ -306,6 +306,31 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             clear restore
         end
 
+        function connectionCheck(tc, driver)
+            % WO-003 (hardware check 2026-10-12: the 33220A drops an idle
+            % connection unnoticed): checkConnection on an intact link answers
+            % 'ok' and switches nothing on; a driver whose instrument can drop a
+            % connection (hook dropConnection) re-opens it with the output off,
+            % and raises tim:instr:connectionLost when it cannot
+            c = capabilitiesOf(driver);
+            [obj, h] = tc.make(c.roles{1}, driver);
+            r = obj.checkConnection();
+            tc.verifyEqual(r.state, 'ok');
+            if isa(obj, 'tim.instr.SignalSource'), tc.verifyFalse(h.outputOn()); end
+            if ~isfield(h, 'dropConnection'), return; end
+            h.dropConnection();
+            r = obj.checkConnection();
+            tc.verifyEqual(r.state, 'reconnected');
+            tc.verifySubstring(r.detail, 'output off');
+            if isa(obj, 'tim.instr.SignalSource')
+                tc.verifyFalse(h.outputOn());
+                tc.verifyFalse(obj.OutputArmed, 'never armed across a reconnection');
+            end
+            tc.verifyEqual(obj.checkConnection().state, 'ok', 'the re-opened connection works');
+            h.dropConnection(); h.breakLink();
+            tc.verifyError(@() obj.checkConnection(), 'tim:instr:connectionLost');
+        end
+
         %% ---------------- sources ----------------
         function outputOffAfterCreation(tc, source)
             [src, h] = tc.make('source', source);

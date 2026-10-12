@@ -19,7 +19,8 @@ classdef TestBusTraffic < matlab.unittest.TestCase
     %   stalls in the middle of a sweep (error raised by the acquisition
     %   driver); operator Stop in the middle of a sweep; the operator cancels
     %   the excitation confirmation; the loudspeaker power limit refuses the
-    %   drive; the window is closed twice inside a sweep (output off +
+    %   drive; the generator dropped its connection while idle (re-opened
+    %   before the sweep, WO-003); the window is closed twice inside a sweep (output off +
     %   close(true) from inside the acquisition). The error that ends each
     %   scenario is part of the log ('# -> error <identifier>'). These are the
     %   Stop / output-off paths WO-001 §6.2 names as the highest refactoring
@@ -28,7 +29,9 @@ classdef TestBusTraffic < matlab.unittest.TestCase
     %   drivers; regenerated on 2026-10-11 with the owner's approval (D24: the
     %   session sets AbortFcn, so OUTP OFF comes before the REST stop on the
     %   abnormal end of an acquisition; outputOffBeforeTheStopOnAnAbnormalEnd),
-    %   with no hand edit left. A Stop during the LAN-XI connect step
+    %   with no hand edit left. Both fixtures regenerated on 2026-10-12 with the
+    %   owner's approval (WO-003: the connection check OUTP? before every
+    %   excitation, and the reconnection scenario; connectionDroppedWhileIdle). A Stop during the LAN-XI connect step
     %   (stopDuringConnectReturnsTheModuleToIdle) is checked against an
     %   explicit list: the status request moved from the window's close to the
     %   driver (review of 2026-10-11; order approved by the owner 2026-10-11).
@@ -71,8 +74,9 @@ classdef TestBusTraffic < matlab.unittest.TestCase
         function faultTrafficUnchanged(tc)
             [actual, info] = TestBusTraffic.recordFaults(tc.tmp);
             tc.assertEqual(info.errors, {'tim:lanxi:streamStalled', 'tim:session:stopped', ...
-                'tim:session:notConfirmed', 'tim:session:speakerPower', 'tim:instr:closed'}, ...
-                'every fault scenario ends with its error (closing inside the sweep: tim:instr:closed)');
+                'tim:session:notConfirmed', 'tim:session:speakerPower', '', 'tim:instr:closed'}, ...
+                ['every fault scenario ends with its error (closing inside the sweep: tim:instr:closed); a ' ...
+                'connection dropped while idle is re-opened and the sweep runs (no error)']);
             expected = TestBusTraffic.readFixture('faults');
             msg = TestBusTraffic.firstDifference(expected, actual, 'faults');
             tc.verifyTrue(isempty(msg), msg);
@@ -172,6 +176,43 @@ classdef TestBusTraffic < matlab.unittest.TestCase
             clear stopLog closeSession restoreWarn
         end
 
+        function connectionDroppedWhileIdle(tc)
+            % WO-003 (owner decision 2026-10-12; the 33220A drops an idle
+            % connection unnoticed): the session checks the source before every
+            % excitation (OUTP?); a dropped connection is re-opened - same serial
+            % number, output off, *CLS, OUTP:LOAD, VOLT:UNIT - and the sweep then
+            % sends exactly what it sends on an intact link; a connection that
+            % cannot be re-opened ends with tim:instr:connectionLost before
+            % anything is configured, armed or recorded
+            c = TestBusTraffic.scenarioConfig(tc.tmp);
+            s = tim.app.MeasurementSession(c);
+            closeSession = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            h = feval([class(s.Gen) '.testHooks'], s.Gen);
+            tim.instr.mockBusLog('start');
+            stopLog = onCleanup(@() tim.instr.mockBusLog('stop'));
+            s.measure('sweep');
+            intact = tim.instr.mockBusLog('lines');
+            tc.verifyEqual(intact(1:2), {'SCPI > OUTP?'; 'SCPI < 0'}, 'the check comes first');
+            tim.instr.mockBusLog('start');
+            h.dropConnection();
+            s.measure('sweep');
+            dropped = tim.instr.mockBusLog('lines');
+            reopen = {'SCPI ! connection lost while sending "OUTP?"'; 'SCPI reconnect'; 'SCPI > *IDN?'; ...
+                ['SCPI < ' s.Gen.Identity.raw]; 'SCPI > OUTP OFF'; 'SCPI > *CLS'; 'SCPI > OUTP:LOAD INF'; ...
+                'SCPI > VOLT:UNIT VPP'; 'SCPI > SYST:ERR?'; 'SCPI < +0,"No error"'};
+            tc.verifyEqual(dropped, [reopen; intact(3:end)], 'the reconnection, then the same sweep');
+            tc.verifyTrue(any(contains(s.LogLines, 'Generator: connection re-opened (the instrument had closed it)')));
+            tim.instr.mockBusLog('start');
+            h.dropConnection(); h.breakLink();                 % and the link down: no answer, no re-open
+            ws = warning('off', 'tim:gen:outputOff'); restoreWarn = onCleanup(@() warning(ws));
+            tc.verifyError(@() s.measure('sweep'), 'tim:instr:connectionLost');
+            failed = tim.instr.mockBusLog('stop');
+            tc.verifyEmpty(failed, 'nothing configured, armed or recorded (nothing reaches the instrument)');
+            tc.verifyEqual(s.LostRole, 'source');
+            clear stopLog closeSession restoreWarn
+        end
+
         function recorderIsOffByDefault(tc)
             % normal simulation use keeps no bus log
             tim.instr.mockBusLog('stop');
@@ -249,7 +290,7 @@ classdef TestBusTraffic < matlab.unittest.TestCase
             closeSession = onCleanup(@() s.close());
             fs = c.acquisition.sampleRate;
             midSweep = round((c.excitation.sweep.preRoll + 0.5 * c.excitation.sweep.duration) * fs);
-            errors = cell(1, 5);
+            errors = cell(1, 6);
             mark('connect + prepareAcquisition');
             s.connect();
             s.prepareAcquisition();
@@ -275,9 +316,14 @@ classdef TestBusTraffic < matlab.unittest.TestCase
             errors{4} = measureError(s, mark);
             s.setLoudspeaker(c.loudspeaker.impedance_ohm, c.loudspeaker.maxPower_W);
 
+            mark('the generator dropped its connection while idle: re-opened before the sweep (WO-003)');
+            h = feval([class(s.Gen) '.testHooks'], s.Gen);
+            h.dropConnection();
+            errors{5} = measureError(s, mark);           % '' - the sweep runs after the reconnection
+
             mark('window closed twice inside a sweep: output off + close(true) from inside the acquisition');
             atSample(s, midSweep, @() closeFast(s));
-            errors{5} = measureError(s, mark);
+            errors{6} = measureError(s, mark);
             s.BlockCallback = [];
 
             mark('close (session already closed)');

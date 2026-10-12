@@ -20,9 +20,12 @@ Observed on 2026-10-12 (`docs/hardware_status.md`, observation 1 of the check):
 - Disconnect → Connect restored the connection.
 
 Tasks:
-1. `ScpiTcpTransport`: register `tcpclient`'s `ErrorOccurredFcn`, so that a reset marks the
-   transport as disconnected instead of printing a stack trace in the command window. `isOpen()`
-   must report the real state.
+1. `ScpiTcpTransport`: English errors (`tim:scpi:connectionLost` for a failed write, `tim:scpi:timeout`
+   for a missing answer) and `isOpen()` false after a failed write; `reopen()`. (Found while
+   building it: `tcpclient` reports the reset only in a background handler that prints a stack
+   trace in the command window - `ErrorOccurredFcn` is not called and the print cannot be
+   suppressed; the pending `readline` runs into its time-out. Harmless: the check below re-opens
+   the connection.)
 2. Before every measurement, calibration, background-noise recording and Test (`tim.val.*`), check
    the generator connection with a short query (`OUTP?`). If the connection is gone:
    - open it again;
