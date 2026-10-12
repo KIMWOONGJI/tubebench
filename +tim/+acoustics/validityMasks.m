@@ -90,17 +90,19 @@ up.phaseSensitive = phaseSens(:, 1) > o.maxPhaseSensitivity;
 geometryOKup = ~(up.belowSpacingLimit | up.aboveSpacingLimit | up.aboveModeCutOn | ...
     up.nearSingularity | up.illConditioned | up.phaseSensitive);
 
-% 3) quality (columns of o.quality are tube POSITIONS M1..M4)
+% 3) quality (columns of o.quality are tube POSITIONS M1..M4). An unknown
+% value (NaN, e.g. the swept-sine SNR without a noise-only pre-roll) fails the
+% criterion, as in the switching calibration (tim.cal.switchingCorrection)
 fl.lowCoherence = false(Nf, 1); fl.lowSNR = false(Nf, 1); fl.calInvalid = false(Nf, 1);
 up.lowCoherence = false(Nf, 1); up.lowSNR = false(Nf, 1);
 if ~isempty(o.quality)
     if isfield(o.quality, 'coherence') && ~isempty(o.quality.coherence)
-        low = o.quality.coherence < o.coherenceMin;
+        low = ~(o.quality.coherence >= o.coherenceMin);
         fl.lowCoherence = any(low, 2);
         up.lowCoherence = any(low(:, 1:2), 2);
     end
     if isfield(o.quality, 'snr_dB') && ~isempty(o.quality.snr_dB)
-        low = o.quality.snr_dB < o.snrMin_dB;
+        low = ~(o.quality.snr_dB >= o.snrMin_dB);
         fl.lowSNR = any(low, 2);
         up.lowSNR = any(low(:, 1:2), 2);
     end

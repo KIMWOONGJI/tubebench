@@ -8,6 +8,8 @@
 %
 % Configuration: config/user_config.json (lab settings, tracked in Git: mode,
 % microphone serials/sensitivities, GEOMETRY, limits). Commit it after changes.
+% It also selects the instrument drivers (generator.driver, daq.driver; default
+% 'keysight33220a' and 'lanxi', docs/instrument_interface.md).
 
 %% 0) Paths and configuration
 root = fileparts(mfilename('fullpath'));
@@ -21,19 +23,23 @@ else
 end
 warn = tim.app.validateConfig(cfg);
 fprintf('Mode: %s\n', upper(cfg.mode));
-fprintf('  - %s\n', warn{:});
+if isempty(warn)
+    fprintf('  (no configuration warnings)\n');
+else
+    fprintf('  - %s\n', warn{:});
+end
 
 %% 1) (optional) Graphical interface instead of the sections below
 % tubebench        % real instruments (config/user_config.json)
 % tubebench sim    % virtual tube (practice)
 
-%% 2) Self-test of the software (simulation only, ~3 min)
+%% 2) Self-test of the software (simulation only, ~15-20 min; run_tests('fast') is quicker)
 % results = run_tests();
 
 %% 3) Connect instruments (generator output stays OFF) and prepare acquisition
 s = tim.app.MeasurementSession(cfg);
-s.connect();
-s.prepareAcquisition();          % LAN-XI -> streaming state, TEDS, sensitivities
+s.connect();                     % logs each instrument with the identity it reported
+s.prepareAcquisition();          % DAQ inputs set up (LAN-XI: streaming state), TEDS, sensitivities
 
 %% 4) Electrical check: 2 s without excitation (Test A)
 bg = s.measureBackground(2);
@@ -56,5 +62,16 @@ figs = tim.app.plotResults(res, meas);
 folder = tim.app.saveMeasurement(meas, res, cfg, 'my_sample', figs);
 fprintf('Saved to %s\n', folder);
 
-%% 8) Disconnect (output off, LAN-XI back to Idle)
+%% 8) Disconnect (output off, DAQ stopped - LAN-XI: back to Idle)
 s.close();
+
+%% 9) (optional) Reprocess a saved measurement offline (no instruments)
+% e.g. with a corrected geometry or another calibration; a new save writes a new
+% folder. useRecordedMapping puts each DAQ channel in the port it was recorded
+% in (meas.mics): the configuration may have been re-cabled since. Leave it out
+% only to correct a channel-to-port assignment that was recorded wrongly.
+% S = load(fullfile(root, 'data', '<folder>', 'raw.mat'));
+% cfgR = tim.app.useRecordedMapping(cfg, S.meas.mics);
+% C = load(fullfile(root, 'calibration', 'CAL-xxxxxxxx-xxxxxx.mat'), 'cal');
+% resR = tim.app.processMeasurement(S.meas, cfgR, C.cal);
+% disp(resR.summary)

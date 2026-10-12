@@ -45,26 +45,40 @@ $p.ExitCode; Get-Content $log -Encoding UTF8
 
 ## Architecture
 
-**Session layer.** `tim.app.MeasurementSession` owns the instruments and runs every acquisition.
-`cfg.mode` chooses between two kinds of transport:
+**Session layer.** `tim.app.MeasurementSession` owns the instruments (`s.Gen` signal source,
+`s.Daq` acquisition; one object when a device takes both roles) and runs every acquisition. The
+configuration names a driver per role (`generator.driver`, `daq.driver`: `keysight33220a`,
+`lanxi`, `simcombined` for both, or the guide's simulation-only example `demo`); `connect` builds
+them through the registry `tim.instr.create` (list in `+tim/+instr/drivers.m`). Drivers implement
+the contract `tim.instr.SignalSource` / `tim.instr.Acquisition` (`docs/instrument_interface.md`),
+so the session and the window name no instrument (a test greps for it). A new instrument gets a
+driver by `docs/adding_an_instrument.md` (templates in `templates/instrument/`, checked by
+`TestInstrumentTemplates`; skill `.claude/skills/add-instrument`), never by a change to the session
+or the window. `cfg.mode` chooses what each driver talks to:
 
-- `'hardware'`: `ScpiTcpTransport` and `LanXiHttp`, with `LanXiTcpStream` → `LanXiStreamParser`.
-- `'simulation'`: `MockScpiTransport` and `MockLanXiHttp`/`MockLanXiStream`. A
-  `tim.sim.SimulatedRig` couples the two mocks: it reads the generator state from the SCPI mock
-  and synthesises the four channels from an analytic tube model (`tim.sim.tubeModel`) plus a
-  per-channel chain, noise and a clock offset.
+- `'hardware'`: its transport - `ScpiTcpTransport` (33220A); `LanXiHttp`, `LanXiTcpStream` →
+  `LanXiStreamParser` (LAN-XI).
+- `'simulation'`: its protocol mock (`MockScpiTransport`, `MockLanXiHttp`/`MockLanXiStream`) on
+  one `tim.sim.SimulatedRig`, which reads the generator state from the SCPI mock and synthesises
+  the four channels from an analytic tube model (`tim.sim.tubeModel`) plus a per-channel chain,
+  noise and a clock offset. `tim.sim.SimulatedCombined` (`simcombined`) implements the contract
+  directly on the rig (`respond(x)`): shared clock, planned block acquisition.
 
-Everything above the transports is the same in both modes. That is why the test suite exercises
+Everything above the drivers is the same in both modes. That is why the test suite exercises
 the whole workflow, including the GUI, without hardware. The tests also replay real recorded
-LAN-XI responses from `tests/fixtures`.
+LAN-XI responses from `tests/fixtures`, and `TestBusTraffic` compares every SCPI / REST message of
+a simulated session with recorded fixtures (regenerated only for an owner-approved change).
 
 **No shared clock.** The generator and the LAN-XI are not synchronised. Every action is scheduled
-on the number of samples received so far: output on, trigger, frequency step, output off. Only
-afterwards is it verified that the excitation lies inside the recording:
+on the number of samples received so far: output on, trigger, frequency step, output off (a
+device that takes both roles runs the same schedule first as a planning pass on its own clock).
+Only afterwards is it verified that the excitation lies inside the recording:
 
 - `tim.dsp.detectExcitation`;
 - for sweeps, the matched-filter "sweep gate" in `tim.dsp.sweepResponse`, which also excludes
-  the generator's output-switching clicks.
+  the generator's output-switching clicks. It needs the sweep to reach beyond the band
+  (`tim.dsp.sweepGateLimits`, also used by `validateConfig`); an end without that margin gets
+  another window edge (from the detected start, or a ring-down margin past the sweep end).
 
 The analysis uses only the relative responses between channels.
 
@@ -74,7 +88,8 @@ The analysis uses only the relative responses between channels.
    `sineResponse` for stepped sines, `welchResponse` for noise).
 2. The complex switching calibration is applied (`tim.cal.*`; C_k = g_k/g_ref, from
    `tim.app.runCalibration`).
-3. The columns are reordered from **DAQ channel to tube position** using `cfg.mics(c).position`.
+3. The columns are reordered from **DAQ channel to tube position** using `cfg.mics(c).position`
+   (Reprocess of an opened measurement: the recorded mapping by default, `tim.app.useRecordedMapping`).
 4. `tim.acoustics.analyzeFourMic` runs the wave decomposition and computes R, τ, TL, the transfer
    impedance and the validity masks. `tim.acoustics.transferMatrix` gives the two-port matrix
    (scripts only).
@@ -101,8 +116,13 @@ action is also available from scripts (`start_here.m`).
 - Background steps never run while `Busy` is set, while a session operation or stream is active,
   or while the window closes, because that would stall the LAN-XI stream.
 - Code that touches a view must call `app.ensureBuilt(part)` first.
+- No instrument selector (owner decision): the window shows the instruments in use from the
+  drivers (`tim.instr.driverInfo`, `identity()`): lamp labels and tooltips, "In use", the
+  Instruments table and checklist of Setup > Connection, texts (`describe().texts`) and the
+  limits of the EXCITATION fields (`capabilities()`).
 - A hidden window (`'Visible','off'`, as used by the tests) builds everything synchronously, and
-  its prompts (`ask`, `askBar`) return the default answer.
+  its prompts (`ask`, `askBar`) return the default answer. A Stop or close request during an
+  action (also in a window without a session) makes them return the cancel answer.
 
 **Calibration** (`tim.app.runCalibration`) is a sequence of operator steps. The microphones swap
 ports through a `prompt` callback: in the GUI this is the operator bar, in a script the command
@@ -113,8 +133,13 @@ window, and in simulation the virtual rig moves them. The sequence ends with an 
 
 - JSON `null` or a missing field keeps the default.
 - Unknown fields raise a warning.
-- `tim.app.validateConfig` checks the result.
-- A new setting must be added to `defaultConfig` and, where relevant, to `validateConfig`.
+- Files of the old layout (`formatVersion` 1: `generator.host`, a `lanxi` section) and old
+  scripts are read through `tim.app.migrateConfig`.
+- `tim.app.validateConfig` checks the result; the selected drivers check their part
+  (`checkConfig`).
+- A new setting must be added to `defaultConfig` and, where relevant, to `validateConfig`; a
+  driver's own setting goes into its `describe().defaults.settings` (sub-struct
+  `generator.<driver>` / `daq.<driver>`).
 
 The configuration files:
 
@@ -130,7 +155,9 @@ stored with every measurement. When releasing, bump the version number and date 
 
 - **Safety and hardware.**
   - The generator output may be armed only inside `MeasurementSession.measure*()`. Every error
-    path must switch the output off, stop the acquisition and keep the partial data.
+    path must switch the output off, stop the acquisition and keep the partial data. The output
+    goes off first: the session sets the acquisition's `AbortFcn` to the source's `outputOff` at
+    connect (D24), so a driver calls it before its own stop sequence.
   - Ask the user before raising excitation levels.
   - Do not change instrument IP addresses, firmware, drivers, firewall or licences without
     approval.
@@ -152,6 +179,10 @@ stored with every measurement. When releasing, bump the version number and date 
 - **Docs.**
   - Behaviour changes go into `docs/user_guide.md` (also opened by Help > User guide).
   - Analysis changes go into `docs/theory.md`.
+  - A formula's source is cited as [n]. The reference list of `docs/theory.md` and section 13 of
+    the Formula tab (`tim.gui.equationsPanel`) are the same text (`TestFormulaPanel` compares
+    them), and every Formula section ends with its "Sources:" line, which also names the
+    program's own choices.
   - The README states the test count.
   - Planned work for the next version is in `docs/workorder_*.md`.
 - **Errors.** Error and warning identifiers use the `tim:<area>:<what>` form.

@@ -15,6 +15,8 @@ classdef MockLanXiStream < handle
     %     StopAfterSamples    simulate interruption              (Inf)
     %     ShuffleSignals      random signal order inside messages (false)
     %     OmitInterpretation  never send Interpretation         (false)
+    %     InvalidSignals      signal ids reported INVALID (DataQuality, cable /
+    %                         CCLD fault) when measuring starts  ([])
 
     properties (SetAccess = private)
         Rig
@@ -23,6 +25,7 @@ classdef MockLanXiStream < handle
         SignalChannels double
         Opt struct
         Running logical = false
+        Closed logical = false
         Produced double = 0
         Backlog uint8 = zeros(1, 0, 'uint8')
         T0 double
@@ -34,7 +37,7 @@ classdef MockLanXiStream < handle
     methods
         function obj = MockLanXiStream(rig, fs, rangeV, channels, opt)
             d = struct('BlockSamples', 2048, 'SamplesPerMessage', 256, 'RandomChunking', false, ...
-                'CorruptEvery', 0, 'StopAfterSamples', Inf, 'ShuffleSignals', false, 'OmitInterpretation', false);
+                'CorruptEvery', 0, 'StopAfterSamples', Inf, 'ShuffleSignals', false, 'OmitInterpretation', false, 'InvalidSignals', []);
             if nargin >= 5
                 f = fieldnames(opt);
                 for i = 1:numel(f), d.(f{i}) = opt.(f{i}); end
@@ -47,23 +50,36 @@ classdef MockLanXiStream < handle
 
         function start(obj)
             obj.Running = true;
+            if ~isempty(obj.Rig), obj.Rig.setProducer(@() obj.advance()); end   % finishSweep
             obj.T0 = floor(posixtime(datetime('now', 'TimeZone', 'UTC')));
             if ~obj.Opt.OmitInterpretation
                 ids = 1:numel(obj.SignalChannels);
                 scale = obj.RangeV * 10^(1.5/20) * ones(size(ids));
                 obj.Backlog = [obj.Backlog, tim.sim.lanxiEncode('interpretation', ids, scale, obj.Fs, 'V', obj.T0)];
             end
+            bad = obj.Opt.InvalidSignals;
+            if ~isempty(bad)
+                obj.Backlog = [obj.Backlog, tim.sim.lanxiEncode('quality', bad, 8 * ones(1, numel(bad)), obj.T0)];
+            end
         end
 
         function stop(obj)
             obj.Running = false;
+            obj.releaseRig();
         end
 
-        function b = read(obj)
+        function advance(obj)
+            %ADVANCE Produce the next block now (delivered by the next reads):
+            %   the virtual time runs on while the generator mock waits for the
+            %   end of its sweep (tim.sim.SimulatedRig.finishSweep).
             if obj.Running && obj.Produced < obj.Opt.StopAfterSamples
                 n = min(obj.Opt.BlockSamples, obj.Opt.StopAfterSamples - obj.Produced);
                 obj.produce(n);
             end
+        end
+
+        function b = read(obj)
+            obj.advance();
             if obj.Opt.RandomChunking && numel(obj.Backlog) > 1
                 k = randi(obj.Rng, numel(obj.Backlog));
             else
@@ -74,11 +90,20 @@ classdef MockLanXiStream < handle
         end
 
         function close(obj)
+            % the socket close goes to tim.instr.mockBusLog (bus 'STREAM')
+            if ~obj.Closed, tim.instr.mockBusLog('add', 'STREAM', 'close'); end
+            obj.Closed = true;
             obj.Running = false;
+            obj.releaseRig();
         end
     end
 
     methods (Access = private)
+        function releaseRig(obj)
+            % this stream no longer produces the rig's samples
+            if ~isempty(obj.Rig), obj.Rig.setProducer([]); end
+        end
+
         function produce(obj, n)
             if isempty(obj.Rig)
                 v = 1e-3 * obj.Rng.randn(n, 4);

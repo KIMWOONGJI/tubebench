@@ -1,13 +1,16 @@
-function results = run_tests(which)
+function results = run_tests(which, action)
 %RUN_TESTS Run the automated test suite (simulation only, no hardware needed).
 %
 %   run_tests            % all tests
-%   run_tests('fast')    % skip the end-to-end simulations (incl. the hidden-window app run)
+%   run_tests('fast')    % skip TestEndToEnd and the hidden-window app simulations
+%                        % (TestGui/appSimulationWorkflow, TestGui/combinedDeviceAppSimulationWorkflow)
 %   results = run_tests(...)
+%   suite = run_tests(which, 'select')   % the selected tests only, not run (tests/TestSoftwareInfo)
 %
 %   A text report is written to tests/last_test_report.txt.
 
 if nargin < 1, which = 'all'; end
+if nargin < 2, action = 'run'; end
 root = fileparts(mfilename('fullpath'));
 addpath(root);
 import matlab.unittest.TestSuite
@@ -16,7 +19,12 @@ import matlab.unittest.plugins.TestReportPlugin %#ok<NASGU>
 
 suite = TestSuite.fromFolder(fullfile(root, 'tests'));
 if strcmpi(which, 'fast')
-    suite = suite(~startsWith({suite.Name}, 'TestEndToEnd') & ~endsWith({suite.Name}, 'appSimulationWorkflow'));
+    % every hidden-window app run, whatever the case of its first letter
+    suite = suite(~startsWith({suite.Name}, 'TestEndToEnd') & ~endsWith(lower({suite.Name}), 'appsimulationworkflow'));
+end
+if strcmpi(action, 'select')
+    results = suite;
+    return
 end
 runner = TestRunner.withTextOutput('Verbosity', 2);
 results = runner.run(suite);

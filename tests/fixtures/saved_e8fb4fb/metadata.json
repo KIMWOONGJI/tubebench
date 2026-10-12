@@ -1,0 +1,487 @@
+{
+  "timestamp": "2026-10-11T03:33:40.699+0900",
+  "mode": "simulation",
+  "matlabVersion": "9.13.0.2105380 (R2022b) Update 2",
+  "matlabRelease": "2022b",
+  "toolboxes": "Control System Toolbox 10.12; Curve Fitting Toolbox 3.8; Data Acquisition Toolbox 4.6; Database Toolbox 10.4; Image Processing Toolbox 11.6; Instrument Control Toolbox 4.7; MATLAB 9.13; Signal Processing Toolbox 9.1; Simulink 10.6; Statistics and Machine Learning Toolbox 12.4; Symbolic Math Toolbox 9.2",
+  "computer": "PCWIN64",
+  "software": "tubebench 1.1.0 (2026-10-09) commit e8fb4fb",
+  "softwareInfo": {
+    "name": "tubebench",
+    "version": "1.1.0",
+    "released": "2026-10-09",
+    "repository": "https://github.com/kimwoongji/tubebench",
+    "commit": "e8fb4fb93272bf8704a595da36c43e4645205d87",
+    "branch": ""
+  },
+  "generator": {
+    "identity": {
+      "raw": "Agilent Technologies,33220A,MOCK0001,2.02-2.02-22-2",
+      "vendor": "Agilent Technologies",
+      "model": "33220A",
+      "serial": "MOCK0001",
+      "firmware": "2.02-2.02-22-2"
+    },
+    "host": "169.254.2.20",
+    "port": 5025,
+    "maxVpp": 0.5,
+    "load": "INF"
+  },
+  "amplifier": {
+    "model": "",
+    "gainFactor": null,
+    "gainSetting": "",
+    "gain_dB": null,
+    "inputImpedance_ohm": null,
+    "knownModels": [
+      "none (direct drive)",
+      "power amplifier"
+    ],
+    "confirmBeforeExcitation": true,
+    "confirmedSignature": ""
+  },
+  "daq": {
+    "host": "169.254.64.156",
+    "connector": "BNC",
+    "model": "3676-B-040",
+    "serial": 110283,
+    "firmware": "2.10.0.610",
+    "setup": {
+      "channels": [
+        {
+          "ConnectorSelect": "BNC",
+          "bandwidth": "6.4 kHz",
+          "bridgeCompletion": "None",
+          "bridgeExcCurrent": 0,
+          "bridgeExcOn": false,
+          "bridgeExcVoltage": 0,
+          "bridgeQuarterCompletionImpedance": "Off",
+          "bridgeRemoteSenseWiring": "None",
+          "bridgeShunt": false,
+          "bridgeSingleEnd": false,
+          "bridgeSupplyType": "DC Voltage",
+          "ccld": true,
+          "channel": 1,
+          "destinations": [
+            "socket"
+          ],
+          "enabled": true,
+          "filter": "0.7 Hz",
+          "floating": false,
+          "hats": false,
+          "name": "M1",
+          "polvolt": false,
+          "range": "10 Vpeak",
+          "transducer": {
+            "requires200V": false,
+            "requiresCcld": false,
+            "sensitivity": 1,
+            "serialNumber": 0,
+            "type": {
+              "model": "",
+              "number": "None",
+              "prefix": "",
+              "variant": ""
+            },
+            "unit": "V"
+          }
+        },
+        {
+          "ConnectorSelect": "BNC",
+          "bandwidth": "6.4 kHz",
+          "bridgeCompletion": "None",
+          "bridgeExcCurrent": 0,
+          "bridgeExcOn": false,
+          "bridgeExcVoltage": 0,
+          "bridgeQuarterCompletionImpedance": "Off",
+          "bridgeRemoteSenseWiring": "None",
+          "bridgeShunt": false,
+          "bridgeSingleEnd": false,
+          "bridgeSupplyType": "DC Voltage",
+          "ccld": true,
+          "channel": 2,
+          "destinations": [
+            "socket"
+          ],
+          "enabled": true,
+          "filter": "0.7 Hz",
+          "floating": false,
+          "hats": false,
+          "name": "M2",
+          "polvolt": false,
+          "range": "10 Vpeak",
+          "transducer": {
+            "requires200V": false,
+            "requiresCcld": false,
+            "sensitivity": 1,
+            "serialNumber": 0,
+            "type": {
+              "model": "",
+              "number": "None",
+              "prefix": "",
+              "variant": ""
+            },
+            "unit": "V"
+          }
+        },
+        {
+          "ConnectorSelect": "BNC",
+          "bandwidth": "6.4 kHz",
+          "bridgeCompletion": "None",
+          "bridgeExcCurrent": 0,
+          "bridgeExcOn": false,
+          "bridgeExcVoltage": 0,
+          "bridgeQuarterCompletionImpedance": "Off",
+          "bridgeRemoteSenseWiring": "None",
+          "bridgeShunt": false,
+          "bridgeSingleEnd": false,
+          "bridgeSupplyType": "DC Voltage",
+          "ccld": true,
+          "channel": 3,
+          "destinations": [
+            "socket"
+          ],
+          "enabled": true,
+          "filter": "0.7 Hz",
+          "floating": false,
+          "hats": false,
+          "name": "M3",
+          "polvolt": false,
+          "range": "10 Vpeak",
+          "transducer": {
+            "requires200V": false,
+            "requiresCcld": false,
+            "sensitivity": 1,
+            "serialNumber": 0,
+            "type": {
+              "model": "",
+              "number": "None",
+              "prefix": "",
+              "variant": ""
+            },
+            "unit": "V"
+          }
+        },
+        {
+          "ConnectorSelect": "BNC",
+          "bandwidth": "6.4 kHz",
+          "bridgeCompletion": "None",
+          "bridgeExcCurrent": 0,
+          "bridgeExcOn": false,
+          "bridgeExcVoltage": 0,
+          "bridgeQuarterCompletionImpedance": "Off",
+          "bridgeRemoteSenseWiring": "None",
+          "bridgeShunt": false,
+          "bridgeSingleEnd": false,
+          "bridgeSupplyType": "DC Voltage",
+          "ccld": true,
+          "channel": 4,
+          "destinations": [
+            "socket"
+          ],
+          "enabled": true,
+          "filter": "0.7 Hz",
+          "floating": false,
+          "hats": false,
+          "name": "M4",
+          "polvolt": false,
+          "range": "10 Vpeak",
+          "transducer": {
+            "requires200V": false,
+            "requiresCcld": false,
+            "sensitivity": 1,
+            "serialNumber": 0,
+            "type": {
+              "model": "",
+              "number": "None",
+              "prefix": "",
+              "variant": ""
+            },
+            "unit": "V"
+          }
+        }
+      ],
+      "fileFormat": "wav",
+      "maxSize": 2.147483647E+9,
+      "name": "Default setup",
+      "recordingMode": "Single"
+    },
+    "teds": [
+      {
+        "channel": 1,
+        "typeNumber": "4957",
+        "serialNumber": 3.001001E+6,
+        "sensitivity": 0.0112,
+        "unit": "Pa",
+        "requiresCcld": true,
+        "raw": {
+          "requires200V": 0,
+          "requiresCcld": 1,
+          "sensitivity": 0.0112,
+          "serialNumber": 3.001001E+6,
+          "teds": "MOCK",
+          "type": {
+            "model": "",
+            "number": "4957",
+            "prefix": "",
+            "variant": ""
+          },
+          "unit": "Pa"
+        }
+      },
+      {
+        "channel": 2,
+        "typeNumber": "4957",
+        "serialNumber": 3.001002E+6,
+        "sensitivity": 0.0115,
+        "unit": "Pa",
+        "requiresCcld": true,
+        "raw": {
+          "requires200V": 0,
+          "requiresCcld": 1,
+          "sensitivity": 0.0115,
+          "serialNumber": 3.001002E+6,
+          "teds": "MOCK",
+          "type": {
+            "model": "",
+            "number": "4957",
+            "prefix": "",
+            "variant": ""
+          },
+          "unit": "Pa"
+        }
+      },
+      {
+        "channel": 3,
+        "typeNumber": "4957",
+        "serialNumber": 3.001003E+6,
+        "sensitivity": 0.0109,
+        "unit": "Pa",
+        "requiresCcld": true,
+        "raw": {
+          "requires200V": 0,
+          "requiresCcld": 1,
+          "sensitivity": 0.0109,
+          "serialNumber": 3.001003E+6,
+          "teds": "MOCK",
+          "type": {
+            "model": "",
+            "number": "4957",
+            "prefix": "",
+            "variant": ""
+          },
+          "unit": "Pa"
+        }
+      },
+      {
+        "channel": 4,
+        "typeNumber": "4957",
+        "serialNumber": 3.001004E+6,
+        "sensitivity": 0.011300000000000001,
+        "unit": "Pa",
+        "requiresCcld": true,
+        "raw": {
+          "requires200V": 0,
+          "requiresCcld": 1,
+          "sensitivity": 0.011300000000000001,
+          "serialNumber": 3.001004E+6,
+          "teds": "MOCK",
+          "type": {
+            "model": "",
+            "number": "4957",
+            "prefix": "",
+            "variant": ""
+          },
+          "unit": "Pa"
+        }
+      }
+    ]
+  },
+  "acquisition": {
+    "sampleRate": 16384,
+    "range": "10 Vpeak",
+    "filter": "0.7 Hz",
+    "ccld": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "detectTeds": true,
+    "settleTime": 3,
+    "maxPeakFraction": 0.8,
+    "sensitivityPolicy": "certificate>teds>nominal"
+  },
+  "mics": [
+    {
+      "channel": 1,
+      "position": 1,
+      "model": "B&K 4957",
+      "serial": "",
+      "nominalSensitivity_VperPa": 0.0112,
+      "certificateSensitivity_VperPa": null,
+      "certificateDate": "",
+      "tedsSensitivity_VperPa": 0.0112,
+      "tedsSerial": 3.001001E+6,
+      "tedsType": "4957",
+      "serialMismatch": false,
+      "sensitivity_VperPa": 0.0112,
+      "sensitivitySource": "teds"
+    },
+    {
+      "channel": 2,
+      "position": 2,
+      "model": "B&K 4957",
+      "serial": "",
+      "nominalSensitivity_VperPa": 0.0112,
+      "certificateSensitivity_VperPa": null,
+      "certificateDate": "",
+      "tedsSensitivity_VperPa": 0.0115,
+      "tedsSerial": 3.001002E+6,
+      "tedsType": "4957",
+      "serialMismatch": false,
+      "sensitivity_VperPa": 0.0115,
+      "sensitivitySource": "teds"
+    },
+    {
+      "channel": 3,
+      "position": 3,
+      "model": "B&K 4957",
+      "serial": "",
+      "nominalSensitivity_VperPa": 0.0112,
+      "certificateSensitivity_VperPa": null,
+      "certificateDate": "",
+      "tedsSensitivity_VperPa": 0.0109,
+      "tedsSerial": 3.001003E+6,
+      "tedsType": "4957",
+      "serialMismatch": false,
+      "sensitivity_VperPa": 0.0109,
+      "sensitivitySource": "teds"
+    },
+    {
+      "channel": 4,
+      "position": 4,
+      "model": "B&K 4957",
+      "serial": "",
+      "nominalSensitivity_VperPa": 0.0112,
+      "certificateSensitivity_VperPa": null,
+      "certificateDate": "",
+      "tedsSensitivity_VperPa": 0.011300000000000001,
+      "tedsSerial": 3.001004E+6,
+      "tedsType": "4957",
+      "serialMismatch": false,
+      "sensitivity_VperPa": 0.011300000000000001,
+      "sensitivitySource": "teds"
+    }
+  ],
+  "geometry": {
+    "diameter": 0.029,
+    "micPositions": [
+      -0.15,
+      -0.121,
+      0.071,
+      0.1
+    ],
+    "spacingUp": 0.029,
+    "spacingDown": 0.029,
+    "xFront": 0,
+    "xRear": 0.01
+  },
+  "environment": {
+    "temperature_C": 20,
+    "pressure_Pa": 101325,
+    "relativeHumidity": 50,
+    "c_override": [],
+    "rho_override": []
+  },
+  "excitation": {
+    "mode": "sweep",
+    "sweep": {
+      "fStart": 80,
+      "fStop": 5500,
+      "duration": 1,
+      "spacing": "LOG",
+      "amplitudeVpp": 0.2,
+      "repetitions": 1,
+      "preRoll": 1,
+      "postRoll": 1
+    },
+    "stepped": {
+      "fStart": 120,
+      "fStop": 4500,
+      "nPoints": 40,
+      "spacing": "log",
+      "amplitudeVpp": 0.2,
+      "settleTime": 0.3,
+      "recordTime": 0.5,
+      "nBlocks": 4,
+      "repetitions": 1
+    },
+    "noise": {
+      "amplitudeVpp": 0.2,
+      "duration": 20,
+      "nfft": 8192,
+      "preRoll": 1
+    }
+  },
+  "analysis": {
+    "refChannel": 1,
+    "fMin": 120,
+    "fMax": 4500,
+    "df": 2,
+    "lossModel": "kirchhoff",
+    "velocityRef": "mean",
+    "condMax": 40,
+    "phaseUncertainty_rad": 0.002,
+    "maxPhaseSensitivity": 0.05,
+    "coherenceMin": 0.98,
+    "snrMin_dB": 20,
+    "validatedBands": [],
+    "lowerFraction": 0.01,
+    "upperFraction": 0.4,
+    "passivityTol": 0.05,
+    "velocityMismatchMax": 0.1,
+    "anechoicRmax": 0.1
+  },
+  "calibrationVersion": "CAL-20261011-033338",
+  "simulationTruth": {
+    "Geometry": {
+      "diameter": 0.029,
+      "micPositions": [
+        -0.15,
+        -0.121,
+        0.071,
+        0.1
+      ],
+      "spacingUp": 0.029,
+      "spacingDown": 0.029,
+      "xFront": 0,
+      "xRear": 0.01
+    },
+    "Sample": {
+      "type": "porous",
+      "sigma": 20000
+    },
+    "Termination": {
+      "R": 0.05,
+      "x": 0.6
+    },
+    "MicPosOfChannel": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "TriggerLog": [
+      16847,
+      69941,
+      123333,
+      176311,
+      229857,
+      282928,
+      335965,
+      389417
+    ]
+  },
+  "WARNING": "SIMULATED DATA - not a physical measurement."
+}

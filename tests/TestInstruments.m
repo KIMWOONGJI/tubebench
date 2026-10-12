@@ -75,6 +75,30 @@ classdef TestInstruments < matlab.unittest.TestCase
             tc.verifyFalse(tr.isOpen());
         end
 
+        function outputGuardOnInterrupt(tc)
+            % session output guard (tim.app.outputGuard): an exit that skips
+            % try/catch (Ctrl+C) switches the output off and disarms; a
+            % dismissed guard sends nothing
+            tr = tim.instr.MockScpiTransport();
+            g = tim.instr.Keysight33220A(tr, 'MaxVpp', 1);
+            g.configureSine(1000, 0.1); g.armOutput(true); g.outputOn();
+            guard = tim.app.outputGuard(g);
+            n = numel(tr.Log);
+            guard.dismiss(); delete(guard);
+            tc.verifyEqual(numel(tr.Log), n, 'a dismissed guard sends nothing');
+            tc.verifyTrue(g.isOutputOn());
+            guard = tim.app.outputGuard(g);
+            delete(guard);                                     % destroyed before it was dismissed
+            tc.verifyFalse(g.isOutputOn(), 'output switched off');
+            tc.verifyFalse(g.OutputArmed, 'output disarmed');
+            % the guard as a local variable of a function that ends without dismissing it
+            g.armOutput(true); g.outputOn();
+            tc.verifyError(@() guardedThenAborted(g), 'test:abort');
+            tc.verifyFalse(g.isOutputOn());
+            tc.verifyFalse(g.OutputArmed);
+            g.close();
+        end
+
         %% ---------------- LAN-XI ----------------
         function lanxiStateMachine(tc)
             [daq, http] = tc.makeDaq();
@@ -143,6 +167,81 @@ classdef TestInstruments < matlab.unittest.TestCase
             tc.verifyEqual(http.State, 'Idle');
         end
 
+        function lanxiStartFailureReleasesTheStream(tc)
+            % audit 2026-10-11: a fault while a recording starts (the POST, or its
+            % reply lost after the module executed it) closes the data stream,
+            % stops a recording the module started and leaves the driver ready
+            [daq, http] = tc.makeDaq();
+            daq.prepare(tc.daqCfg());
+            aborted = 0;
+            daq.AbortFcn = @() countAbort();
+            function countAbort(), aborted = aborted + 1; end
+            http.FailPath = '/rest/rec/measurements';           % the request never reached the module
+            tc.verifyError(@() daq.acquire(4096), 'tim:lanxi:network');
+            tc.verifyFalse(daq.isAcquiring(), 'stream closed after the failed start');
+            tc.verifyTrue(http.ActiveStream.Closed);
+            tc.verifyEqual(aborted, 1, 'AbortFcn on the abnormal end');
+            tc.verifySize(daq.acquire(4096), [4096 4], 'the next acquisition works');
+            http.LoseReplyPath = '/rest/rec/measurements';      % executed, reply lost
+            tc.verifyError(@() daq.acquire(4096), 'tim:lanxi:network');
+            tc.verifyEqual(http.State, 'RecorderStreaming', 'the recording the module started was stopped');
+            tc.verifyFalse(daq.isAcquiring());
+            tc.verifySize(daq.acquire(4096), [4096 4], 'the next acquisition works');
+            % the module left RecorderStreaming outside the driver: the refused
+            % start leaves no data of the previous acquisition to collect
+            http.request('PUT', '/rest/rec/finish');
+            tc.verifyError(@() daq.acquire(4096), 'tim:lanxi:state');
+            tc.verifyError(@() daq.collect(), 'tim:stream:missingSignal', ...
+                'no samples of the previous acquisition as partial data');
+            daq.shutdown();
+        end
+
+        function scpiLateReplyIsNotTakenAsTheNextAnswer(tc)
+            % audit 2026-10-11: a reply that arrives after its query timed out
+            % (e.g. OUTP? with the window's 1 s) is discarded, before or after
+            % the next query is written; a local fake instrument (127.0.0.1 only)
+            srv = []; port = 0;
+            for p = 50300 + randperm(200, 20)
+                try
+                    srv = tcpserver("127.0.0.1", p); port = p; break
+                catch
+                end
+            end
+            tc.assumeNotEmpty(srv, 'no free local port for the fake instrument');
+            tc.addTeardown(@() delete(srv));
+            configureTerminator(srv, "LF");
+            fake = struct('silent', "OUTP?", 'lateBeforeIdn', "");
+            configureCallback(srv, "terminator", @(s, ~) answer(s));
+            function answer(s)
+                cmd = strtrim(readline(s));
+                if cmd == fake.silent, return; end              % answered later, by the test
+                if cmd == "*IDN?" && strlength(fake.lateBeforeIdn) > 0
+                    writeline(s, fake.lateBeforeIdn); fake.lateBeforeIdn = "";
+                end
+                switch cmd
+                    case "*IDN?", writeline(s, "Agilent Technologies,33220A,FAKE0001,2.02-2.02-22-2");
+                    case "VOLT?", writeline(s, "+1.0000000000000E-01");
+                    case "SYST:ERR?", writeline(s, "+0,""No error""");
+                end
+            end
+            % no readline time-out warnings in the test log
+            ws = warning('off', 'all'); restore = onCleanup(@() warning(ws));
+            tr = tim.instr.ScpiTcpTransport('127.0.0.1', port, 2);
+            tc.addTeardown(@() tr.close());
+            tc.verifyError(@() tr.query('OUTP?', 0.5), 'tim:scpi:timeout');
+            writeline(srv, "0");                                % the late reply arrives
+            pause(0.3);
+            tc.verifyEqual(tr.query('VOLT?'), '+1.0000000000000E-01', 'late reply already received: discarded');
+            tc.verifyEqual(tr.query('SYST:ERR?'), '+0,"No error"');
+            tc.verifyError(@() tr.query('OUTP?', 0.5), 'tim:scpi:timeout');
+            fake.lateBeforeIdn = "1";                           % arrives after the next query was sent
+            tc.verifyEqual(tr.query('VOLT?'), '+1.0000000000000E-01', 'resynchronised after the time-out');
+            tc.verifyEqual(tr.query('SYST:ERR?'), '+0,"No error"');
+            log = tr.Log(:, 3);
+            tc.verifyTrue(any(startsWith(log, '(late reply discarded) 0')));
+            tc.verifyTrue(any(startsWith(log, '(late reply discarded) 1')));
+        end
+
         function overloadDetected(tc)
             cfg = tim.app.defaultConfig();
             cfg.geometry = cfg.simulation.Geometry;
@@ -177,4 +276,11 @@ classdef TestInstruments < matlab.unittest.TestCase
                 'channels', 1:4, 'detectTeds', true, 'connector', 'BNC', 'names', {{'M1', 'M2', 'M3', 'M4'}});
         end
     end
+end
+
+function guardedThenAborted(gen)
+% an output guard that goes out of scope without dismiss (as on Ctrl+C,
+% where only destructors and onCleanup objects run)
+guard = tim.app.outputGuard(gen); %#ok<NASGU>
+error('test:abort', 'aborted inside the measurement');
 end

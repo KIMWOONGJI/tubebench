@@ -9,7 +9,7 @@
 | Signal Processing Toolbox | yes (`pwelch`, `cpsd`, `butter`, `filtfilt`, `spectrogram`, `hann`, `freqz`) | installed |
 | Instrument Control Toolbox | **not strictly** (see below), recommended | installed |
 | NI-VISA / Keysight IO Libraries | **no** | not needed (raw TCP socket) |
-| NI-DAQmx | **no** | not used (the DAQ is the HBK LAN-XI) |
+| NI-DAQmx, Data Acquisition / Audio Toolbox | **no** for today's drivers | not used (the lab DAQ is the HBK LAN-XI); only a driver that declares them needs them (section 1.1) |
 | HBK BK Connect / LAN-XI drivers / SDK | **no** | not needed (Open API = HTTP + TCP) |
 | Python, Java, C++ runtimes | **no** | – |
 | Git | optional (version control) | **Git for Windows 2.55.0** installed 2026-10-08 (see section 6) |
@@ -31,6 +31,31 @@ Verify the toolboxes in MATLAB:
 ver                                  % lists installed products
 license('test', 'Signal_Toolbox')    % must return 1
 exist('tcpclient')                   % must return 2 (or 8)
+```
+
+### 1.1 Instrument drivers and what they need
+
+The configuration chooses the instruments by driver name (`generator.driver`, `daq.driver`; user
+guide section 9). What a driver needs beyond MATLAB and the Signal Processing Toolbox:
+
+| Driver | Role | Needs in addition | Modes |
+|---|---|---|---|
+| `keysight33220a` | generator (Keysight/Agilent 33220A, SCPI over TCP) | nothing (`tcpclient`, base MATLAB) | hardware; simulation on its protocol mock |
+| `lanxi` | acquisition (HBK LAN-XI, Open API) | nothing (`matlab.net.http`, `tcpclient`, base MATLAB) | hardware; simulation on its protocol mock |
+| `simcombined` | both (simulated device: one output, four inputs, one clock) | nothing | simulation only |
+| `demo` | generator (the imaginary DEMO-SG1, worked example of `docs/adding_an_instrument.md`) | nothing | simulation only |
+
+A driver added later (`docs/adding_an_instrument.md`) declares the MATLAB products it needs (e.g.
+the Data Acquisition Toolbox for an NI DAQ, the Audio Toolbox for an audio interface) in its
+capabilities, and may check support packages or vendor runtimes (NI-DAQmx, an ASIO driver)
+itself. In hardware mode Connect
+checks them **before any instrument is contacted** and names the missing product and the driver
+(`tim:instr:missingProduct`); simulation mode and the automated tests need none of them, so they
+run on any PC with MATLAB and the Signal Processing Toolbox. To see what a driver needs:
+
+```matlab
+tim.instr.drivers()                                  % registered drivers
+d = tim.instr.driverInfo('lanxi'); d.capabilities.products   % empty = nothing beyond the base
 ```
 
 ## 2. Network
@@ -81,7 +106,7 @@ Possible issues and remedies (each requires **your** decision; the software neve
 
 ```matlab
 cd <project folder>
-results = run_tests();          % ~3–5 min, simulation only; report in tests/last_test_report.txt
+results = run_tests();          % ~15–20 min, simulation only; report in tests/last_test_report.txt
 ```
 
 All tests must pass. Then, in hardware mode, run section H0/H1 of

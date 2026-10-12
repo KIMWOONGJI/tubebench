@@ -3,31 +3,43 @@ classdef MeasurementSession < handle
     %
     %   s = tim.app.MeasurementSession(cfg);
     %   s.connect();                  % generator output stays OFF
-    %   s.prepareAcquisition();       % LAN-XI -> RecorderStreaming, TEDS, sensitivities
+    %   s.prepareAcquisition();       % DAQ inputs set up (channels, TEDS), sensitivities
     %   meas = s.measure();           % USER START: arms output, runs cfg.excitation.mode
     %   s.close();
     %
-    %   cfg.mode = 'simulation' uses MockScpiTransport / MockLanXiHttp coupled
-    %   by a tim.sim.SimulatedRig; 'hardware' uses the real instruments.
+    %   The instruments are the drivers the configuration selects
+    %   (generator.driver, daq.driver), built by the registry tim.instr.create
+    %   (contract: docs/instrument_interface.md): s.Gen is the signal source,
+    %   s.Daq the acquisition; a driver that takes both roles is ONE object in
+    %   both. cfg.mode = 'simulation' runs the drivers on a tim.sim.SimulatedRig
+    %   (s.Rig) - over their protocol mocks or, for a contract-level simulated
+    %   driver, directly; 'hardware' uses the real instruments. The checklist
+    %   steps and their texts come from the drivers (connectionSteps).
     %
-    %   SCHEDULING WITHOUT SHARED CLOCK: every action (output on, trigger,
+    %   SCHEDULING ON THE RECEIVED SAMPLES: every action (output on, trigger,
     %   frequency step, output off) is scheduled on the number of samples
-    %   already RECEIVED from the LAN-XI. The true acoustic timing differs by
-    %   the network/stream latency and the generator trigger latency; the
-    %   design only requires that the excitation happens inside the recorded
-    %   window (verified afterwards by tim.dsp.detectExcitation) - the
-    %   relative microphone responses do not depend on it.
+    %   already RECEIVED from the acquisition. Without a shared clock the true
+    %   acoustic timing differs by the network/stream latency and the
+    %   generator trigger latency; the design only requires that the
+    %   excitation happens inside the recorded window (verified afterwards by
+    %   tim.dsp.detectExcitation) - the relative microphone responses do not
+    %   depend on it. A device that takes both roles on one sample clock runs
+    %   the same schedule first as a planning pass (s.Daq.isPlanning()), so the
+    %   actions fall sample-exactly on its timeline, and then plays and records.
     %
     %   SAFETY: generator output is armed only inside measure*(); any error
     %   switches the output off, stops the acquisition, preserves the data
-    %   received so far (s.LastPartial, and an emergency file) and rethrows.
+    %   received so far (s.LastPartial, and an emergency file) and rethrows;
+    %   an interrupt (Ctrl+C) switches it off through tim.app.outputGuard.
+    %   On every abnormal end of an acquisition the acquisition driver
+    %   switches the output off FIRST, before its own stop sequence
+    %   (s.Daq.AbortFcn = @() s.Gen.outputOff(), set by connect).
 
     properties (SetAccess = private)
         Cfg struct
-        Gen = []
-        Daq = []
-        Rig = []
-        Http = []
+        Gen = []                 % signal source (tim.instr.SignalSource)
+        Daq = []                 % acquisition (tim.instr.Acquisition); == Gen for a combined device
+        Rig = []                 % tim.sim.SimulatedRig (simulation mode)
         Mics struct
         Status char = 'disconnected'
         LastPartial = []
@@ -48,78 +60,101 @@ classdef MeasurementSession < handle
         StopRequested logical = false
         InOperation logical = false  % inside a multi-measurement operation (calibration)
         ProgressCallback = []    % @(key, state, detail): connection checklist (GUI). keys:
-                                 % gen, lanxi, idle, open, teds, setup, sens, settle, signal;
+                                 % the drivers' connectionSteps(), then sens, settle, signal;
                                  % state: run | ok | warn | fail | skip
+    end
+    properties (Hidden)
+        ConsoleInput = @input    % TEST ONLY: reads the answer to the command-window confirmation
+                                 % (consoleConfirm; same call as input(prompt, 's')), so that
+                                 % tests/TestSessionHardwareMode can answer it without a keyboard
     end
     properties (Access = private)
         ProgressKey char = ''    % checklist step currently running (marked 'fail' on error)
         OperationDepth double = 0  % nested beginOperation calls (GUI action > calibration)
         Closed logical = false   % close() done: never shut the module down twice
+        AcquireFailed logical = false  % guardedAcquire handled the error of this measurement
+                                       % (output off, disarmed, partial data saved)
     end
 
     methods
         function obj = MeasurementSession(cfg)
+            %MEASUREMENTSESSION Session on a configuration (tim.app.loadConfig or
+            %   built in code; the old instrument keys are read through
+            %   tim.app.migrateConfig). The drivers it selects must be registered.
             if nargin < 1, cfg = tim.app.defaultConfig(); end
-            tim.app.validateConfig(cfg);
+            cfg = tim.app.migrateConfig(cfg);
+            tim.app.validateConfig(cfg, 'instruments');
             obj.Cfg = cfg;
             obj.Mics = tim.app.MeasurementSession.micsByChannel(cfg.mics);
             if ~isempty(cfg.calibration.file)
-                obj.loadCalibration(cfg.calibration.file);
+                % a relative path is relative to the project root, as in the
+                % window (tim.app.resolvePath), not to MATLAB's current folder
+                obj.loadCalibration(tim.app.resolvePath(cfg.calibration.file));
             end
         end
 
         %% ---- connection -------------------------------------------------
         function connect(obj)
+            %CONNECT Build the selected drivers through the registry: the
+            %   whole selection is checked before any I/O, then each driver
+            %   connects, identifies itself and puts its instrument in the safe
+            %   state (output off), reporting its checklist steps. The
+            %   acquisition's AbortFcn then switches the source output off
+            %   first on every abnormal end of an acquisition (setAbortHook).
             c = obj.Cfg;
             obj.log('Connecting (%s mode)…', c.mode);
-            sim = strcmp(c.mode, 'simulation');
+            % a session closed before connects again: its next close() must
+            % release these instruments (also those of a connection that fails)
+            obj.Closed = false;
+            ctx = struct('mode', c.mode, 'rig', [], 'progress', @(key, state, detail) obj.progress(key, state, detail));
             try
-                obj.progress('gen', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated generator', ...
-                    sprintf('%s:%d (SCPI over TCP)', c.generator.host, c.generator.port)));
-                switch c.mode
-                    case 'simulation'
-                        obj.Rig = tim.sim.SimulatedRig(c);
-                        tr = tim.instr.MockScpiTransport(obj.Rig);
-                        obj.Http = tim.instr.MockLanXiHttp(obj.Rig);
-                        http = obj.Http;
-                        factory = @(h, p) tim.instr.RecordingStream(http.openStream(h, p));
-                    case 'hardware'
-                        tr = tim.instr.ScpiTcpTransport(c.generator.host, c.generator.port, c.generator.timeout);
-                        obj.Http = tim.instr.LanXiHttp(c.lanxi.host, c.lanxi.timeout);
-                        factory = @(h, p) tim.instr.RecordingStream(tim.instr.LanXiTcpStream(h, p));
+                if strcmp(c.mode, 'simulation')
+                    obj.Rig = tim.sim.SimulatedRig(c);
+                    ctx.rig = obj.Rig;
                 end
-                obj.Gen = tim.instr.Keysight33220A(tr, 'MaxVpp', c.generator.maxVpp, 'Load', c.generator.load);
-                obj.log('Generator: %s (output off)', obj.Gen.Identity.raw);
-                obj.progress('gen', 'ok', sprintf('%s – output off', obj.Gen.Identity.raw));
-                obj.progress('lanxi', 'run', tim.app.MeasurementSession.ternary(sim, 'simulated LAN-XI module', ...
-                    sprintf('%s (REST, Open API)', c.lanxi.host)));
-                obj.Daq = tim.instr.LanXi(obj.Http, factory, 'Host', c.lanxi.host);
-                info = obj.Daq.moduleInfo();
-                obj.log('LAN-XI module: %s, s/n %d, firmware %s, state %s', info.model, info.serial, info.firmware, info.moduleState);
-                obj.progress('lanxi', 'ok', sprintf('%s  s/n %d  firmware %s', info.model, info.serial, info.firmware));
-                obj.progress('idle', 'run', sprintf('state %s', info.moduleState));
-                if ~strcmp(info.moduleState, 'Idle')
-                    obj.log('LAN-XI module not in state Idle (%s): returning it to Idle.', info.moduleState);
-                    obj.Daq.shutdown();
-                    obj.progress('idle', 'ok', sprintf('was %s – returned to Idle', info.moduleState));
-                else
-                    obj.progress('idle', 'ok', 'Idle');
-                end
+                obj.Gen = tim.instr.create('source', c, ctx);
+                obj.Daq = tim.instr.create('acquisition', c, ctx, obj.Gen);
             catch err
                 obj.progressFailed(err);
                 rethrow(err);
             end
+            obj.setAbortHook();
+            obj.logInstruments();
             obj.Connected = true;
             obj.setStatus('connected');
+        end
+
+        function tf = isCombined(obj)
+            %ISCOMBINED One device takes both roles (s.Gen and s.Daq are the same object).
+            tf = ~isempty(obj.Gen) && ~isempty(obj.Daq) && strcmp(class(obj.Gen), class(obj.Daq)) && obj.Gen == obj.Daq;
+        end
+
+        function ch = acquisitionChain(obj)
+            %ACQUISITIONCHAIN The DAQ input chain in use (tim.cal.acquisitionChain):
+            %   driver, display name, model, serial, firmware of the connected
+            %   module and the input settings (sample rate, range, filter, CCLD).
+            %   The switching calibration depends on it (cal.meta.acquisition).
+            md = struct('driver', obj.Cfg.daq.driver);
+            if ~isempty(obj.Daq), md = obj.Daq.metadata(); end
+            ch = tim.cal.acquisitionChain(md, obj.Cfg.acquisition, obj.Cfg.acquisition.sampleRate);
+        end
+
+        function d = driverInfo(obj, role)
+            %DRIVERINFO Class-level description of the driver of a role
+            %   ('source' | 'acquisition'; tim.instr.driverInfo).
+            if strcmp(role, 'source'), d = tim.instr.driverInfo(obj.Cfg.generator.driver);
+            else, d = tim.instr.driverInfo(obj.Cfg.daq.driver);
+            end
         end
 
         function prepareAcquisition(obj)
             obj.requireConnected();
             a = obj.Cfg.acquisition;
             micsCh = tim.app.MeasurementSession.micsByChannel(obj.Cfg.mics);   % element c = channel c
+            % driver-specific input settings (e.g. the connector) come from the
+            % driver's own settings, captured when it was created
             dc = struct('sampleRate', a.sampleRate, 'range', a.range, 'filter', a.filter, ...
                 'ccld', a.ccld, 'channels', 1:4, 'detectTeds', a.detectTeds, ...
-                'connector', obj.Cfg.lanxi.connector, ...
                 'names', {arrayfun(@(m) sprintf('M%d', m.position), micsCh, 'UniformOutput', false)});
             try
                 obj.Daq.ProgressFcn = @(key, state, detail) obj.progress(key, state, detail);
@@ -140,11 +175,15 @@ classdef MeasurementSession < handle
                     end
                 end
                 obj.progress('sens', state, ['mV/Pa: ' strjoin(parts, ',  ')]);
-                if strcmp(obj.Cfg.mode, 'hardware') && a.settleTime > 0
-                    obj.log('Waiting %.1f s for the CCLD supply and high-pass filter to settle…', a.settleTime);
-                    obj.progress('settle', 'run', sprintf('%.1f s (CCLD + %s high-pass)', a.settleTime, a.filter));
+                settle = obj.driverInfo('acquisition').texts.settle;   % what the inputs settle from ('' = nothing)
+                if strcmp(obj.Cfg.mode, 'hardware') && a.settleTime > 0 && ~isempty(settle)
+                    what = sprintf(settle, a.filter);
+                    obj.log('Waiting %.1f s for the inputs to settle (%s)…', a.settleTime, what);
+                    obj.progress('settle', 'run', sprintf('%.1f s (%s)', a.settleTime, what));
                     pause(a.settleTime);
                     obj.progress('settle', 'ok', sprintf('%.1f s', a.settleTime));
+                elseif strcmp(obj.Cfg.mode, 'hardware')
+                    obj.progress('settle', 'skip', 'not needed');
                 else
                     obj.progress('settle', 'skip', 'not needed (simulation)');
                 end
@@ -160,6 +199,10 @@ classdef MeasurementSession < handle
             %SIGNALCHECK Short recording WITHOUT excitation: level and fault
             %   flags per channel (connection check). chk(c): channel, spl_dB,
             %   peak_V, state ('ok' | 'fail'), text. Never drives the loudspeaker.
+            %   Faults come from the acquisition's integrity report: the device
+            %   flags of each input in the driver's words (channelFaults), a
+            %   constant signal, and a peak of 99 % of the input range or more
+            %   (peakFractionOfRange).
             if nargin < 2, duration = 1; end
             obj.progress('signal', 'run', sprintf('%.1f s recording, no excitation', duration));
             try
@@ -168,26 +211,27 @@ classdef MeasurementSession < handle
                 obj.progressFailed(err);
                 rethrow(err);
             end
-            x = m.records{1}; info = m.channelInfo{1};
-            rangeV = sscanf(obj.Cfg.acquisition.range, '%f');
-            q = info.qualityEvents;
-            ids = 1:size(x, 2); if isfield(info, 'signalIds'), ids = info.signalIds; end
+            x = m.records{1}; g = m.channelInfo{1}.integrity;
             chk = struct('channel', {}, 'spl_dB', {}, 'peak_V', {}, 'state', {}, 'text', {});
             for c = 1:size(x, 2)
                 v = x(:, c) - mean(x(:, c));
                 s = obj.Mics([obj.Mics.channel] == c).sensitivity_VperPa;   % record column c = channel c
-                spl = 20 * log10(sqrt(mean(v.^2)) / s / 2e-5);
+                if strcmp(m.unit, 'V')
+                    spl = 20 * log10(sqrt(mean(v.^2)) / s / 2e-5); level = sprintf('%.1f dB SPL', spl);
+                else
+                    spl = NaN; level = sprintf('%.1f dB re FS', 20 * log10(sqrt(mean(v.^2))));   % input scale unknown
+                end
                 pk = max(abs(x(:, c)));
                 flags = {};
-                if ~isempty(q)
-                    mine = [q.signalId] == ids(c);
-                    if any([q(mine).invalid]), flags{end+1} = 'LAN-XI flag INVALID (cable or CCLD fault)'; end %#ok<AGROW>
-                    if any([q(mine).clipped]), flags{end+1} = 'clipped (LAN-XI flag)'; end %#ok<AGROW>
+                if isfield(g, 'channelFaults') && numel(g.channelFaults) >= c
+                    flags = reshape(cellstr(g.channelFaults{c}), 1, []);
                 end
                 if std(x(:, c)) == 0, flags{end+1} = 'no signal (constant value)'; end %#ok<AGROW>
-                if ~isempty(rangeV) && pk >= 0.99 * rangeV, flags{end+1} = 'overload (≥ 99 % of input range)'; end %#ok<AGROW>
+                if isfield(g, 'peakFractionOfRange') && numel(g.peakFractionOfRange) >= c && g.peakFractionOfRange(c) >= 0.99
+                    flags{end+1} = 'overload (≥ 99 % of input range)'; %#ok<AGROW>
+                end
                 if isempty(flags)
-                    st = 'ok'; txt = sprintf('%.1f dB SPL', spl);
+                    st = 'ok'; txt = level;
                 else
                     st = 'fail'; txt = strjoin(flags, ', ');
                 end
@@ -202,8 +246,10 @@ classdef MeasurementSession < handle
         function progress(obj, key, state, detail)
             %PROGRESS Report a connection step to ProgressCallback (GUI checklist).
             %   A STOP requested meanwhile aborts the connection at the start of
-            %   the next step (own steps; steps reported by LanXi.prepare
-            %   cannot throw through its callback guard).
+            %   the next step: the session's own steps and the drivers' connect
+            %   steps (a driver then releases what it opened); a driver may
+            %   ignore the error during its prepare steps - the session's next
+            %   own step stops.
             if nargin < 4, detail = ''; end
             if strcmp(state, 'run') && obj.StopRequested
                 obj.ProgressKey = '';
@@ -238,6 +284,7 @@ classdef MeasurementSession < handle
             obj.requirePrepared();
             fs = obj.Cfg.acquisition.sampleRate;
             [data, info] = obj.Daq.acquire(round(duration * fs));
+            info = obj.checkRate(info);
             meas = obj.packMeasurement('background', {data}, {info}, struct('duration', duration), {});
         end
 
@@ -261,19 +308,27 @@ classdef MeasurementSession < handle
                     obj.Gen.triggerSweep();
                     ev.triggerSample = n;
                 elseif ~isnan(ev.triggerSample) && isnan(ev.offSample) && n >= ev.triggerSample + nSweep
-                    ev.opcOk = obj.Gen.waitComplete(5);   % *OPC? returns when the sweep is complete
+                    ev.opcOk = obj.Gen.waitComplete(5);   % true when the sweep has ended, never earlier
                     obj.Gen.outputOff();
                     ev.offSample = n;
                 end
             end
-            for r = 1:sw.repetitions
-                obj.checkStop();
-                ev = struct('triggerSample', NaN, 'offSample', NaN, 'opcOk', false);
-                [data, info] = obj.guardedAcquire(nTotal, @onBlock, sprintf('swept sine, repetition %d', r), records, infos, sw.amplitudeVpp);
-                if isnan(ev.offSample), obj.Gen.outputOff(); end
-                records{end+1} = data; infos{end+1} = info; events{end+1} = ev; %#ok<AGROW>
-                obj.log('Repetition %d: sweep triggered at sample %d, output off at sample %d; data integrity %s', ...
-                    r, ev.triggerSample, ev.offSample, obj.okText(info.integrity));
+            % an interrupt (Ctrl+C) between two repetitions: never left armed
+            disarm = obj.disarmOnExit(); %#ok<NASGU>
+            obj.AcquireFailed = false;
+            try
+                for r = 1:sw.repetitions
+                    obj.checkStop();
+                    ev = struct('triggerSample', NaN, 'offSample', NaN, 'opcOk', false);
+                    [data, info] = obj.guardedAcquire(nTotal, @onBlock, sprintf('swept sine, repetition %d', r), records, infos, sw.amplitudeVpp);
+                    if isnan(ev.offSample), obj.Gen.outputOff(); end
+                    records{end+1} = data; infos{end+1} = info; events{end+1} = ev; %#ok<AGROW>
+                    obj.log('Repetition %d: sweep triggered at sample %d, output off at sample %d; data integrity %s', ...
+                        r, ev.triggerSample, ev.offSample, obj.okText(info.integrity));
+                end
+            catch err
+                obj.failedOutsideAcquisition(err, 'swept sine', records, infos);
+                rethrow(err);
             end
             obj.Gen.armOutput(false);
             meas = obj.packMeasurement('sweep', records, infos, sw, events);
@@ -314,13 +369,21 @@ classdef MeasurementSession < handle
                 end
             end
             records = {}; infos = {}; evs = {};
-            for r = 1:st.repetitions
-                ev.stepStart(:) = NaN; ev.onSample = NaN; k = 0;
-                if r > 1, obj.Gen.setFrequency(freqs(1)); end
-                [data, info] = obj.guardedAcquire(nTotal, @onBlock, 'stepped sine', records, infos, st.amplitudeVpp);
-                obj.Gen.outputOff();
-                records{end+1} = data; infos{end+1} = info; %#ok<AGROW>
-                evs{r} = ev; %#ok<AGROW>
+            % an interrupt (Ctrl+C) between two repetitions: never left armed
+            disarm = obj.disarmOnExit(); %#ok<NASGU>
+            obj.AcquireFailed = false;
+            try
+                for r = 1:st.repetitions
+                    ev.stepStart(:) = NaN; ev.onSample = NaN; k = 0;
+                    if r > 1, obj.Gen.setFrequency(freqs(1)); end
+                    [data, info] = obj.guardedAcquire(nTotal, @onBlock, 'stepped sine', records, infos, st.amplitudeVpp);
+                    obj.Gen.outputOff();
+                    records{end+1} = data; infos{end+1} = info; %#ok<AGROW>
+                    evs{r} = ev; %#ok<AGROW>
+                end
+            catch err
+                obj.failedOutsideAcquisition(err, 'stepped sine', records, infos);
+                rethrow(err);
             end
             obj.Gen.armOutput(false);
             st.frequencies = freqs; st.settleSamples = nSettle; st.recordSamples = nRec;
@@ -381,7 +444,7 @@ classdef MeasurementSession < handle
             % load '50' is refused here, not only at the next setExcitation
             % (review analysis-5)
             c = obj.Cfg; c.amplifier = a;
-            tim.app.validateConfig(c);
+            tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
             obj.ConfirmedExcitation = '';
             if isfinite(gainFactor)
@@ -408,14 +471,14 @@ classdef MeasurementSession < handle
             c = obj.Cfg;
             c.loudspeaker.impedance_ohm = impedance_ohm;
             c.loudspeaker.maxPower_W = maxPower_W;
-            tim.app.validateConfig(c);
+            tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
         end
 
         function setGeometryEnvironment(obj, geometry, environment)
             %SETGEOMETRYENVIRONMENT Update tube geometry / air conditions (metadata).
             c = obj.Cfg; c.geometry = geometry; c.environment = environment;
-            tim.app.validateConfig(c);
+            tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
         end
 
@@ -427,7 +490,7 @@ classdef MeasurementSession < handle
             if ~isempty(a.gainSetting) && ~strcmp(a.gainSetting, '-'), note = sprintf(' (setting "%s")', a.gainSetting); end
             mdl = a.model; if isempty(mdl), mdl = '(model not specified)'; end
             if d.direct
-                line = tim.app.msg(lang, 'ampDirect', d.Z, d.Vspk_pk, 1e3 * d.Ipk, 1e3 * d.P_W, 1e3 * d.limit_W);
+                line = tim.app.msg(lang, 'ampDirect', d.Rs, d.Z, d.Vspk_pk, 1e3 * d.Ipk, 1e3 * d.P_W, 1e3 * d.limit_W);
             elseif isfinite(d.gain)
                 line = tim.app.msg(lang, 'ampGain', mdl, d.gain, 20 * log10(d.gain), d.Z, d.Vspk_pk, ...
                     1e3 * d.P_W, 1e3 * d.limit_W, note);
@@ -445,7 +508,7 @@ classdef MeasurementSession < handle
         function setExcitation(obj, ex)
             %SETEXCITATION Change excitation settings between measurements (validated).
             c = obj.Cfg; c.excitation = ex;
-            tim.app.validateConfig(c);
+            tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
         end
 
@@ -510,27 +573,31 @@ classdef MeasurementSession < handle
         end
 
         function close(obj, fast)
-            %CLOSE Generator output off + local, LAN-XI back to Idle. close(true)
-            %   uses short time-outs (2 s) so that closing the app never waits
-            %   long for an instrument that does not answer (switched off).
+            %CLOSE Instruments to their safe state and released: the source
+            %   first (output off), then the acquisition (stopped, idle); the
+            %   drivers' close() never throws. close(true) first shortens the
+            %   I/O time-outs to 2 s, so that closing the app never waits long
+            %   for an instrument that does not answer (switched off). Called
+            %   during an acquisition (closing the window), the acquisition
+            %   ends with tim:instr:closed; the data received stay available.
             if nargin < 2, fast = false; end
             if obj.Closed, return; end         % e.g. the destructor of an already closed session
             obj.Closed = true;
+            devices = {obj.Gen};
+            if ~obj.isCombined(), devices{end+1} = obj.Daq; end
+            devices = devices(~cellfun(@isempty, devices));
             if fast
-                for h = {obj.Http, obj.Gen}
-                    try
-                        t = h{1};
-                        if isa(t, 'tim.instr.Keysight33220A'), t = t.Transport; end
-                        if ~isempty(t) && ismethod(t, 'setTimeout'), t.setTimeout(2); end
-                    catch
-                    end
+                for i = 1:numel(devices)
+                    try, devices{i}.setTimeout(2); catch, end
                 end
             end
-            if ~isempty(obj.Gen)
-                try, obj.Gen.close(); catch, end
+            for i = 1:numel(devices)
+                try, devices{i}.close(); catch, end
             end
+            % the abort hook is released with the instruments (for a combined
+            % device it refers to the object itself); connect sets it again
             if ~isempty(obj.Daq)
-                try, obj.Daq.shutdown(); catch, end
+                try, obj.Daq.AbortFcn = []; catch, end
             end
             obj.Connected = false; obj.Prepared = false;
             obj.setStatus('disconnected');
@@ -552,6 +619,33 @@ classdef MeasurementSession < handle
     end
 
     methods (Access = private)
+        function setAbortHook(obj)
+            % D24 (approved by the owner 2026-10-11; docs/instrument_interface.md
+            % section 8.1 rule 4): on every abnormal end of an acquisition - its
+            % own error (stalled stream, time-out, transport fault), an error
+            % thrown by onBlock (a Stop), an interrupt - the acquisition driver
+            % calls AbortFcn BEFORE any stop or drain I/O, so the source output
+            % goes off before the driver stops its device (stopping an
+            % unreachable network module can take about 20 s). Set once here,
+            % so direct callers of acquire (tim.val.channelIdentification) are
+            % covered too. A combined device (Gen == Daq) gets the same hook: its
+            % re-entrant outputOff stops its output at once (section 8.3), then
+            % its own stop sequence runs (stopped, then 0 V).
+            gen = obj.Gen;
+            obj.Daq.AbortFcn = @() gen.outputOff();
+        end
+
+        function logInstruments(obj)
+            % one log line per instrument: role, display name and the identity it reported
+            line = @(o) sprintf('%s – %s', o.metadata().displayName, o.identity().raw);
+            if obj.isCombined()
+                obj.log('Signal source and acquisition: %s (output off)', line(obj.Gen));
+            else
+                obj.log('Signal source: %s (output off)', line(obj.Gen));
+                obj.log('Acquisition: %s', line(obj.Daq));
+            end
+        end
+
         function progressFailed(obj, err)
             % the running checklist step failed
             if ~isempty(obj.ProgressKey)
@@ -562,12 +656,20 @@ classdef MeasurementSession < handle
         function [data, info] = guardedAcquire(obj, nTotal, onBlock, what, prevRecords, prevInfos, amplitudeVpp)
             obj.confirmExcitation(amplitudeVpp, what);
             obj.Gen.armOutput(true);       % explicit user start of this measurement
+            % interrupt (Ctrl+C) inside the acquisition: try/catch does not run,
+            % the guard's destructor switches the output off and disarms it
+            guard = tim.app.outputGuard(obj.Gen);
             obj.setStatus(['measuring: ' what]);
             try
                 [data, info] = obj.Daq.acquire(nTotal, onBlock);
             catch err
-                obj.Gen.outputOff();
+                obj.AcquireFailed = true;  % handled here, not again by failedOutsideAcquisition
+                % the driver switched the output off through AbortFcn BEFORE its
+                % stop sequence (setAbortHook, D24); disarming switches it off
+                % once more - also when the error came before the driver could
+                % call the hook
                 obj.Gen.armOutput(false);
+                guard.dismiss();           % switched off here: no second output-off command
                 partial = struct('records', {prevRecords}, 'infos', {prevInfos}, 'error', err.message);
                 try
                     [pd, pinfo] = obj.Daq.collect();
@@ -575,27 +677,72 @@ classdef MeasurementSession < handle
                 catch
                 end
                 try
-                    if ~isempty(obj.Daq.LastStream) && isa(obj.Daq.LastStream, 'tim.instr.RecordingStream')
-                        partial.rawStream = obj.Daq.LastStream.bytes();
-                    end
+                    b = obj.Daq.rawBytes();             % undecoded bytes, if the driver keeps them
+                    if ~isempty(b), partial.rawStream = b; end
                 catch
                 end
                 obj.LastPartial = partial;
                 f = tim.app.saveEmergency(obj, partial);
                 obj.setStatus('error');
-                obj.log('Error during %s: %s. Generator output switched off. Partial data saved to %s.', ...
+                % commanded, not read back (outputOff never throws; a failure is
+                % only a warning): never claim the output is off here
+                obj.log('Error during %s: %s. Generator output commanded off (not read back). Partial data saved to %s.', ...
                     what, regexprep(err.message, '\.$', ''), f);
                 rethrow(err);
             end
+            guard.dismiss();               % normal end: the schedule switched the output off
+            info = obj.checkRate(info);
             obj.setStatus('ready');
+        end
+
+        function failedOutsideAcquisition(obj, err, what, records, infos)
+            % an error of measureSweep / measureStepped outside guardedAcquire's
+            % acquisition: a Stop or an instrument error between two repetitions
+            % (checkStop, setFrequency) or a refused confirmation. The generator
+            % is disarmed (armOutput(false) also switches the output off) and the
+            % completed repetitions are kept in LastPartial and an emergency file,
+            % as for an error inside the acquisition. Nothing to do when
+            % guardedAcquire handled the error itself; before the first
+            % repetition nothing was armed or recorded, so nothing is sent.
+            if obj.AcquireFailed, return; end
+            if obj.Gen.OutputArmed, obj.Gen.armOutput(false); end
+            if isempty(records), return; end
+            partial = struct('records', {records}, 'infos', {infos}, 'error', err.message);
+            obj.LastPartial = partial;
+            f = tim.app.saveEmergency(obj, partial);
+            obj.setStatus('error');
+            obj.log(['Error during %s after %d completed repetition(s): %s. Generator output commanded off (not read back). ' ...
+                'The completed repetitions were saved to %s.'], what, numel(records), regexprep(err.message, '\.$', ''), f);
+        end
+
+        function c = disarmOnExit(obj)
+            % onCleanup of measureSweep / measureStepped: an exit that skips the
+            % normal end and the error paths (an interrupt between two
+            % repetitions, where no output guard exists) leaves the generator
+            % disarmed and its output off. Sends nothing when it is not armed.
+            gen = obj.Gen;
+            c = onCleanup(@() tim.app.MeasurementSession.disarmSource(gen));
+        end
+
+        function info = checkRate(obj, info)
+            % data at another rate than the configured one would shift the
+            % frequency axis: a fatal integrity problem for every driver
+            fs = obj.Cfg.acquisition.sampleRate;
+            if ~isfield(info, 'fs') || ~isfield(info, 'integrity') || all(abs(info.fs - fs) <= 1e-9 * fs), return; end
+            if ~any(contains(lower(info.integrity.fatal), 'sample rate'))     % not reported by the driver already
+                info.integrity.fatal{end+1} = sprintf('Sample rate of the data %s S/s differs from the configured %g S/s.', ...
+                    mat2str(info.fs), fs);
+            end
+            info.integrity.ok = false;
         end
 
         function meas = packMeasurement(obj, kind, records, infos, settings, events)
             meas = struct();
             meas.kind = kind;
-            meas.records = records;          % RAW volts, never modified
+            meas.records = records;          % RAW data (volts), never modified
             meas.fs = obj.Cfg.acquisition.sampleRate;
-            meas.unit = 'V';
+            meas.unit = 'V';                 % 'V', or 'FS' from a driver with an unknown input scale
+            if ~isempty(infos) && isfield(infos{1}, 'dataUnit'), meas.unit = infos{1}.dataUnit; end
             meas.channelInfo = infos;
             meas.settings = settings;
             meas.events = events;
@@ -603,8 +750,9 @@ classdef MeasurementSession < handle
             meas.timestamp = char(datetime('now'), 'yyyy-MM-dd HH:mm:ss.SSS');
             meas.metadata = tim.app.collectMetadata(obj);
             raw = {};
-            if obj.Cfg.output.saveRawStream && ~isempty(obj.Daq.LastStream) && isa(obj.Daq.LastStream, 'tim.instr.RecordingStream')
-                raw = {obj.Daq.LastStream.bytes()};   % last repetition's undecoded bytes
+            if obj.Cfg.output.saveRawStream
+                b = obj.Daq.rawBytes();      % last repetition's undecoded bytes (empty: the driver keeps none)
+                if ~isempty(b), raw = {b}; end
             end
             meas.rawStreamLast = raw;
             meas.integrityOk = all(cellfun(@(i) i.integrity.ok, infos));
@@ -636,7 +784,7 @@ classdef MeasurementSession < handle
             msg = tim.app.msg(lang, 'confirmExcitation', what, amplitudeVpp, obj.Cfg.generator.maxVpp, ...
                 obj.amplifierLine(amplitudeVpp), obj.Cfg.generator.load);
             fcn = obj.ExcitationConfirm;
-            if isempty(fcn), fcn = @(m) tim.app.MeasurementSession.consoleConfirm(m, lang); end
+            if isempty(fcn), fcn = @(m) tim.app.MeasurementSession.consoleConfirm(m, lang, obj.ConsoleInput); end
             if ~fcn(msg)
                 obj.Gen.outputOff();
                 error('tim:session:notConfirmed', 'Excitation cancelled by the operator – the loudspeaker was not driven.');
@@ -683,11 +831,20 @@ classdef MeasurementSession < handle
         function m = micsByChannel(m)
             %MICSBYCHANNEL Microphone list sorted by DAQ channel (element c =
             %   channel c = record column c). validateConfig accepts cfg.mics in
-            %   any order; consumers that index by column (sensitivities, LAN-XI
+            %   any order; consumers that index by column (sensitivities, DAQ
             %   channel names, GUI live display) need channel order (review plots-11).
             if ~isempty(m) && isfield(m, 'channel')
                 [~, i] = sort([m.channel]);
                 m = m(i);
+            end
+        end
+        function disarmSource(gen)
+            %DISARMSOURCE armOutput(false) if the source is still armed (also
+            %   switches its output off). Never throws.
+            try
+                if ~isempty(gen) && isvalid(gen) && gen.OutputArmed, gen.armOutput(false); end
+            catch err
+                warning('tim:session:outputGuard', 'Output guard: %s', err.message);
             end
         end
         function s = sourceName(key)
@@ -695,10 +852,14 @@ classdef MeasurementSession < handle
             s = char(key);
             if strcmpi(s, 'teds'), s = 'TEDS'; end
         end
-        function ok = consoleConfirm(msg, lang)
+        function ok = consoleConfirm(msg, lang, reader)
+            %CONSOLECONFIRM Default excitation confirmation in hardware mode:
+            %   prints msg in the command window and continues only on "y".
+            %   reader (tests only): replaces input(prompt, 's').
             if nargin < 2, lang = 'en'; end
+            if nargin < 3, reader = @input; end
             fprintf('\n%s\n', msg);
-            a = input(tim.app.msg(lang, 'typeY'), 's');
+            a = reader(tim.app.msg(lang, 'typeY'), 's');
             ok = strcmpi(strtrim(a), 'y');
         end
     end

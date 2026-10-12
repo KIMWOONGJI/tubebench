@@ -51,6 +51,105 @@ classdef TestCalibration < matlab.unittest.TestCase
             tc.verifyFalse(c.emptyCheckPassed); tc.verifyNumElements(c.warnings, 1);
         end
 
+        function calibrationContextAcquisitionChain(tc)
+            % C_k includes the DAQ inputs: the chain recorded with a calibration
+            % (cal.meta.acquisition) vs the measurement's metadata (WO-001 task 6).
+            % A calibration and a measurement saved by the e8fb4fb code
+            % (tests/fixtures/saved_e8fb4fb, before 1.2.0) give no false alarm.
+            fx = fullfile(fileparts(mfilename('fullpath')), 'fixtures', 'saved_e8fb4fb');
+            oldMeas = struct('metadata', jsondecode(tim.app.readTextUtf8(fullfile(fx, 'metadata.json'))), 'fs', 16384);
+            S = load(fullfile(fx, 'calibration_meta.mat'));
+            oldCal = S.calMeta;
+            tc.assertFalse(isfield(oldCal.meta, 'acquisition'), 'calibration of 1.1.0');
+            tc.assertFalse(isfield(oldMeas.metadata.daq, 'driver'), 'measurement of 1.1.0');
+            cfg = tim.app.defaultConfig();
+            cfg.geometry = cfg.simulation.Geometry;
+            % old calibration: unknown, no warning - with an old or a new measurement
+            c = tim.cal.calibrationContext(oldCal, cfg, oldMeas);
+            tc.verifyFalse(c.acquisitionKnown);
+            tc.verifyEmpty(c.warnings);
+            newMeas = oldMeas;
+            newMeas.metadata.daq.driver = 'simcombined';
+            newMeas.metadata.daq.identity = struct('model', 'SIM-1AO-4AI', 'serial', 'SIM-0001', 'firmware', '1.0');
+            tc.verifyEmpty(tim.cal.calibrationContext(oldCal, cfg, newMeas).warnings);
+            % a calibration made with the same module and inputs: no warning with the
+            % old measurement (its driver is unknown; model and serial compared as text)
+            cal = oldCal;
+            cal.meta.acquisition = struct('driver', 'lanxi', 'displayName', 'HBK LAN-XI module (Open API)', ...
+                'model', '3676-B-040', 'serial', '110283', 'firmware', '2.10.0.610', 'sampleRate', 16384, ...
+                'range', '10 Vpeak', 'filter', '0.7 Hz', 'ccld', true(1, 4));
+            c = tim.cal.calibrationContext(cal, cfg, oldMeas);
+            tc.verifyTrue(c.acquisitionKnown);
+            tc.verifyTrue(c.acquisitionMatch);
+            tc.verifyEmpty(c.warnings);
+            % another module, another range, another driver: one warning naming them
+            m = oldMeas; m.metadata.daq.serial = 110999;
+            c = tim.cal.calibrationContext(cal, cfg, m);
+            tc.verifyFalse(c.acquisitionMatch);
+            tc.verifyNumElements(c.warnings, 1);
+            tc.verifySubstring(c.warnings{1}, 'module serial number 110999 (calibration: 110283)');
+            m = oldMeas; m.metadata.acquisition.range = '1 Vpeak'; m.metadata.acquisition.ccld = [true true false true];
+            c = tim.cal.calibrationContext(cal, cfg, m);
+            tc.verifySubstring(c.warnings{1}, 'input range 1 Vpeak (calibration: 10 Vpeak)');
+            tc.verifySubstring(c.warnings{1}, 'CCLD');
+            c = tim.cal.calibrationContext(cal, cfg, newMeas);
+            tc.verifyNumElements(c.warnings, 1);
+            tc.verifySubstring(c.warnings{1}, 'acquisition driver simcombined (calibration: lanxi)');
+            tc.verifySubstring(c.warnings{1}, 'module model SIM-1AO-4AI');
+            m = oldMeas; m.fs = 32768;
+            tc.verifySubstring(tim.cal.calibrationContext(cal, cfg, m).warnings{1}, 'sample rate 32768 S/s');
+            % without a measurement: the configured driver and inputs (module unknown)
+            tc.verifyEmpty(tim.cal.calibrationContext(cal, cfg).warnings);
+            b = cfg; b.acquisition.filter = 'DC';
+            tc.verifySubstring(tim.cal.calibrationContext(cal, b).warnings{1}, 'high-pass filter DC');
+            % the session's chain (connected module)
+            ch = tim.cal.acquisitionChain(struct('driver', 'lanxi', 'identity', struct('model', '3676-B-040', ...
+                'serial', '120000', 'firmware', '2.10.0.610')), cfg.acquisition, 16384);
+            tc.verifySubstring(tim.cal.calibrationContext(cal, cfg, ch).warnings{1}, 'module serial number 120000');
+        end
+
+        function calibrationContextMicrophonesAndIntegrity(tc)
+            % audit 2026-10-11: C_k includes the microphones - an exchange since
+            % the calibration (TEDS serial numbers per channel) is reported, and
+            % so is a calibration computed from sweeps that failed the data
+            % integrity check
+            cfg = tim.app.defaultConfig();
+            mics = struct('channel', {1, 2, 3, 4}, 'position', {1, 2, 3, 4}, 'serial', {'', '', '', ''}, ...
+                'tedsSerial', {3001001, 3001002, 3001003, 3001004});
+            cal = struct('version', 'CAL-M', 'meta', struct('mode', cfg.mode, 'mics', mics));
+            meas = struct('mics', mics);
+            c = tim.cal.calibrationContext(cal, cfg, meas);
+            tc.verifyTrue(c.micsKnown); tc.verifyTrue(c.micsMatch);
+            tc.verifyFalse(any(contains(c.warnings, 'Microphones changed')));
+            meas.mics(2).tedsSerial = 3001003; meas.mics(3).tedsSerial = 3001002;   % ch2 / ch3 exchanged
+            c = tim.cal.calibrationContext(cal, cfg, meas);
+            tc.verifyFalse(c.micsMatch);
+            w = c.warnings(contains(c.warnings, 'Microphones changed'));
+            tc.verifyNumElements(w, 1);
+            tc.verifySubstring(w{1}, 'ch2 TEDS s/n 3001003 (calibration: 3001002)');
+            tc.verifySubstring(w{1}, 'ch3 TEDS s/n 3001002 (calibration: 3001003)');
+            meas.mics(2).tedsSerial = NaN; meas.mics(3).tedsSerial = NaN;   % no TEDS: unknown, no warning
+            tc.verifyTrue(tim.cal.calibrationContext(cal, cfg, meas).micsMatch);
+            % configured serial numbers when no TEDS is read (and from cfg without a measurement)
+            cal.meta.mics(1).serial = '1234567'; cal.meta.mics(1).tedsSerial = NaN;
+            meas.mics(1).serial = '7654321';
+            tc.verifySubstring(strjoin(tim.cal.calibrationContext(cal, cfg, meas).warnings), ...
+                'ch1 s/n 7654321 (calibration: 1234567)');
+            c2 = cfg; c2.mics(1).serial = '1234567';
+            tc.verifyTrue(tim.cal.calibrationContext(cal, c2).micsMatch);
+            c2.mics(1).serial = '1111111';
+            tc.verifyFalse(tim.cal.calibrationContext(cal, c2).micsMatch);
+            % integrity of the switching sweeps
+            cal = struct('version', 'CAL-I', 'meta', struct('mode', cfg.mode, 'integrity', ...
+                struct('channel', {2, 2, 3}, 'config', {'I', 'II', 'I'}, 'ok', {true, false, true}, ...
+                'problems', {{}, {'clipped'}, {}})));
+            c = tim.cal.calibrationContext(cal, cfg);
+            tc.verifyFalse(c.integrityOk);
+            tc.verifySubstring(strjoin(c.warnings), 'data integrity problems (ch2 configuration II');
+            cal.meta.integrity(2).ok = true;
+            tc.verifyTrue(tim.cal.calibrationContext(cal, cfg).integrityOk);
+        end
+
         function exactSwitching(tc)
             [cref, ck, pa, pb] = tc.scenario(25);
             HI = (ck .* pb) ./ (cref .* pa);

@@ -33,7 +33,9 @@ if o.showFigure
     figure(hf); drawnow;
 end
     function update(n)
-        if isempty(ht) || ~isvalid(ht), return; end
+        % countdown on the samples received: nothing while a combined device
+        % only plans its acquisition (no samples recorded yet)
+        if isempty(ht) || ~isvalid(ht) || daq.isPlanning(), return; end
         t = n / fs;
         if t < o.tReady
             txt = tim.app.msg(lang, 'tapReady', ceil(o.tReady - t));

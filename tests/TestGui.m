@@ -189,7 +189,12 @@ classdef TestGui < matlab.unittest.TestCase
             % cancel option; timers keep running while it waits.
             % (uiconfirm needs a visible window: it appears for about 1 s)
             n0 = numel(findall(groot, 'Type', 'figure'));
-            app = tim.gui.Tubebench('', 'Visible', 'on');
+            % BuildDelay 600 s: the background preparation of the views does not
+            % start during this test. Its 1-3 s steps would run inside the dialog's
+            % opening and its wait (they take MATLAB's event loop), so the counting
+            % timer got only 3 ticks in 2.5 s and the close came while uiconfirm
+            % was still opening the dialog (2026-10-11, loaded PC)
+            app = tim.gui.Tubebench('', 'Visible', 'on', 'BuildDelay', 600);
             tc.addTeardown(@() delete(app));
             % start window (user request 2026-10-10): steps shown while the main
             % window was built hidden, closed when the main window appeared.
@@ -210,15 +215,32 @@ classdef TestGui < matlab.unittest.TestCase
             tick = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.1, 'UserData', 0, ...
                 'TimerFcn', @(t, ~) set(t, 'UserData', t.UserData + 1));
             % (closer after 2.5 s: under load the dialog itself needs up to ~1 s to appear)
-            closer = timer('StartDelay', 2.5, 'TimerFcn', @(~, ~) tim.gui.closeApp(app.Fig, app));
+            t0 = tic;
+            closer = timer('StartDelay', 2.5, 'UserData', NaN, ...
+                'TimerFcn', @(t, ~) closeAndStamp(t, app, t0));
             tc.addTeardown(@() delete([tick closer]));
             tc.addTeardown(@() stop([tick closer]));
             start(tick); start(closer);
-            t0 = tic;
             sel = app.ask('Move the microphones', 'Step', {'Done', 'Abort'}, 1, 2, 'question');
+            tReturned = toc(t0);
             stop(tick);
             tc.verifyEqual(sel, 'Abort');
-            tc.verifyLessThan(toc(t0), 8);
+            % Timed: only what this test guards - from the moment the window is
+            % gone (end of the close request, which deletes it) to the return of
+            % ask(). Its wait loop checks the window at every poll (pause 0.1 s),
+            % so it returns at the next poll; 2 s (20 polls) leaves room for a
+            % loaded PC and still fails a dialog that does not notice the closed
+            % window. Not timed: the close itself (deleting the uifigure took
+            % about 14 s on 2026-10-11 with 0.7 GB of free memory), which runs
+            % inside the closer's callback and is not what ask() can influence.
+            % Under load the close can also come while uiconfirm is still opening
+            % the dialog (it lets timers run, e.g. a background view step): ask()
+            % then returns the cancel option as well (found 2026-10-11, when
+            % uiconfirm raised "invalid or deleted figure handle" in this test).
+            tClosed = closer.UserData;
+            tc.assertFalse(isnan(tClosed), 'the window was closed while the dialog waited');
+            tc.verifyLessThan(tReturned - tClosed, 2, sprintf(['ask() returned %.2f s after the window was deleted ' ...
+                '(close requested at %.1f s; returned at %.1f s)'], tReturned - tClosed, 2.5, tReturned));
             tc.verifyGreaterThan(tick.UserData, 3, 'timers run while the dialog waits');
         end
 
@@ -269,6 +291,30 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.CalDrawCount, 1, 'no redraw when nothing changed');
         end
 
+        function fileOfVersion110WithLevelsBelowTheMinimum(tc)
+            % the window of 1.1.0 went down to 0.005 Vpk and wrote 0.01 Vpp into
+            % all three signals: such a file still opens the window (a warning:
+            % below the 33220A minimum of 20 mVpp at load INF), the amplitude
+            % field starts at the generator's smallest level, and Connect then
+            % works with the levels of the fields
+            c = tim.app.defaultConfig(); c.mode = 'simulation';
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            u = jsondecode(tim.app.readTextUtf8(file));
+            for s = {'sweep', 'stepped', 'noise'}, u.excitation.(s{1}).amplitudeVpp = 0.01; end
+            fid = fopen(file, 'w', 'n', 'UTF-8'); fwrite(fid, unicode2native(jsonencode(u), 'UTF-8')); fclose(fid);
+            app = tc.verifyWarning(@() tim.gui.Tubebench(file, 'Visible', 'off'), 'tim:config:amplitude');
+            tc.addTeardown(@() delete(app));
+            tc.verifyEqual(app.H.amp.Value, 0.01, 'AbsTol', 1e-12, 'the smallest level of the generator, in Vpk');
+            feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
+            s = app.Session;
+            tc.assertNotEmpty(s, 'connected');
+            tc.verifyTrue(s.Connected);
+            ex = s.Cfg.excitation;
+            tc.verifyEqual([ex.sweep.amplitudeVpp ex.stepped.amplitudeVpp ex.noise.amplitudeVpp], [0.02 0.02 0.02], ...
+                'AbsTol', 1e-12, 'the levels of the fields');
+        end
+
         function closeShowsStepsAndDisconnects(tc)
             % user request 2026-10-09: closing was slow without feedback. The
             % window disappears at once, a small window shows the steps, the
@@ -281,10 +327,26 @@ classdef TestGui < matlab.unittest.TestCase
             s = app.Session; fig = app.Fig;
             tc.assertTrue(s.Connected);
             t0 = tic;
+            stamps = stampLog(s, t0);
             tim.gui.closeApp(fig, app);
-            tc.verifyLessThan(toc(t0), 10);
+            tAll = toc(t0);
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
             tc.verifyFalse(s.Connected, 'instruments released');
+            % Timed: only the closing steps this test guards - from the close
+            % request to the last step, "Closing: window deleted.", logged right
+            % before the window is deleted. closeNow waits at most for the
+            % read-back of the generator output (isOutputOn, 1 s time-out) and, in
+            % close(true), for one unanswered request per instrument at the
+            % shortened 2 s time-out before it gives up on it; the mocks answer
+            % every request at once. A close that takes longer than these
+            % time-outs together (1 + 2 x 2 s) waited for something that never
+            % answers. Not timed: deleting the window after that step (a uifigure
+            % with every view; about 14 s on 2026-10-11 with 0.7 GB of free
+            % memory, when the former limit of 10 s on the whole call failed at
+            % 16.3 s although the steps took about 1 s).
+            tSteps = stampOf(stamps, 'Closing: window deleted.');
+            tc.verifyLessThan(tSteps, 1 + 2 * 2, sprintf(['closing steps took %.2f s (the whole call, deleting ' ...
+                'the window included: %.1f s)'], tSteps, tAll));
             % the steps shown in the closing dialog are also logged by the session
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output off (confirmed).')));
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: Instruments disconnected.')));
@@ -292,7 +354,14 @@ classdef TestGui < matlab.unittest.TestCase
         end
 
         function closeDuringMeasurementStopsFirst(tc)
-            % a close request while a measurement runs stops it first, then closes
+            % a close request while a measurement runs stops it first, then closes.
+            % The request comes from INSIDE the acquisition (review 2026-10-11: the
+            % former 1 s timer fired while the window was still preparing the
+            % measurement, so the session stopped before 'Swept sine' and no
+            % acquisition was running): from the session's block callback, once
+            % the virtual rig has produced the pre-roll and a third of the sweep
+            % of repetition 1 - a fixed sample count, as TestBusTraffic's
+            % atSample, independent of the wall clock.
             c = tim.app.defaultConfig(); c.mode = 'simulation';
             c.geometry = c.simulation.Geometry;
             c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
@@ -301,20 +370,58 @@ classdef TestGui < matlab.unittest.TestCase
             app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             feval(app.H.connect.ButtonPushedFcn, app.H.connect, []);
             s = app.Session; fig = app.Fig;
-            closer = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) tim.gui.closeApp(fig, app));
-            tc.addTeardown(@() delete(closer));
-            start(closer);
+            tc.assertNotEmpty(s.Rig, 'simulation: the virtual rig counts the samples');
+            sw = s.Cfg.excitation.sweep;
+            n = round((sw.preRoll + sw.duration / 3) * s.Cfg.acquisition.sampleRate);
             t0 = tic;
+            stamps = stampLog(s, t0);
+            at = struct('first', NaN, 't', NaN, 'samples', NaN, 'log', {{}});
+            live = s.BlockCallback;                        % the window's live view (keeps it as in use)
+            s.BlockCallback = @closeInside;
             feval(app.H.start.ButtonPushedFcn, app.H.start, []);   % returns when stopped + closed
-            tc.verifyLessThan(toc(t0), 20);
+            tAll = toc(t0);
+            tc.assertFalse(isnan(at.t), 'the close was requested inside the acquisition');
+            tc.verifyTrue(any(contains(at.log, 'Swept sine')), 'the measurement had started');
+            tc.verifyFalse(any(contains(at.log, 'Repetition 1:')), 'during repetition 1');
+            tc.verifyGreaterThanOrEqual(at.samples, n, 'after the pre-roll: the sweep was running');
+            % Timed: only what this test guards - from the close request to the
+            % last closing step ("Closing: window deleted.", logged right before
+            % the window is deleted): the acquisition stops at its next block, the
+            % stopped action reads the generator output back and draws the last
+            % result again, and the window closes as in
+            % closeShowsStepsAndDisconnects. The mocks answer at once, so no
+            % time-out is involved: this is window processing, about 2 s on the
+            % lab laptop (2026-10-11); 6 s leaves room for a loaded PC. The
+            % simulated acquisition runs faster than real time, so the time is
+            % no proof that the measurement was stopped - the missing
+            % 'Repetition 1:' line below is. Not timed: the preparation before
+            % the request and deleting the window afterwards (the former limit
+            % of 20 s on the whole Start call failed at 20.1 s on 2026-10-11
+            % under memory pressure).
+            tSteps = stampOf(stamps, 'Closing: window deleted.');
+            tc.verifyLessThan(tSteps - at.t, 6, sprintf(['close request at %.1f s, last closing step %.2f s later ' ...
+                '(the whole Start call, deleting the window included: %.1f s)'], at.t, tSteps - at.t, tAll));
             tc.verifyTrue(s.StopRequested, 'the running measurement was stopped first');
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
             tc.verifyFalse(s.Connected);
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: window close requested while busy - STOP requested first.')));
+            tc.verifyTrue(any(contains(s.LogLines, 'Error during swept sine, repetition 1: Measurement stopped by user.')), ...
+                'stopped inside the acquisition of repetition 1 (its error path: output off, partial data kept)');
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output off (confirmed).')));
             tc.verifyTrue(any(contains(s.LogLines, 'Closing: Instruments disconnected.')));
-            % stopped (inside the acquisition, or before it started - a close request
-            % before the first measurement is honoured too), never completed
-            tc.verifyFalse(any(contains(s.LogLines, 'Repetition 4:')), strjoin(s.LogLines, newline));
+            % stopped inside repetition 1: it never completed (a close that waited
+            % for the measurement would log 'Repetition 1:' ... 'Repetition 4:')
+            tc.verifyFalse(any(contains(s.LogLines, 'Repetition 1:')), strjoin(s.LogLines, newline));
+            function closeInside()
+                if isnan(at.first) && any(contains(s.LogLines, 'Swept sine'))
+                    at.first = s.Rig.SampleCounter;                 % the sweep measurement has started
+                end
+                if isnan(at.t) && ~isnan(at.first) && s.Rig.SampleCounter - at.first >= n
+                    at.t = toc(t0); at.samples = s.Rig.SampleCounter - at.first; at.log = s.LogLines;
+                    tim.gui.closeApp(fig, app);                     % first close request: during the acquisition
+                end
+                if ~isempty(live), live(); end
+            end
         end
 
         function staleStopDoesNotAnswerLaterQuestions(tc)
@@ -393,6 +500,167 @@ classdef TestGui < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function combinedDeviceAppSimulationWorkflow(tc)
+            % WO-001 section 0 change B: the simulated combined device (one object
+            % for generator and DAQ, shared clock, block acquisition, no TEDS)
+            % selected in the configuration only; the hidden window connects,
+            % calibrates and measures with it - its checklist, lamps and cards
+            % come from the driver, the window has no code for it
+            c = tim.app.defaultConfig();
+            c.mode = 'simulation';
+            c.generator.driver = 'simcombined'; c.daq.driver = 'simcombined';
+            c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data');
+            c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 3; c.excitation.sweep.repetitions = 2;
+            c.calibration.repeatConfigI = false;
+            sens = [11.2 11.5 10.9 11.3] * 1e-3;     % no TEDS: certificate sensitivities
+            for i = 1:4, c.mics(i).certificateSensitivity_VperPa = sens(c.mics(i).channel); end
+            file = fullfile(tc.tmp, 'cfg.json');
+            tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            s = app.Session;
+            tc.assertNotEmpty(s, 'connected');
+            tc.verifySameHandle(s.Gen, s.Daq, 'one object in both roles');
+            tc.verifyEqual(app.ConnList.Keys, {'device', 'setup', 'sens', 'settle', 'signal'}, 'the driver''s steps');
+            tc.verifyTrue(all(ismember(app.ConnList.States, {'ok', 'skip'})), strjoin(app.ConnList.States, ' '));
+            P = tim.gui.palette();
+            tc.verifyEqual(vertcat(h.lamp.Color), repmat(P.ok, 6, 1), 'all lamps green');
+            tc.verifyEqual(h.card(3).state.Text, 'OK');
+            tc.verifySubstring(h.connHead.Text, 'all checks passed');
+            feval(h.runCal.ButtonPushedFcn, h.runCal, []);
+            tc.verifyTrue(all(strcmp(app.CalList.States, 'ok')), strjoin(app.CalList.States, ' '));
+            tc.verifySubstring(app.CalList.Details(end - 1).Text, 'passed', 'Test E verdict on the done row');
+            tc.verifySubstring(h.calLabel.Text, 'CAL-');
+            tc.verifyFalse(contains(h.calLabel.Text, 'check'), 'the calibration fits the connected device');
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.verifyNotEmpty(app.LastRes);
+            tc.verifyEqual(app.LastMeas.metadata.daq.driver, 'simcombined');
+            tc.verifyEqual(h.axW(1).YLabel.String, 'ch1 (M1) [Pa]');
+            tc.verifyFalse(s.Gen.isOutputOn());
+            % closing: the output state worded by the read-back kind of the device
+            fig = app.Fig;
+            tim.gui.closeApp(fig, app);
+            tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
+            tc.verifyTrue(any(contains(s.LogLines, 'Closing: Generator output stopped (device idle, 0 V).')), ...
+                strjoin(s.LogLines(max(1, end - 4):end), newline));
+            tc.verifyFalse(s.Connected);
+            clear cleanup
+        end
+
+        function instrumentsShownFromTheDrivers(tc)
+            % WO-001 section 0.2: no instrument selector; the window shows which
+            % instruments are in use - before connecting the display names of the
+            % configured drivers, after connecting the identity the instruments
+            % reported (model, serial number, firmware) - in INSTRUMENTS (lamps,
+            % "In use") and in Setup > Connection. The two lab drivers on their
+            % protocol mocks keep today's texts and lamp labels.
+            c = tim.app.defaultConfig();
+            c.mode = 'simulation';
+            c.geometry = c.simulation.Geometry;
+            file = fullfile(tc.tmp, 'cfg.json');
+            tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            g = tim.instr.driverInfo('keysight33220a'); d = tim.instr.driverInfo('lanxi');
+            names = [g.displayName newline d.displayName];      % one line per instrument
+            % before connecting: the configured drivers
+            tc.verifyEqual({h.lampLabel.Text}, {'Generator', 'LAN-XI', 'ch1', 'ch2', 'ch3', 'ch4'});
+            tc.verifyEqual(h.instr.Text, names);
+            tc.verifySubstring(h.lamp(1).Tooltip, g.displayName);
+            tc.verifySubstring(h.lamp(2).Tooltip, d.displayName);
+            T = h.instrTable.Data;
+            tc.verifyEqual(T(:, 1:3), {'Generator (signal source)', g.displayName, 'keysight33220a'; ...
+                'LAN-XI (acquisition)', d.displayName, 'lanxi'});
+            tc.verifyEqual(T(:, 4:7), repmat({'–'}, 2, 4), 'no identity before connecting');
+            tc.verifyEqual(T{2, 8}, '16384 S/s, 10 Vpeak, high-pass 0.7 Hz, CCLD on');
+            tc.verifySubstring(h.instrTable.Tooltip, '4096, 8192, 16384, 32768, 65536', 'rates the driver allows');
+            % the texts of before for the lab drivers, composed from describe().texts
+            tc.verifyEqual(h.connect.Tooltip, ['Connect the generator and the LAN-XI module (generator output off), ' ...
+                'read TEDS and check every channel (Setup > Connection).']);
+            tc.verifyEqual(h.disconnect.Tooltip, 'Generator output off, LAN-XI module back to Idle, connections closed.');
+            tc.verifyEqual(h.modeLabel.Tooltip, 'Simulation: virtual tube for practice. Hardware: generator and LAN-XI module.');
+            % EXCITATION limits from the capabilities
+            tc.verifyEqual(h.fStop.Limits, [1, 0.45 * c.acquisition.sampleRate]);
+            tc.verifyEqual(h.amp.Limits(1), 0.01, 'AbsTol', 1e-12, '33220A: 20 mVpp at load INF');
+            tc.verifyEqual(h.dur.Limits, [0.001 500], '33220A sweep times');
+            % connected: the identity the instruments reported
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            s = app.Session;
+            tc.assertNotEmpty(s, 'connected');
+            ig = s.Gen.identity(); id = s.Daq.identity();
+            tc.verifyEqual({ig.model, ig.serial, id.model, id.serial}, {'33220A', 'MOCK0001', '3676-B-040', '110283'}, ...
+                'identities of the protocol mocks');
+            T = h.instrTable.Data;
+            tc.verifyEqual(T(1, 4:7), {ig.vendor, ig.model, ig.serial, ig.firmware});
+            tc.verifyEqual(T(2, 4:7), {id.vendor, id.model, id.serial, id.firmware});
+            tc.verifyEqual(h.instr.Text, sprintf('Generator: 33220A s/n MOCK0001 (simulated)\nLAN-XI: 3676-B-040 s/n 110283 (simulated)'));
+            tc.verifySubstring(h.lamp(1).Tooltip, sprintf('%s 33220A, s/n MOCK0001, firmware %s', ig.vendor, ig.firmware));
+            tc.verifySubstring(h.lamp(2).Tooltip, sprintf('s/n 110283, firmware %s', id.firmware));
+            tc.verifyEqual(h.lamp(1).Tooltip, app.LampTips{1}, 'kept after the action');
+            % disconnected: the configured drivers again
+            feval(h.disconnect.ButtonPushedFcn, h.disconnect, []);
+            tc.verifyEqual(h.instr.Text, names);
+            tc.verifyEqual(h.instrTable.Data(:, 5), {'–'; '–'});
+            tc.verifyTrue(any(endsWith(h.log.Value, ...
+                'Instruments disconnected by the operator (generator output off, LAN-XI module back to Idle).')));
+            clear cleanup
+        end
+
+        function combinedDeviceShownFromItsDriver(tc)
+            % the simulated combined device (one object in both roles): one row of
+            % the Instruments table, its lamp labels, checklist, texts and limits
+            % before connecting and its identity after - all from its driver
+            c = tim.app.defaultConfig();
+            c.mode = 'simulation';
+            c.generator.driver = 'simcombined'; c.daq.driver = 'simcombined';
+            c.geometry = c.simulation.Geometry;
+            file = fullfile(tc.tmp, 'cfg.json');
+            tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            d = tim.instr.driverInfo('simcombined');
+            tc.verifyEqual({h.lampLabel(1:2).Text}, {'Output', 'Inputs'});
+            tc.verifyEqual(app.ConnList.Keys, {'device', 'setup', 'sens', 'settle', 'signal'}, 'checklist before connecting');
+            tc.verifyEqual(h.instr.Text, d.displayName);
+            T = h.instrTable.Data;
+            tc.verifySize(T, [1 8], 'one device');
+            tc.verifyEqual(T(1, 1:3), {'Output + Inputs (both roles)', d.displayName, 'simcombined'});
+            tc.verifyEqual(h.connect.Tooltip, 'Connect the simulated device (output off) and check every channel (Setup > Connection).');
+            tc.verifyEqual(h.disconnect.Tooltip, 'Simulated device stopped, output at 0 V, connections closed.');
+            for t = {h.modeLabel.Tooltip, h.connect.Tooltip, h.disconnect.Tooltip, h.instr.Tooltip, h.lamp(1).Tooltip, ...
+                    h.lamp(2).Tooltip, h.instrTable.Tooltip}
+                tc.verifyFalse(contains(t{1}, {'LAN-XI', '33220'}), t{1});
+            end
+            tc.verifyEqual(h.amp.Limits(1), 0.0005, 'AbsTol', 1e-12, 'its smallest level (1 mVpp)');
+            tc.verifyEqual(h.dur.Limits, [0.1 300], 'its sweep times');
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            s = app.Session;
+            tc.assertNotEmpty(s, 'connected');
+            id = s.Gen.identity();
+            tc.verifyEqual({id.model, id.serial, id.firmware}, {'SIM-1AO-4AI', 'SIM-0001', '1.0'});
+            tc.verifyEqual(h.instrTable.Data(1, 4:7), {id.vendor, id.model, id.serial, id.firmware});
+            tc.verifyEqual(h.instr.Text, 'Output + Inputs: SIM-1AO-4AI s/n SIM-0001 (simulated)');
+            tc.verifySubstring(h.lamp(1).Tooltip, 'SIM-1AO-4AI, s/n SIM-0001, firmware 1.0');
+            tc.verifySubstring(h.lamp(2).Tooltip, 'SIM-1AO-4AI, s/n SIM-0001, firmware 1.0');
+            clear cleanup
+        end
+
+        function noInstrumentNamesInWindowOrSession(tc)
+            % WO-001 acceptance: the window and the session name no instrument;
+            % every such text comes from the drivers (grep lanxi / lan-xi / 33220)
+            for f = {fullfile('+tim', '+gui', 'Tubebench.m'), fullfile('+tim', '+app', 'MeasurementSession.m')}
+                lines = strsplit(tim.app.readTextUtf8(fullfile(tim.app.projectRoot(), f{1})), newline);
+                hit = find(~cellfun(@isempty, regexpi(lines, 'lanxi|lan-xi|33220', 'once')));
+                tc.verifyEmpty(hit, sprintf('%s line(s) %s: %s', f{1}, mat2str(hit), strjoin(lines(hit), ' | ')));
+            end
+        end
+
         function steppedDisplayShowsStepLevels(tc)
             % regression 2026-10-09: the Spectrum tab showed the PSD of the whole
             % stepped record (line spectrum -> one spike per step). It shows the
@@ -426,6 +694,7 @@ classdef TestGui < matlab.unittest.TestCase
             end
             tc.verifySubstring(strjoin(cellstr(h.axSpec.Title.String), ' '), 'Stepped sine');
             LH = findobj(h.axH, 'Type', 'line');
+            tc.assertNotEmpty(LH, 'relative responses drawn');      % all() of nothing would pass
             tc.verifyTrue(all(strcmp({LH.Marker}, 'o')), 'relative responses drawn as markers');
             % sweep afterwards: dense PSD, no markers, no stepped title
             h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
@@ -435,6 +704,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyGreaterThan(max(arrayfun(@(l) numel(l.XData), L)), 1000);
             tc.verifyFalse(contains(strjoin(cellstr(h.axSpec.Title.String), ' '), 'Stepped'));
             LH = findobj(h.axH, 'Type', 'line');
+            tc.assertNotEmpty(LH, 'relative responses drawn');
             tc.verifyTrue(all(strcmp({LH.Marker}, 'none')));
         end
 
@@ -480,7 +750,7 @@ classdef TestGui < matlab.unittest.TestCase
             for n = {'mode','connect','disconnect','exMode','fStart','fStop','dur','amp','reps', ...
                     'ampModel','ampGain','spkZ','spkP','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
                     'temp','pres','loadCal','runCal','save','reprocess','status','drive','fLimits','calLabel', ...
-                    'specimen','resultStatus','durEst'}
+                    'specimen','resultStatus','durEst','instr'}
                 tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
             end
         end
@@ -570,6 +840,16 @@ classdef TestGui < matlab.unittest.TestCase
             g = c.geometry;
             tc.verifySubstring(log, sprintf('IMPEDANCE TUBE fields kept; the saved results used D 29, s1 29, L1 %g,', ...
                 round(1e3 * (g.xFront - g.micPositions(2)), 3)));
+            % audit 2026-10-11: saved again without Reprocess - the new folder's
+            % config.json describes its result.mat (the opened set-up), not the
+            % window's set-up (L1 9 mm longer)
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            dAgain = app.SavedDir;
+            tc.assertNotEqual(dAgain, d);
+            cAgain = tim.app.loadConfig(fullfile(dAgain, 'config.json'));
+            tc.verifyEqual(cAgain.geometry.micPositions, c.geometry.micPositions, 'AbsTol', 1e-9);
+            S = load(fullfile(dAgain, 'result.mat'), 'res');
+            tc.verifyEqual(S.res.analysis.R, res.analysis.R);
             app.openMeasurement(fullfile(d, 'raw.mat'), true);      % file given; saved set-up into the fields
             g = app.currentGeometry();
             tc.verifyEqual(g.micPositions, c.geometry.micPositions, 'AbsTol', 1e-12);
@@ -588,6 +868,335 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.LastMeas.timestamp, before);
             tc.verifySubstring(strjoin(cellstr(h.log.Value), newline), 'Open measurement: No raw.mat in');
             tc.verifyEqual(h.save.Enable, matlab.lang.OnOffSwitchState.on, 'controls unlocked again');
+        end
+
+        function openedMeasurementReprocessedWithItsRecordedMapping(tc)
+            % owner decision 2026-10-11: when the channel-to-port mapping a
+            % measurement was recorded with (meas.mics) differs from the
+            % configuration's (re-cabled since, another file loaded), File > Open
+            % measurement… asks "Use the recorded mapping" / "Keep the
+            % configuration's mapping", like the tube set-up; the recorded one is
+            % the default answer (a hidden window takes it). The configuration's
+            % stays available to correct a mapping that was recorded wrongly; the
+            % mismatch warning of processMeasurement then stays.
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            s.connect(); s.prepareAcquisition();
+            meas = s.measure('sweep'); s.close();                  % recorded with ch1 M1, ch2 M2, ch3 M3, ch4 M4
+            res = tim.app.processMeasurement(meas, c, []);
+            d = tim.app.saveMeasurement(meas, res, c, 'sweep', []);
+            c2 = c; c2.mics(1).position = 2; c2.mics(2).position = 1;   % the window's configuration: ch1/ch2 swapped
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c2, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            logText = @() strjoin(cellstr(h.log.Value), newline);
+            recordedText = 'ch1 M1, ch2 M2, ch3 M3, ch4 M4'; configuredText = 'ch1 M2, ch2 M1, ch3 M3, ch4 M4';
+            app.openMeasurement(d);                                % asked; a hidden window takes the default
+            tc.verifySubstring(logText(), sprintf(['Microphone mapping for Reprocess: the recorded one (%s); ' ...
+                'the configuration has %s.'], recordedText, configuredText));
+            tc.verifySubstring(logText(), 'and the microphone mapping the measurement was recorded with.');
+            tc.verifyEqual(app.LastRes.analysis.R, res.analysis.R, 'the saved results are shown, not recomputed');
+            feval(h.reprocess.ButtonPushedFcn, h.reprocess, []);
+            tc.assertNotEmpty(app.LastRes, 'reprocessed');
+            tc.verifyEqual(app.LastRes.channelOfPosition, 1:4, 'Reprocess used the recorded mapping');
+            tc.verifyFalse(any(contains(app.LastRes.diagnostics.warnings, 'Microphone mapping')), 'no mismatch left');
+            tc.verifyEqual(app.LastRes.analysis.R, res.analysis.R, 'AbsTol', 1e-6, 'the results of the recording');
+            tc.verifySubstring(logText(), sprintf('Microphone mapping as recorded with the measurement: %s.', recordedText));
+            % saved again: its config.json holds the mapping of its results (= raw.mat)
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            [~, saved] = tim.app.useRecordedMapping(tim.app.loadConfig(fullfile(app.SavedDir, 'config.json')), meas.mics);
+            tc.verifyFalse(saved.differs, 'config.json of the new folder: the recorded mapping');
+            % the configuration's mapping chosen explicitly (a mapping recorded wrongly)
+            app.openMeasurement(d, 'ask', false);
+            tc.verifySubstring(logText(), sprintf(['Microphone mapping of the configuration kept for Reprocess (%s); ' ...
+                'the measurement was recorded with %s.'], configuredText, recordedText));
+            feval(h.reprocess.ButtonPushedFcn, h.reprocess, []);
+            tc.verifyEqual(app.LastRes.channelOfPosition, [2 1 3 4], 'Reprocess used the configuration''s mapping');
+            tc.verifySubstring(logText(), sprintf('Warning: Microphone mapping of the configuration (%s) differs', configuredText), ...
+                'the mismatch is still reported');
+            % the recorded mapping belongs to the opened measurement only: a new
+            % measurement is processed with the configuration's (that of the connection)
+            app.openMeasurement(d);
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertTrue(app.Session.Prepared);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.assertNotEmpty(app.LastRes, 'measured');
+            tc.verifyEqual(app.LastRes.channelOfPosition, [2 1 3 4], 'a new measurement: the configuration''s mapping');
+            tc.verifyFalse(any(contains(app.LastRes.diagnostics.warnings, 'Microphone mapping')));
+        end
+
+        function openedResultDrawnWithItsOwnBandAndLimits(tc)
+            % audit 2026-10-11: a result opened from its folder is drawn with the
+            % band and limits it was analysed with (res.analysis.options), as in
+            % its saved figures - not with those of the window's configuration
+            % (one drawing code: window = saved figure)
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            c.analysis.fMin = 120; c.analysis.fMax = 4500; c.analysis.coherenceMin = 0.98;
+            s = tim.app.MeasurementSession(c);
+            s.connect(); s.prepareAcquisition();
+            meas = s.measure('sweep'); s.close();
+            res = tim.app.processMeasurement(meas, c, []);
+            d = tim.app.saveMeasurement(meas, res, c, 'sweep', []);
+            c2 = c; c2.analysis.fMin = 200; c2.analysis.fMax = 3000; c2.analysis.coherenceMin = 0.9;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c2, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            app.openMeasurement(d, false);
+            tc.assertEqual(app.LastRes.analysis.options.fRange, [120 4500]);
+            figs = tim.app.plotResults(res, meas, struct('Visible', 'off'));
+            tc.addTeardown(@() deleteFigs(figs));
+            lim = findobj(h.axH(3), 'Tag', 'timCoherenceLimit');
+            tc.assertNumElements(lim, 1);
+            tc.verifyEqual(lim.Value, 0.98, 'AbsTol', 1e-12, 'coherence limit of the result');
+            F = getappdata(figs.reflection, 'timSavedFrame');
+            tc.verifyEqual(h.axR(1).XLim, F.axes(1).XLim, 'RelTol', 1e-9, 'band of the result (as saved)');
+            views = {'spec', 'spectrum'; 'tf', 'transfer'; 'refl', 'reflection'; 'tl', 'transmissionLoss'; ...
+                'zt', 'impedance'; 'valid', 'validity'};
+            for i = 1:size(views, 1)
+                info = getappdata(figs.(views{i, 2}), 'timViewInfo');
+                p = app.Pages.(views{i, 1});
+                note = ''; if isfield(info, 'note'), note = info.note; end
+                tc.verifyEqual(string(p.Note.Text), string(note), sprintf('%s: note as in the saved figure', views{i, 1}));
+                if isfield(info, 'summary') && isstruct(info.summary) && isfield(info.summary, 'data')
+                    dat = info.summary.data; if isnumeric(dat), dat = num2cell(dat); end
+                    tc.verifyEqual(p.SummaryTable.Data, dat, sprintf('%s: summary as in the saved figure', views{i, 1}));
+                end
+            end
+        end
+
+        function processingFailureLeavesTheMeasurementUnsaved(tc)
+            % audit 2026-10-11: a new measurement whose processing fails is shown
+            % as not saved (the RESULTS line kept the previous "Saved: <folder>")
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H; P = tim.gui.palette();
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            tc.assertTrue(startsWith(h.resultStatus.Text, 'Saved: '), h.resultStatus.Text);
+            % a calibration made with another reference channel: the processing
+            % of the next measurement fails (tim:cal:ref)
+            f = (100:2:5000).';
+            cal = struct('type', 'tim.complexChannelCalibration', 'version', 'CAL-TEST-REF2', 'refChannel', 2, ...
+                'f', f, 'C', ones(numel(f), 4), 'valid', true(numel(f), 4), 'meta', struct('mode', 'simulation'));
+            calFile = fullfile(tc.tmp, 'CAL-TEST-REF2.mat'); save(calFile, 'cal');
+            app.Session.loadCalibration(calFile);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.assertNotEmpty(app.LastMeas);
+            tc.verifyEmpty(app.LastRes, 'processing failed');
+            tc.verifySubstring(strjoin(cellstr(h.log.Value), newline), 'Reference channel of the calibration (ch2)');
+            tc.verifyFalse(app.Saved);
+            tc.verifySubstring(h.resultStatus.Text, 'not saved', 'the new measurement is not saved');
+            tc.verifyEqual(h.resultStatus.FontColor, P.fail);
+            tc.verifyEqual(h.save.Enable, matlab.lang.OnOffSwitchState.on, 'it can be saved');
+        end
+
+        function amplifierWithoutGainIsNeitherEstimatedNorDriven(tc)
+            % audit 2026-10-11 (loudspeaker safety): an amplifier chosen without
+            % its gain gives no drive estimate (the configured gain_dB of direct
+            % drive was used, i.e. gain x1) and Start measurement / Run switching
+            % calibration are refused until the gain is entered (user guide section 4)
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            c.amplifier.model = 'none (direct drive)'; c.amplifier.gainFactor = 1; c.amplifier.gain_dB = 0;  % as the lab file
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            tc.assertSubstring(h.drive.Text, 'Estimated loudspeaker drive');
+            h.ampModel.Value = 'power amplifier';
+            feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));
+            tc.verifyFalse(app.GainEntered);
+            tc.verifySubstring(h.drive.Text, 'Amplifier gain not entered: no drive estimate');
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertTrue(app.Session.Prepared);
+            refusal = 'enter the voltage gain set on the amplifier "power amplifier"';
+            count = @() nnz(contains(cellstr(h.log.Value), refusal));
+            tc.assertEqual(count(), 0);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.verifyEmpty(app.LastMeas, 'Start refused: nothing measured');
+            n = count();
+            tc.verifyGreaterThan(n, 0, 'Start refused with the request for the gain');
+            feval(h.runCal.ButtonPushedFcn, h.runCal, []);
+            tc.verifyGreaterThan(count(), n, 'Run switching calibration refused as well');
+            tc.verifyEmpty(app.Session.Calibration, 'no calibration ran');
+            h.ampGain.Value = 10;
+            feval(h.ampGain.ValueChangedFcn, h.ampGain, struct('PreviousValue', 0));
+            tc.verifyTrue(app.GainEntered);
+            tc.verifySubstring(h.drive.Text, 'Estimated loudspeaker drive');
+        end
+
+        function connectRefusedBeforeTheSessionExists(tc)
+            % audit 2026-10-11: a Connect refused by the session's own checks
+            % before any instrument is contacted (here a configured calibration
+            % file that does not exist) says so in Setup > Connection instead of
+            % "Connecting (... mode)…"
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.calibration.file = fullfile(tc.tmp, 'CAL-missing.mat');
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.verifyEmpty(app.Session, 'not connected');
+            tc.verifyTrue(startsWith(h.connHead.Text, 'Connection refused: '), h.connHead.Text);
+            tc.verifySubstring(h.connHead.Text, 'CAL-missing.mat');
+            tc.verifyEqual(h.connHead.FontColor, tim.gui.palette().fail);
+            tc.verifyTrue(all(strcmp(app.ConnList.States, 'pending')), 'no step ran');
+            tc.verifySubstring(h.status.Text, 'Not connected');
+            tc.verifyFalse(app.Busy);
+        end
+
+        function stopBeforeTheSessionExists(tc)
+            % audit 2026-10-11 (gui-5, PendingStop): Stop pressed after Connect but
+            % before the window has created the session. The window keeps the
+            % request and the new session stops at its first connection step: no
+            % instrument is contacted. A close request at that point closes the
+            % window once the connection has stopped. The test-only hook TestHook
+            % acts exactly at that point (owner decision 2026-10-11; a timer
+            % fired before the window was busy and the test was flaky).
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            seen = struct('point', '', 'busy', false, 'session', true, 'pending', false);
+            app.TestHook = @(point) pressStop(point);
+            tim.instr.mockBusLog('start'); tc.addTeardown(@() tim.instr.mockBusLog('stop'));
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertEqual(seen.point, 'connect:beforeSession', 'the hook ran');
+            tc.verifyTrue(seen.busy, 'Stop pressed while Connect was running');
+            tc.verifyFalse(seen.session, 'before the session existed');
+            tc.verifyTrue(seen.pending, 'the window kept the request');
+            tc.verifyEmpty(app.Session, 'not connected');
+            tc.verifyEmpty(tim.instr.mockBusLog('lines'), 'no instrument was contacted');
+            log = strjoin(cellstr(h.log.Value), newline);
+            tc.verifySubstring(log, 'Stop requested by the operator.');
+            tc.verifySubstring(log, 'Connection stopped by the operator: Connection stopped by the operator.');
+            first = app.ConnList.Keys{1};
+            tc.verifyEqual(app.ConnList.state(first), 'fail', 'the first step stopped');
+            tc.verifyEqual(app.ConnList.Details(1).Text, 'stopped by the operator');
+            tc.verifyFalse(app.Busy);
+            tc.verifySubstring(h.status.Text, 'Not connected');
+            % the request belonged to that connection: Connect again connects
+            app.TestHook = [];
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertNotEmpty(app.Session, 'connected the second time');
+            tc.verifyTrue(app.Session.Prepared);
+            tc.verifyNotEmpty(tim.instr.mockBusLog('lines'), 'the instruments were contacted this time');
+            % close request at the same point: the connection stops, then the window closes
+            app2 = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app2));
+            fig2 = app2.Fig;
+            app2.TestHook = @(~) tim.gui.closeApp(fig2, app2);
+            tim.instr.mockBusLog('start');
+            feval(app2.H.connect.ButtonPushedFcn, app2.H.connect, []);
+            tc.verifyFalse(isvalid(app2), 'closed after the stopped connection');
+            tc.verifyFalse(isvalid(fig2));
+            tc.verifyEmpty(tim.instr.mockBusLog('lines'), 'no instrument was contacted');
+            function pressStop(point)
+                seen.point = point; seen.busy = app.Busy; seen.session = ~isempty(app.Session);
+                feval(h.stop.ButtonPushedFcn, h.stop, []);
+                seen.pending = app.PendingStop;
+            end
+        end
+
+        function closeWhileOpeningAMeasurementCancelsItsQuestions(tc)
+            % review 2026-10-11: in a window without a session (not connected:
+            % offline reprocessing) a close request during File > Open measurement…
+            % only set CloseAfterBusy / PendingStop, which ask() and askBar() did
+            % not check: an open question (tube set-up, recorded microphone
+            % mapping) kept waiting and only a second close request closed the
+            % window (user guide section 3: the running action is stopped first;
+            % a question counts as cancelled). The test-only hook acts just
+            % before the questions. A hidden window answers with the default
+            % unless the action is being stopped (stopPending, which a visible
+            % dialog's wait loop polls too), so the answers show the cancel.
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.output.exportFigures = false;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            s.connect(); s.prepareAcquisition();
+            meas = s.measure('sweep'); s.close();
+            d = tim.app.saveMeasurement(meas, tim.app.processMeasurement(meas, c, []), c, 'sweep', []);
+            % the window: another tube set-up (L1 9 mm longer), ch1/ch2 swapped; not connected
+            c2 = c; c2.geometry.micPositions(1:2) = c.geometry.micPositions(1:2) - 0.009;
+            c2.mics(1).position = 2; c2.mics(2).position = 1;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c2, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            fig = app.Fig;
+            tc.assertEmpty(app.Session, 'not connected');
+            seen = struct('point', '', 'pending', false, 'ask', '', 'askBar', '');
+            app.TestHook = @(point) closeThere(point);
+            app.openMeasurement(d);                                % returns after the window has closed
+            tc.assertEqual(seen.point, 'open:beforeQuestions', 'the hook ran');
+            tc.verifyTrue(seen.pending, 'the close request counts as a stop of the running action');
+            tc.verifyEqual(seen.ask, 'Cancel', 'a question dialog is cancelled, not answered with its default');
+            tc.verifyEqual(seen.askBar, 'Abort', 'a question in the calibration bar too');
+            tc.verifyFalse(isvalid(app), 'closed after one close request');
+            tc.verifyFalse(isvalid(fig));
+            % a request left over after an action answers no later question: Stop
+            % before the session existed (the connection stopped), then Open
+            % measurement asks as usual (a hidden window: the default answers)
+            app2 = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app2));
+            h2 = app2.H;
+            app2.TestHook = @(~) feval(h2.stop.ButtonPushedFcn, h2.stop, []);
+            feval(h2.connect.ButtonPushedFcn, h2.connect, []);
+            tc.assertEmpty(app2.Session, 'the connection was stopped');
+            tc.assertTrue(app2.PendingStop, 'the request is still recorded after the action');
+            app2.TestHook = [];
+            tc.verifyEqual(app2.ask('Question?', 'Test', {'Answer', 'Cancel'}, 1, 2), 'Answer', 'outside an action');
+            app2.openMeasurement(d);
+            log = strjoin(cellstr(h2.log.Value), newline);
+            tc.verifySubstring(log, 'IMPEDANCE TUBE fields set to the saved set-up');
+            tc.verifySubstring(log, 'Microphone mapping for Reprocess: the recorded one');
+            tc.verifyTrue(isvalid(app2), 'still open');
+            function closeThere(point)
+                seen.point = point;
+                tim.gui.closeApp(fig, app);                        % first close request: during the action
+                seen.pending = app.stopPending();
+                seen.ask = app.ask('Question?', 'Test', {'Answer', 'Cancel'}, 1, 2);
+                seen.askBar = app.askBar('Question?', {'Done', 'Abort'}, 1, 2);
+            end
+        end
+
+        function outputNotConfirmedOffIsShown(tc)
+            % audit 2026-10-11 (safety display): Stop while measuring and the
+            % generator link lost at the same moment - the read-back cannot
+            % confirm the output off: red Generator lamp and status "Generator
+            % output not confirmed off". The message pane says the output was
+            % commanded off and then the read-back, never "switched off".
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.excitation.sweep.duration = 3; c.excitation.sweep.repetitions = 4;
+            file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H; P = tim.gui.palette();
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertTrue(app.Session.Prepared);
+            hk = tim.instr.Keysight33220A.testHooks(app.Session.Gen);
+            stopper = timer('StartDelay', 1.0, 'TimerFcn', @(~, ~) stopAndBreakLink(h, hk));
+            tc.addTeardown(@() delete(stopper));
+            start(stopper);
+            ws = warning('off', 'tim:gen:outputOff'); tc.addTeardown(@() warning(ws));   % the lost link
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.verifyTrue(app.OutputUnconfirmed);
+            tc.verifyEqual(h.lamp(1).Color, P.fail, 'Generator lamp red');
+            tc.verifyEqual(h.status.Text, 'Generator output not confirmed off');
+            log = strjoin(cellstr(h.log.Value), newline);
+            tc.verifySubstring(log, 'Stop requested by the operator: generator output commanded off.');
+            tc.verifySubstring(log, 'The generator output could not be confirmed off.', 'the read-back is logged');
+            tc.verifyFalse(contains(log, 'output switched off'), 'never claimed off without a read-back');
         end
 
         function windowTitleMenusAndAbout(tc)
@@ -640,9 +1249,10 @@ classdef TestGui < matlab.unittest.TestCase
             % with the control panel, the message pane, every tab and Setup >
             % Connection; a view opened before the background has prepared it is
             % prepared at once (major tab: its selected sub tab)
-            n0 = numel(timerfindall);
+            n0 = timersExceptOtherWindows();
             app = tim.gui.Tubebench(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 600);
             tc.addTeardown(@() delete(app));      % (600 s: the background queue does not start here)
+            tag = app.TimerTag;
             tc.verifyTrue(app.Deferred);
             for p = app.Parts
                 tc.verifyEqual(app.PartState.(p{1}), 'none', p{1});
@@ -659,7 +1269,8 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(sort(fieldnames(ph)).', sort(app.Parts));
             tc.verifyEqual(ph.zt.Text, 'Preparing the view…');
             tc.verifyEqual(app.BuildTimer.Running, 'on');
-            tc.verifyEqual(numel(timerfindall), n0 + 1, 'one timer: the background queue');
+            tc.verifyEqual(timersExceptOtherWindows(tag), n0 + 1, 'one timer: the background queue');
+            tc.verifySameHandle(timerfindall('Tag', tag), app.BuildTimer, 'tagged with the window');
             % major tab Results -> its selected sub tab (Reflection and transmission)
             feval(app.H.tabs.SelectionChangedFcn, app.H.tabs, struct('NewValue', app.H.resTab, 'OldValue', app.H.setupTab));
             tc.verifyEqual(app.PartState.refl, 'ready');
@@ -683,22 +1294,23 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyNotEmpty(findobj(app.H.axTube3D, 'Tag', 'specimen'), 'tube model drawn');
             tc.verifyError(@() app.ensureBuilt('nonsense'), 'tim:gui:part');
             delete(app);
-            tc.verifyEqual(numel(timerfindall), n0, 'timer deleted with the window');
+            tc.verifyEqual(timersExceptOtherWindows(tag), n0, 'timer deleted with the window');
         end
 
         function deferredQueuePreparesEveryView(tc)
             % the background queue prepares every view, one step per timer tick,
             % with its first drawing; afterwards no timer is left
-            n0 = numel(timerfindall);
+            n0 = timersExceptOtherWindows();
             app = tim.gui.Tubebench(tc.labConfig(), 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
             tc.addTeardown(@() delete(app));
+            tag = app.TimerTag;
             t0 = tic;
             while isnan(app.ReadyTime) && toc(t0) < 240, pause(0.1); end
             tc.assertFalse(isnan(app.ReadyTime), 'queue finished');
             for p = app.Parts, tc.verifyEqual(app.PartState.(p{1}), 'ready', p{1}); end
             tc.verifyEmpty(app.BuildQueue);
             tc.verifyEmpty(app.BuildTimer);
-            tc.verifyEqual(numel(timerfindall), n0, 'timer deleted when the queue is done');
+            tc.verifyEqual(timersExceptOtherWindows(tag), n0, 'timer deleted when the queue is done');
             tc.verifyEmpty(fieldnames(app.H.placeholder), 'every placeholder removed');
             h = app.H;
             tc.verifyNumElements(h.axW, 4); tc.verifyNumElements(h.axH, 3); tc.verifyNumElements(h.axR, 2);
@@ -772,9 +1384,16 @@ classdef TestGui < matlab.unittest.TestCase
 
         function closeWhileViewsArePrepared(tc)
             % closing the window during the background preparation: no error, no
-            % timer left (the timer belongs to the window)
-            n0 = numel(timerfindall);
+            % timer left (the timer belongs to the window). Audit 2026-10-11:
+            % only this window's timers are counted - another window (the user's,
+            % in the same MATLAB) keeps its own preparation timer meanwhile
+            other = tim.gui.Tubebench('', 'Visible', 'off', 'Deferred', true, 'BuildDelay', 600);
+            tc.addTeardown(@() delete(other));
+            tc.assertNotEmpty(timerfindall('Tag', other.TimerTag), 'the other window prepares its views');
+            n0 = timersExceptOtherWindows();
             app = tim.gui.Tubebench('', 'Visible', 'off', 'Deferred', true, 'BuildDelay', 0);
+            tag = app.TimerTag;
+            tc.assertNotEqual(tag, other.TimerTag, 'one tag per window');
             fig = app.Fig;
             tc.addTeardown(@() delete(fig(isvalid(fig))));
             t0 = tic;
@@ -782,8 +1401,9 @@ classdef TestGui < matlab.unittest.TestCase
             tc.assertTrue(isnan(app.ReadyTime), 'still preparing');
             tc.verifyWarningFree(@() closeAndWait(fig, app));
             tc.verifyFalse(isvalid(app)); tc.verifyFalse(isvalid(fig));
-            tc.verifyEmpty(timerfindall('Name', 'tubebench-build'));
-            tc.verifyEqual(numel(timerfindall), n0, 'no timer left');
+            tc.verifyEmpty(timerfindall('Tag', tag), 'no timer of the closed window left');
+            tc.verifyEqual(timersExceptOtherWindows(tag), n0, 'no timer left');
+            tc.verifyNumElements(timerfindall('Tag', other.TimerTag), 1, 'the other window''s timer untouched');
         end
     end
 
@@ -801,6 +1421,58 @@ end
 function closeAndWait(fig, app)
 tim.gui.closeApp(fig, app);
 pause(0.5);                     % a pending timer tick would run here
+end
+
+function closeAndStamp(t, app, t0)
+% timer callback: close the window, then record when it is gone (s after t0)
+tim.gui.closeApp(app.Fig, app);
+t.UserData = toc(t0);
+end
+
+function stamps = stampLog(s, t0)
+% the session's log lines from now on with the time they were written (s
+% after t0); stamps is a containers.Map (a handle the callback fills: 1, 2, ...
+% -> struct t, line). The window's own callback still receives every line.
+stamps = containers.Map('KeyType', 'double', 'ValueType', 'any');
+cb = s.StatusCallback;
+s.StatusCallback = @(line) addStamp(line, cb, stamps, t0);
+end
+
+function addStamp(line, cb, stamps, t0)
+stamps(stamps.Count + 1) = struct('t', toc(t0), 'line', line); %#ok<NASGU> (a handle: the caller's Map)
+if ~isempty(cb), cb(line); end
+end
+
+function t = stampOf(stamps, text)
+% time of the first stamped log line that contains text (NaN: not logged)
+t = NaN;
+for k = 1:stamps.Count
+    e = stamps(k);
+    if contains(e.line, text), t = e.t; return; end
+end
+end
+
+function stopAndBreakLink(h, hooks)
+% Stop pressed, and the generator link lost at the same moment
+feval(h.stop.ButtonPushedFcn, h.stop, []);
+hooks.breakLink();
+end
+
+function deleteFigs(figs)
+fc = struct2cell(figs);
+for i = 1:numel(fc), if isgraphics(fc{i}), delete(fc{i}); end, end
+end
+
+function n = timersExceptOtherWindows(tag)
+% number of timers in this MATLAB session without those of OTHER tubebench
+% windows (every window tags its timers with its TimerTag): the user's own
+% window may start or end its view-preparation or calibration timer while a
+% test runs (tests may run in the user's MATLAB)
+if nargin < 1, tag = ''; end
+t = timerfindall;
+if isempty(t), n = 0; return; end
+tags = get(t, {'Tag'});
+n = nnz(~(startsWith(tags, 'tubebench-') & ~strcmp(tags, tag)));
 end
 
 function L = labels(ax)

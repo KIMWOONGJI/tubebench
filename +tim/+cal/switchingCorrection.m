@@ -5,7 +5,7 @@ function r = switchingCorrection(f, HI, HII, opts)
 %
 %   DERIVATION (docs/calibration_procedure.md). Let g_ref(f) and g_k(f) be the
 %   complex gains of the complete measurement chains (microphone +
-%   preamplifier + cable + CCLD supply + LAN-XI input) of the reference
+%   preamplifier + cable + CCLD supply + DAQ input) of the reference
 %   channel and channel k, and p_a, p_b the sound pressures at the two
 %   calibration ports a and b.
 %     Configuration I : reference microphone in port a, microphone k in port b

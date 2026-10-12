@@ -50,6 +50,13 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyTrue(meas.integrityOk);
             tc.verifyFalse(s.Gen.isOutputOn(), 'output must be off after the measurement');
             res = tim.app.processMeasurement(meas, tc.cfg, cal);
+            % the calibration records the DAQ chain; the measurement used the same one
+            id = s.Daq.identity(); ac = cal.meta.acquisition;
+            tc.verifyEqual({ac.driver, ac.model, ac.serial, ac.range, ac.sampleRate}, ...
+                {'lanxi', id.model, id.serial, tc.cfg.acquisition.range, tc.cfg.acquisition.sampleRate});
+            tc.verifyTrue(res.calibration.context.acquisitionMatch);
+            tc.verifyEqual(meas.metadata.daq.driver, 'lanxi');
+            tc.verifyEqual(meas.metadata.generator.identity, s.Gen.identity());
             a = res.analysis; v = a.valid.valid;
             tc.verifyGreaterThan(nnz(v), 0.5 * numel(v));
             truth = s.Rig.trueResponse(a.f).model;
@@ -115,6 +122,75 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             % Zt/rho c ~ 0.73; relative error bound as for R -> 5 % above 300 Hz
             tc.verifyLessThan(max(abs(a.thin.Zt(ok) / 300 - 1)), 0.05);
             tc.verifyLessThan(median(abs(a.thin.Zt(ok) / 300 - 1)), 0.01);
+            clear cleanup
+        end
+
+        function combinedDeviceThroughTheSession(tc)
+            % WO-001 section 0 change B: one simulated device takes both roles
+            % (shared clock, planned block acquisition, no TEDS, 0 ohm output) -
+            % connection, switching calibration with the empty-tube check, swept
+            % and stepped sine and noise through the session, which has no code
+            % for this driver
+            c = tc.cfg;
+            c.generator.driver = 'simcombined'; c.daq.driver = 'simcombined';
+            sens = [11.2 11.5 10.9 11.3] * 1e-3;      % the virtual microphones; no TEDS: certificate values
+            for i = 1:4, c.mics(i).certificateSensitivity_VperPa = sens(c.mics(i).channel); end
+            c.excitation.stepped.nPoints = 8; c.excitation.stepped.fStart = 200; c.excitation.stepped.fStop = 4000;
+            c.excitation.noise.duration = 5;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            ev = cell(0, 3);
+            function record(k, st, d)
+                ev(end + 1, :) = {k, st, d};
+            end
+            s.ProgressCallback = @record;
+            s.connect(); s.prepareAcquisition();
+            chk = s.signalCheck(0.5);
+            tc.verifyTrue(s.isCombined(), 'one object in both roles');
+            tc.verifySameHandle(s.Gen, s.Daq);
+            [keys, first] = unique(ev(:, 1), 'stable');
+            tc.verifyEqual(keys.', {'device', 'setup', 'sens', 'settle', 'signal'}, 'steps of the driver, then the session''s');
+            final = cellfun(@(k) ev{find(strcmp(ev(:, 1), k), 1, 'last'), 2}, keys, 'UniformOutput', false);
+            tc.verifyTrue(all(ismember(final, {'ok', 'skip'})), strjoin(final, ' '));
+            tc.verifyEqual(ev{first(1), 2}, 'run');
+            tc.verifyTrue(all(strcmp({chk.state}, 'ok')));
+            tc.verifyEqual(s.Daq.Teds, {}, 'no TEDS');
+            tc.verifyEqual({s.Mics.sensitivitySource}, repmat({'certificate'}, 1, 4));
+            cal = tim.app.runCalibration(s);
+            tc.verifyTrue(cal.meta.emptyCheck.passed, cal.meta.emptyCheck.text);
+            tc.verifyEqual(cal.meta.acquisition.driver, 'simcombined');
+            Ct = s.Rig.chainResponse(cal.f); Ct = Ct ./ Ct(:, 1);
+            ok = all(cal.valid, 2);
+            tc.verifyGreaterThan(nnz(ok), 0.9 * numel(ok));
+            tc.verifyLessThan(prctile(abs(cal.C(ok, :) ./ Ct(ok, :) - 1), 95, 'all'), 5e-3);
+            % swept sine: actions sample-exact on the shared clock
+            meas = s.measure('sweep');
+            tc.verifyTrue(meas.integrityOk);
+            tc.verifyFalse(s.Gen.isOutputOn(), 'output off after the measurement');
+            nPre = round(c.excitation.sweep.preRoll * c.acquisition.sampleRate);
+            tc.verifyEqual(cellfun(@(e) e.triggerSample, meas.events), repmat(nPre, 1, c.excitation.sweep.repetitions));
+            tc.verifyEqual(meas.metadata.generator.driver, 'simcombined');
+            tc.verifyEqual(meas.metadata.daq.roles, {'source', 'acquisition'});
+            tc.verifyEqual(meas.metadata.daq.identity, s.Daq.identity());
+            res = tim.app.processMeasurement(meas, c, cal);
+            tc.verifyTrue(res.calibration.context.acquisitionMatch);
+            a = res.analysis; v = a.valid.valid;
+            tc.verifyGreaterThan(nnz(v), 0.5 * numel(v));
+            truth = s.Rig.trueResponse(a.f).model;
+            hi = v & a.f > 1000;
+            tc.verifyLessThan(max(abs(a.R(hi) - truth.R(hi))), 0.03);
+            tc.verifyLessThan(median(abs(a.R(v) - truth.R(v))), 0.01);
+            % stepped sine and noise
+            rs = tim.app.processMeasurement(s.measure('stepped'), c, cal);
+            fq = rs.analysis.f; t2 = s.Rig.trueResponse(fq).model;
+            tc.verifyLessThan(max(abs(rs.analysis.R - t2.R)), 0.03);
+            mn = s.measure('noise');
+            tc.verifyTrue(mn.integrityOk);
+            rn = tim.app.processMeasurement(mn, c, cal);
+            hn = rn.analysis.valid.valid & rn.analysis.f > 500;
+            tc.verifyGreaterThan(nnz(hn), 100);
+            tc.verifyFalse(s.Gen.isOutputOn());
+            tc.verifyEqual(s.Rig.OutputLog(end, 4), 0, 'the output ends at 0 V');
             clear cleanup
         end
 
@@ -250,12 +326,66 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyError(@() tim.app.runCalibration(s, struct('prompt', @prompt)), 'tim:session:stopped');
             tc.verifyLessThanOrEqual(nStep, 3, 'no further step after the abort');
             tc.verifyEqual(s.Rig.Sample.type, tc.cfg.simulation.Sample.type, 'specimen restored after the abort');
+            % audit 2026-10-11: and the virtual microphones back in their ports
+            home = zeros(1, 4); home([tc.cfg.mics.channel]) = [tc.cfg.mics.position];
+            tc.verifyEqual(s.Rig.MicPosOfChannel, home, 'microphones back in their measurement ports');
             tc.verifyFalse(s.Gen.isOutputOn());
             tc.verifyFalse(s.InOperation);
             tc.verifyEmpty(dir(fullfile(tc.cfg.output.calibrationDir, '*.mat')), 'nothing saved');
             % a later stand-alone measurement works again (flag cleared)
             m = s.measure('sweep');
             tc.verifyTrue(m.integrityOk);
+            clear cleanup
+        end
+
+        function deadChannelLeavesOnlyItUncalibrated(tc)
+            % audit 2026-10-11: an input without signal (unplugged microphone,
+            % cable fault) used to abort the whole calibration and discard every
+            % sweep. Now that channel stays uncalibrated, the others and all raw
+            % sweeps are saved, and the empty-tube check is skipped as documented
+            c = tc.cfg;
+            c.simulation.Gain = [1 1.02 1e-6 1.03];                % ch3 dead
+            c.excitation.sweep.duration = 1;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            [cal, file, raw] = tim.app.runCalibration(s);
+            tc.verifyTrue(isfile(file), 'calibration saved');
+            tc.verifyFalse(any(cal.valid(:, 3)), 'ch3 not calibrated');
+            tc.verifyGreaterThan(nnz(cal.valid(:, 2)), 0.9 * numel(cal.f));
+            tc.verifyGreaterThan(nnz(cal.valid(:, 4)), 0.9 * numel(cal.f));
+            tc.verifyNumElements(raw, 6, 'every switching sweep kept (3 channels x I, II)');
+            S = load(file, 'raw');
+            tc.verifyNumElements(S.raw, 6);
+            tc.verifyFalse(cal.meta.emptyCheck.performed);
+            tc.verifySubstring(cal.meta.emptyCheck.text, 'not all channels calibrated');
+            tc.verifyTrue(any(contains(s.LogLines, 'C3 (ch3/ch1): no valid frequency line')));
+            clear cleanup
+        end
+
+        function overloadedCalibrationIsRecorded(tc)
+            % audit 2026-10-11: switching sweeps that fail the data integrity
+            % check (here: clipped inputs) are recorded with the calibration and
+            % reported for every measurement processed with it; a clipped
+            % empty-tube check sweep is not evaluated
+            c = tc.cfg;
+            c.simulation.SourceGain = 4 * 3000;                   % far above the 10 Vpeak range
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            ws = warning('off', 'all'); restore = onCleanup(@() warning(ws));
+            cal = tim.app.runCalibration(s);
+            clear restore
+            tc.verifyNumElements(cal.meta.integrity, 6);
+            tc.verifyFalse(any([cal.meta.integrity.ok]), 'every sweep clipped');
+            tc.verifyNotEmpty(cal.meta.integrity(1).problems);
+            tc.verifyFalse(cal.meta.emptyCheck.performed);
+            tc.verifySubstring(cal.meta.emptyCheck.text, 'not evaluated: data integrity problems');
+            ctx = tim.cal.calibrationContext(cal, c);
+            tc.verifyFalse(ctx.integrityOk);
+            tc.verifyTrue(any(contains(ctx.warnings, 'data integrity problems')));
+            tc.verifyTrue(any(contains(s.LogLines, 'has data integrity problems')));
             clear cleanup
         end
 
@@ -311,13 +441,13 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             c.generator.load = '50'; c.amplifier.model = 'none (direct drive)';
             tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load');
             c.generator.load = '75';
-            tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load');
+            tc.verifyError(@() tim.app.validateConfig(c, 'instruments'), 'tim:config:load');
             % review analysis-6: exact values only (the 33220A driver and the GUI
             % compare the raw text)
             c.amplifier.model = 'power amplifier';
             for ld = {'inf', ' 50', 'INF '}
                 c.generator.load = ld{1};
-                tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:load', ld{1});
+                tc.verifyError(@() tim.app.validateConfig(c, 'instruments'), 'tim:config:load', ld{1});
             end
             % review analysis-5: the session setter is validated as well
             c.generator.load = '50'; c.amplifier.inputImpedance_ohm = 50;
@@ -389,7 +519,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             function t = errText(cfg)
                 t = '';
                 try
-                    tim.app.validateConfig(cfg);
+                    tim.app.validateConfig(cfg, 'instruments');      % the driver limits are errors at Connect
                 catch err
                     t = err.message;
                 end
@@ -432,7 +562,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             s = tim.app.MeasurementSession(tc.cfg);
             cleanup = onCleanup(@() s.close());
             s.connect(); s.prepareAcquisition();
-            s.Http.StreamOptions = struct('StopAfterSamples', 40000);   % stream dies mid-sweep
+            s.Daq.Http.StreamOptions = struct('StopAfterSamples', 40000);   % stream dies mid-sweep
             tc.verifyError(@() s.measure('sweep'), 'tim:lanxi:streamStalled');
             tc.verifyFalse(s.Gen.isOutputOn(), 'output must be switched off after an error');
             tc.verifyFalse(s.Gen.OutputArmed);
@@ -440,7 +570,138 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyGreaterThanOrEqual(size(s.LastPartial.records{end}, 1), 40000 - 2048);
             em = dir(fullfile(tc.cfg.output.dataDir, 'emergency', '*.mat'));
             tc.verifyNumElements(em, 1);
+            % audit 2026-10-11: outputOff never throws (a failure is only a
+            % warning), so the log says what was done, not that the output is off
+            tc.verifyTrue(any(contains(s.LogLines, 'Generator output commanded off (not read back).')), ...
+                strjoin(s.LogLines(max(1, end - 3):end), newline));
+            tc.verifyFalse(any(contains(s.LogLines, 'output switched off')));
             clear cleanup
+        end
+
+        function combinedDeviceStopsItsOutputFirstOnADeviceError(tc)
+            % D24 (approved by the owner 2026-10-11): connect sets the
+            % acquisition's AbortFcn = @() Gen.outputOff() for every driver pair
+            % (the lab pair: TestBusTraffic/outputOffBeforeTheStopOnAnAbnormalEnd).
+            % For a combined device it is the device's own re-entrant outputOff:
+            % when the device stalls while the output plays, the output stops
+            % (fade to 0 V) before the device stop and the 0 V write
+            c = tc.cfg;
+            c.generator.driver = 'simcombined'; c.daq.driver = 'simcombined';
+            sens = [11.2 11.5 10.9 11.3] * 1e-3;      % no TEDS: certificate values
+            for i = 1:4, c.mics(i).certificateSensitivity_VperPa = sens(c.mics(i).channel); end
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            quiet = warning('off', 'tim:emergency');
+            restoreWarn = onCleanup(@() warning(quiet));
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            tc.verifyClass(s.Daq.AbortFcn, 'function_handle', 'set by connect');
+            h = tim.sim.SimulatedCombined.testHooks(s.Daq);
+            fs = c.acquisition.sampleRate;
+            h.stallAfter(round((c.excitation.sweep.preRoll + 0.5) * fs));   % in the middle of the sweep
+            n0 = numel(h.traffic());
+            tc.verifyError(@() s.measure('sweep'), 'tim:simcombined:stalled');
+            t = h.traffic(); t = t(n0 + 1:end);
+            iHalt = find(strcmp(t, 'output stop'), 1);
+            iStop = find(strcmp(t, 'stop'), 1);
+            tc.assertNotEmpty(iHalt, ['the output was stopped by AbortFcn: ' strjoin(t(max(1, end - 4):end), ' | ')]);
+            tc.verifyLessThan(iHalt, iStop, 'output stopped before the device stop');
+            tc.verifyFalse(s.Gen.isOutputOn());
+            log = h.outputLog();
+            tc.verifyEqual(log(end, 4), 0, 'the output ends at 0 V');
+            h.stallAfter(Inf);
+            s.close();
+            tc.verifyEmpty(s.Daq.AbortFcn, 'released by close');
+            clear cleanup restoreWarn
+        end
+
+        function sampleRateOfTheDataIsChecked(tc)
+            % audit 2026-10-11: data delivered at another rate than the configured
+            % one would shift the frequency axis - the session marks the
+            % measurement as failing the integrity check whatever the driver
+            % reports (MeasurementSession.checkRate; test driver
+            % tests/support/FakeRateCombined, simulation only)
+            tc.applyFixture(matlab.unittest.fixtures.PathFixture( ...
+                fullfile(fileparts(mfilename('fullpath')), 'support')));
+            tim.instr.drivers('add', struct('name', 'fakeratecombined', 'class', 'FakeRateCombined'));
+            tc.addTeardown(@() tim.instr.drivers('remove', 'fakeratecombined'));
+            c = tc.cfg; c.generator.driver = 'fakeratecombined'; c.daq.driver = 'fakeratecombined';
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            m = s.measure('sweep');
+            tc.verifyFalse(m.integrityOk, 'the rate mismatch fails the integrity check');
+            integ = m.channelInfo{1}.integrity;
+            tc.verifyFalse(integ.ok);
+            tc.verifyTrue(any(contains(integ.fatal, sprintf('differs from the configured %g S/s', c.acquisition.sampleRate))), ...
+                strjoin(integ.fatal, ' | '));
+            tc.verifyEqual(m.fs, c.acquisition.sampleRate, 'meas.fs is the configured rate');
+            clear cleanup
+        end
+
+        function stopBetweenRepetitionsKeepsTheCompletedOnes(tc)
+            % audit 2026-10-11: Stop pressed while the stream of repetition 2
+            % drains (between two repetitions; the next checkStop raises): the
+            % completed repetitions are kept (LastPartial, emergency file) and
+            % the generator is off and disarmed, as for a Stop inside the record
+            c = tc.cfg; c.excitation.sweep.repetitions = 3;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            s.StatusCallback = @(line) stopOn(s, line, 'Repetition 2:');
+            tc.verifyError(@() s.measure('sweep'), 'tim:session:stopped');
+            tc.verifyFalse(s.Gen.isOutputOn(), 'output off');
+            tc.verifyFalse(s.Gen.OutputArmed, 'disarmed: the output cannot be switched on outside measure*');
+            tc.verifyError(@() s.Gen.outputOn(), 'tim:gen:notArmed');
+            tc.assertNotEmpty(s.LastPartial, 'the completed repetitions are kept');
+            tc.verifyNumElements(s.LastPartial.records, 2);
+            tc.verifyEqual(s.LastPartial.error, 'Measurement stopped by user.');
+            tc.verifyTrue(any(contains(s.LogLines, 'Generator output commanded off (not read back).')), ...
+                'commanded, not claimed off (audit 2026-10-11)');
+            em = dir(fullfile(c.output.dataDir, 'emergency', '*.mat'));
+            tc.verifyNumElements(em, 1, 'emergency file');
+            tc.verifyEqual(s.Status, 'error');
+            s.StatusCallback = [];
+            m = s.measure('sweep');                              % the next measurement works
+            tc.verifyNumElements(m.records, 3);
+            tc.verifyFalse(s.Gen.OutputArmed);
+            clear cleanup
+        end
+
+        function closedSessionConnectsAndClosesAgain(tc)
+            % audit 2026-10-11: close() after a reconnect of the same session
+            % releases the instruments again
+            s = tim.app.MeasurementSession(tc.cfg);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition(); s.close();
+            s.connect(); s.prepareAcquisition();
+            http = s.Daq.Http;
+            tc.assertEqual(http.State, 'RecorderStreaming');
+            s.close();
+            tc.verifyFalse(s.Connected);
+            tc.verifyFalse(s.Prepared);
+            tc.verifyEqual(s.Status, 'disconnected');
+            tc.verifyEqual(http.State, 'Idle', 'the LAN-XI module returned to Idle');
+            tc.verifyFalse(s.Gen.Transport.isOpen(), 'the generator transport closed');
+            clear cleanup
+        end
+
+        function relativeCalibrationFileFromAnyFolder(tc)
+            % audit 2026-10-11: a relative calibration.file is relative to the
+            % project root for the session as for the window (resolvePath), also
+            % when MATLAB's current folder is another one
+            root = tim.app.projectRoot();
+            tc.assumeTrue(strncmpi(root, tc.tmp, 2), 'project and temporary folder on the same drive');
+            cal = struct('type', 'tim.complexChannelCalibration', 'version', 'CAL-REL');
+            save(fullfile(tc.tmp, 'calrel.mat'), 'cal');
+            up = repmat({'..'}, 1, numel(strsplit(strip(root(3:end), 'right', filesep), filesep)) - 1);
+            rel = fullfile(up{:}, tc.tmp(4:end), 'calrel.mat');        % relative to the project root
+            tc.assertTrue(isfile(tim.app.resolvePath(rel)));
+            tc.applyFixture(matlab.unittest.fixtures.CurrentFolderFixture(tc.tmp));
+            c = tc.cfg; c.calibration.file = rel;
+            s = tim.app.MeasurementSession(c);
+            tc.verifyEqual(s.Calibration.version, 'CAL-REL');
         end
 
         function incompleteGeometryStillMeasures(tc)
@@ -708,6 +969,16 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             m2 = m; m2.mics = m.mics([4 2 1 3]);                   % list order must not matter
             r2 = tim.app.processMeasurement(m2, c, []);
             tc.verifyEqual(r2.pressureSpectrum.PSD_Pa2perHz, P);
+            tc.verifyFalse(any(contains(r2.diagnostics.warnings, 'Microphone mapping')), 'same mapping, other order');
+            % audit 2026-10-11: reprocessed with a configuration whose mapping
+            % differs from the recorded one (re-cabled since): used, but reported
+            c3 = c; c3.mics(1).position = 1; c3.mics(2).position = 2;   % (listed ch2, ch1): ch2 in M1, ch1 in M2
+            r3 = tim.app.processMeasurement(m, c3, []);
+            w = r3.diagnostics.warnings(contains(r3.diagnostics.warnings, 'Microphone mapping'));
+            tc.verifyNumElements(w, 1);
+            tc.verifySubstring(w{1}, 'ch1 M2, ch2 M1, ch3 M3, ch4 M4');
+            tc.verifySubstring(w{1}, 'recorded with (ch1 M1, ch2 M2, ch3 M3, ch4 M4)');
+            tc.verifyEqual(r3.channelOfPosition, [2 1 3 4], 'the configuration''s mapping is used');
             clear cleanup
         end
 
@@ -732,9 +1003,9 @@ classdef TestEndToEnd < matlab.unittest.TestCase
         end
 
         function connectionFailureMarksStep(tc)
-            % an error inside a step marks exactly that step as failed
-            c = tc.cfg; c.acquisition.filter = 'no such filter';
-            s = tim.app.MeasurementSession(c);
+            % an error inside a step marks exactly that step as failed (here the
+            % channel setup request fails at the module)
+            s = tim.app.MeasurementSession(tc.cfg);
             cleanup = onCleanup(@() s.close());
             ev = cell(0, 3);
             function record(k, st, d)
@@ -742,12 +1013,29 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             end
             s.ProgressCallback = @record;
             s.connect();
-            tc.verifyError(@() s.prepareAcquisition(), 'tim:lanxi:filter');
+            s.Daq.Http.FailPath = '/rest/rec/channels/input';
+            tc.verifyError(@() s.prepareAcquisition(), 'tim:lanxi:network');
             failed = ev(strcmp(ev(:, 2), 'fail'), :);
             tc.verifyEqual(size(failed, 1), 1);
             tc.verifyEqual(failed{1, 1}, 'setup');
-            tc.verifySubstring(failed{1, 3}, 'no such filter');
+            tc.verifySubstring(failed{1, 3}, 'mock network error');
             clear cleanup
+            % a setting the selected driver does not support is refused before
+            % any instrument is opened (the driver's checkConfig)
+            c = tc.cfg; c.acquisition.filter = 'no such filter';
+            tc.verifyError(@() connectSession(c), 'tim:config:filter');
         end
     end
+end
+
+function connectSession(cfg)
+% a session on cfg, connected and closed again (errors propagate)
+s = tim.app.MeasurementSession(cfg);
+cleanup = onCleanup(@() s.close());
+s.connect();
+end
+
+function stopOn(s, line, text)
+% the operator presses Stop when the session logs a line containing text
+if contains(line, text), s.requestStop(); end
 end

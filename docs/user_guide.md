@@ -8,7 +8,8 @@ the **Formula** tab of the window.
 
 ## 1. First steps
 
-1. Read `installation_windows.md`, then run `run_tests` once. All tests must pass.
+1. Read `installation_windows.md`, then run `run_tests` once. All tests must pass
+   (`run_tests('fast')` leaves out TestEndToEnd and the two hidden-window app runs).
 2. Check `config\user_config.json` (tracked in Git; it holds the lab settings, see section 9).
    Create it from `config\example_config.json` only if it does not exist. Commit it after
    changes, so that the history keeps the measured geometry.
@@ -42,10 +43,10 @@ about 20–25 s later, "All views ready (… s after the start)".
 * While a view is being prepared, a click is answered after a moment (at most about 3 s).
 * Nothing is prepared in the background while an action runs (connection, measurement,
   background noise, calibration, saving, loading): a step of 1–3 s would interrupt the data
-  stream of the LAN-XI module. Every action prepares the views it uses **before** it starts, e.g.
-  Start measurement the Time signals view, the calibration the Calibration view. A view opened
-  during an action says "This view is prepared when the running action has finished" and is
-  prepared first afterwards.
+  stream of the acquisition module (LAN-XI). Every action prepares the views it uses **before**
+  it starts, e.g. Start measurement the Time signals view, the calibration the Calibration view.
+  A view opened during an action says "This view is prepared when the running action has
+  finished" and is prepared first afterwards.
 * A view prepared later shows the data of then (last measurement, results, calibration,
   IMPEDANCE TUBE fields).
 * Scripts that use the window (`app = tubebench(...)`) can wait for every view with
@@ -112,8 +113,9 @@ The same style is used in the window and in the saved figures:
   excitation ends and locked again after the measurement. **Measure background noise** and the
   signal check of Connect never drive the loudspeaker.
 * **Amplitude limit** (`generator.maxVpp`): the Amplitude field cannot exceed it, the settings are
-  checked against it, and the programmed value is read back from the 33220A and checked again
-  right before the output is switched on.
+  checked against it, and the programmed value is read back from the generator (33220A) and
+  checked again right before the output is switched on. The field cannot go below the smallest
+  level of the generator either (33220A at load `"INF"`: 0.01 Vpk).
 * **Loudspeaker power limit**: the estimated loudspeaker power (generator amplitude × amplifier
   gain, section 4) is checked before every excitation. Above the limit the excitation is refused,
   also in simulation.
@@ -140,25 +142,42 @@ The same style is used in the window and in the saved figures:
   running action: a question asked after that action has ended, e.g. the unsaved-measurement
   question, is shown as usual.
 * **Errors and Stop** (network, stream, instrument error, Stop): the generator output is switched
-  off and read back (`OUTP?`); the alert says whether the output is confirmed off, or asks you to
-  switch the 33220A output off at the instrument. If the read-back does not confirm the output off,
-  the Generator lamp turns red and the status line reads "Generator output not confirmed off"
-  until a later read-back confirms it. If a recording was running, it is stopped and the data
-  received so far are saved to `data\emergency\partial_<time>.mat`; the views then show the last
-  measurement again.
-* **Data integrity**: the LAN-XI DataQuality flags (INVALID, clipped) and a software check
-  (≥ 99 % of the input range) mark a measurement as failing. The results are still computed, the
-  message pane lists the problem and a "Data integrity" warning appears.
+  off and read back (33220A: `OUTP?`). The message pane first says "generator output commanded
+  off" (only the command; a failure to send it is a warning in the command window), then the
+  result of the read-back; the alert says whether the output is confirmed off, or asks
+  you to switch the generator output off at the instrument (a generator that cannot report its
+  state - none of today's drivers - is reported as "switched off … check it at the instrument";
+  the simulated combined device as "output stopped (device idle, 0 V)"). If the read-back does
+  not confirm the output off, the Generator lamp turns red and the status line reads "Generator
+  output not confirmed off" until a later read-back confirms it. If a recording was running, the
+  generator output is switched off **first**, before the acquisition module is stopped (since
+  2026-10-11; stopping an unreachable LAN-XI module can take about 20 s, and the loudspeaker is
+  no longer driven meanwhile). The recording is then stopped and the data received so far are
+  saved to `data\emergency\partial_<time>.mat`; the views then show the last measurement again.
+  A Stop or an instrument error **between two repetitions** (e.g. while the stream of a
+  repetition is being closed) also keeps the repetitions completed so far in that file, and the
+  generator is locked again (it can be switched on only by the next measurement).
+* **Data integrity**: the input faults the acquisition reports (LAN-XI: DataQuality flags INVALID,
+  clipped) and a software check (≥ 99 % of the input range) mark a measurement as failing. The
+  results are still computed, the message pane lists the problem and a "Data integrity" warning
+  appears.
 * **Unsaved measurement**: before an unsaved measurement is replaced or lost (Start measurement,
   Measure background noise, File > Open measurement…, File > Load configuration…, closing the
   window), a dialog asks
   "… anyway? The measurement is then lost." with the action and Cancel.
 * **Closing the window** (the window's X or File > Exit): a "Closing" dialog appears at once and
-  lists the steps: generator output off, LAN-XI module back to Idle (2 s time-outs, so a
-  switched-off instrument cannot delay it), window closed. If an action is running it is stopped
-  first (output off at once) and the window closes as soon as it has stopped; if the last
-  measurement is not saved, the unsaved-measurement question is asked first (Cancel keeps the
-  window open). A second close request closes at once.
+  lists the steps: generator output off, the connections closed ("generator output off, LAN-XI
+  module back to Idle" with the lab instruments; 2 s time-outs, so a switched-off instrument
+  cannot delay it), window closed. If an action is running it is stopped first (output off at
+  once) and the window closes as soon as it has stopped; if the last measurement is not saved,
+  the unsaved-measurement question is asked first (Cancel keeps the window open). A second close
+  request closes at once. A question dialog that is open, or still opening, when the window
+  closes counts as its cancel answer. So does a question of the running action when the close
+  is requested (or Stop pressed) during that action, also in a window that is not connected:
+  e.g. the tube set-up and microphone-mapping questions of File > Open measurement… are
+  cancelled and the window closes after one close request. Stop or a close request pressed
+  while Connect is still starting is kept: the connection stops at its first step, before any
+  instrument is contacted.
 * Start with a low generator amplitude **and a low amplifier gain**, and increase gradually
   (commissioning section H3 in `examples/hardware_commissioning.m`).
 
@@ -183,6 +202,11 @@ source forms a voltage divider, `V_spk = V_oc·Z/(Z + 50 Ω)`:
 * Choose "none (direct drive)" in the Amplifier list (gain fixed at ×1) and keep
   `generator.load = "INF"`; "50" with direct drive is rejected. Raise `generator.maxVpp`
   deliberately (the lab file uses 2 Vpp = 1 Vpk).
+* The drive estimate and the loudspeaker power limit take the source impedance from the generator
+  driver (50 Ω for the 33220A). Another generator with an output of about 0 Ω (e.g. a DAQ analog
+  output) drives an 8 Ω loudspeaker with about (58/8)² ≈ 50 times the power of the same voltage
+  from the 33220A; the estimate and the excitation confirmation ("via the 0 Ω generator output")
+  account for it. A driver name the program does not know counts as 0 Ω (the worst case).
 
 ## 4. The control panel
 
@@ -190,11 +214,17 @@ source forms a voltage divider, `V_spk = V_oc·Z/(Z + 50 Ω)`:
 
 | Control | Function |
 |---|---|
-| Operating mode | Simulation (virtual tube, practice) or Hardware (33220A and LAN-XI module). **Fixed while connected**: press Disconnect to change it. |
-| Connect | Connects the generator (output off) and the LAN-XI module, reads TEDS, sets up the channels and makes a 1 s signal check without excitation. Opens Setup > Connection, where every step is shown. |
-| Disconnect | Generator output off, LAN-XI module back to Idle, connections closed. |
+| Operating mode | Simulation (virtual tube, practice) or Hardware (the instruments of the configuration; lab: 33220A and LAN-XI module). **Fixed while connected**: press Disconnect to change it. |
+| Connect | Connects the generator (output off) and the acquisition module (lab: the LAN-XI), reads TEDS where the module can, sets up the channels and makes a 1 s signal check without excitation. Opens Setup > Connection, where every step is shown. |
+| Disconnect | Generator output off, acquisition stopped (LAN-XI: back to Idle), connections closed. |
 | Status | "Not connected" (grey); "Connecting (hardware)…", "Busy: …" or "Measurement – loudspeaker driven" (blue) while an action runs; "Ready (simulation)" (green); "Ready (hardware) – with warnings" or "Connected (hardware) – a check failed" (orange); "Generator output not confirmed off" (orange, section 3). The verdict of the connection checks stays in the status line after every later action. |
-| Lamps | Generator, LAN-XI, ch1–ch4: grey = not connected, blue = running, green = OK, orange = check, red = fault. Details in Setup > Connection. |
+| Lamps | generator and acquisition module (labels from their drivers: Generator and LAN-XI in the lab; Output and Inputs for the simulated combined device), ch1–ch4: grey = not connected, blue = running, green = OK, orange = check, red = fault. The tooltip of the first two names the instrument and, once connected, its vendor, model, serial number and firmware. Details in Setup > Connection. |
+| In use | the instruments in use, one line each: before Connect the instruments the configuration selects (e.g. "Keysight/Agilent 33220A function generator", "HBK LAN-XI module (Open API)"); after Connect what each instrument reported about itself, e.g. "Generator: 33220A s/n …" and "LAN-XI: 3676-B-040 s/n 110283". In simulation mode the lines end with "(simulated)": the simulated instruments report realistic identities. |
+
+The instruments are **chosen in the configuration file**, not in the window (section 9, "Choosing
+the instruments"); the window only shows them. The texts of Connect and Disconnect, the lamp
+labels, the connection checklist and the limits of the EXCITATION fields follow the instruments
+in use.
 
 Connect takes the operating mode and the other fields as they are. If a field is invalid, Connect
 stops with the alert "Check the settings" and does not connect: correct the field and press
@@ -239,10 +269,10 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Field | Meaning |
 |---|---|
 | Signal | **Swept sine** (broadband, default) or **Stepped sine** (discrete frequencies, for cross-checks). Random noise is available from scripts only. |
-| Frequency [Hz] … to … | start and stop frequency, at most 0.45 × sample rate |
-| Sweep duration [s] | duration of one sweep; for the stepped sine the field is **Number of steps** (1–400) |
+| Frequency [Hz] … to … | start and stop frequency, at most the usable band of the instruments (LAN-XI: 0.45 × sample rate, i.e. 7372.8 Hz at 16384 S/s; the tooltip states the limit) |
+| Sweep duration [s] | duration of one sweep, within the sweep times of the generator (33220A: 0.001–500 s); for the stepped sine the field is **Number of steps** (1–400) |
 | Repetitions | number of repetitions, averaged (1–100) |
-| Amplitude [Vpk] | generator amplitude, peak voltage, up to the amplitude limit (`generator.maxVpp`/2) |
+| Amplitude [Vpk] | generator amplitude, peak voltage, from the smallest level of the generator at the configured load (33220A: 0.01 Vpk at `"INF"`, 0.005 Vpk at `"50"`) up to the amplitude limit (`generator.maxVpp`/2) |
 | Duration | expected duration of one measurement with these settings, e.g. "about 29 s" |
 | Amplifier | "none (direct drive)", "power amplifier", or type a model (typed models are added to the list) |
 | Amplifier gain | voltage gain of the amplifier as a factor, shown as ×10 (= 20 dB) |
@@ -251,6 +281,18 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 
 * Each signal keeps its own frequency range, duration or number of steps and repetitions:
   switching the Signal shows the values last used for that signal. The amplitude is common.
+* **Swept-sine range**: let the sweep start at or below f_lo/1.3 and stop at or above 1.1 × f_hi,
+  where f_lo = fMin − Δf/2 and f_hi = fMax + Δf/2 are the outer edges of the first and last
+  frequency line: **91 Hz and 4952 Hz** for the analysis band 120–4500 Hz at Δf = 2 Hz (default
+  sweep 80–5500 Hz). The sweep gate (theory.md section 4) needs that room outside the band to leave
+  the generator's switching clicks out. Since 2026-10-11 an end without the margin is analysed
+  without the gate's ramp, so the lines near the band edge stay accurate (before, they were biased
+  by up to 13 % at a 109 Hz start and 58 % for 120–4500 Hz in simulation): a start above the lower
+  limit is analysed from the detected start of the excitation (the output-on click included), a
+  stop below the upper limit keeps a ring-down margin after the sweep (an output-off click within
+  it included). The message pane warns when the configuration or a processed sweep does not keep
+  the margin, names the edge that was used and prints the two limits; the configuration check and
+  the analysis use the same limits.
 * **Amplifier gain**: the field is disabled for "none (direct drive)" (gain ×1). When you choose an
   amplifier, the field turns yellow and the message pane asks for the gain: **Start measurement
   and Run switching calibration… are refused until a gain has been entered** (typed into the
@@ -272,8 +314,14 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
     "✗ Test E failed" (orange); no mark when the check was not performed. The tooltip gives the
     result text of the check;
   * "– check" (orange) is appended when the calibration does not fit the set-up in the fields:
-    temperature more than 3 K different, port distances changed, other operating mode, or Test E
-    failed. The tooltip lists the reasons;
+    temperature more than 3 K different, port distances changed, other operating mode, Test E
+    failed, or another acquisition module or other input settings (driver, model, serial number,
+    sample rate, range, filter, CCLD) than when it was made - the calibration factors include the
+    DAQ inputs. A calibration made before version 1.2.0 does not record them and is not checked
+    for them. Also another microphone on a channel (the TEDS serial number read at Connect, else
+    the configured `mics(i).serial`; the factors include the microphones), and a calibration
+    computed from sweeps that failed the data integrity check (clipping, overload, device
+    flags). The tooltip lists the reasons;
   * "… (used at Connect)" (grey): a calibration file chosen while not connected; it is loaded at
     the next Connect. "… not found" (red): the configured file does not exist.
 * **Load calibration…** loads a `CAL-*.mat` file from the calibration folder. The file name is
@@ -310,7 +358,23 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   fields (geometry, temperature, pressure) and the active calibration, e.g. after correcting a
   distance or loading another calibration. Save measurement again to keep the new results (a new
   folder; the first one is not changed). This also works for a measurement opened with File > Open
-  measurement….
+  measurement…. Channel-to-port assignment (which DAQ channel is in which port M1–M4): a new
+  measurement is processed with the configuration's, the one of the connection. For a measurement
+  opened with File > Open measurement… whose recorded assignment (`meas.mics`, or its folder's
+  `config.json`) differs from the configuration's, the window asks when it opens it (section 7);
+  the recorded one is the default and Reprocess then uses it ("Microphone mapping as recorded with
+  the measurement: …" in the message pane). The configuration's assignment stays available there,
+  to correct an assignment that was recorded wrongly; the message pane then says that it differs
+  ("Microphone mapping of the configuration … differs …"). Since 2026-10-11 every swept-sine
+  frequency line is centred on its frequency (`docs/theory.md` section 4, step 3), so a sweep
+  saved before gives slightly different results when reprocessed (on the lab data of 2026-10-09/10
+  |ΔR| up to 0.006, |ΔZt| up to 0.0024 ρc, a few lines change validity); a calibration made
+  before that date was computed with the former lines and still applies (the difference it
+  leaves is of the same order, at most 0.004 in the calibrated pressures).
+* The `config.json` that Save measurement writes is the configuration the saved results were
+  computed with (after File > Open measurement… without Reprocess: the opened folder's
+  `config.json`), so it always describes `result.mat`; folder and figure formats follow the
+  window.
 
 ### Which buttons are available
 
@@ -332,8 +396,10 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 3. Press **Connect**. Setup > Connection opens and lists every step with its result and duration
    (section 6). Read the line above the list: "Connected - all checks passed.", "Connected with
    warnings – see the orange items below." or "Connected, but a check failed – see the red items
-   below." The status line keeps this verdict. Check the sensitivity source of every channel and
-   the background level of the signal check.
+   below." The status line keeps this verdict. A Connect refused before any instrument is
+   contacted (a setting outside the driver's limits, an unknown driver, a missing calibration
+   file) reads "Connection refused: …" in red, with every step still pending. Check the
+   sensitivity source of every channel and the background level of the signal check.
 4. Check the **IMPEDANCE TUBE** fields against the tube (D, T, p, s1, L1, d, L2, s2) and look at
    Setup > Tube setup. Enter the measured temperature and static pressure. Store the values with
    File > Save configuration… and commit `config/user_config.json`.
@@ -367,17 +433,29 @@ virtual microphones are moved by the program; everything else is the same.
 
 ### Setup > Connection
 
+* The **Instruments** table: one row per instrument (one row "Output + Inputs (both roles)" for a
+  device that is generator and acquisition at once): role and lamp label, the instrument (the
+  driver's display name), the driver name of the configuration, and - after Connect - the vendor,
+  model, serial number and firmware the instrument reported ("–" before); the last column shows
+  the settings of the configuration (amplitude limit and load; sample rate, input range,
+  high-pass filter, CCLD). Its tooltip lists the values each driver allows (loads and levels,
+  sweep times, sample rates, ranges, filters, CCLD, TEDS). Sample rate and range have no control
+  in the window: set them in the configuration (section 9).
 * The **Connection checklist**, one row per step with a status icon (turning icon = running), the
-  result and the duration: function generator 33220A (SCPI, output off); LAN-XI module (REST);
-  recorder state Idle (returned to Idle if needed); open recorder; TEDS transducer detection;
-  channel setup → streaming; microphone sensitivities (order certificate → TEDS → nominal);
-  settling of the CCLD supply and the high-pass filter (hardware only); **signal check** (1 s
-  without excitation). A failing step is marked red with the error message, and the line above
-  the list names it.
+  result and the duration. The steps come from the drivers in use; with the lab instruments:
+  function generator 33220A (SCPI, output off); LAN-XI module (REST); recorder state Idle
+  (returned to Idle if needed); open recorder; TEDS transducer detection; channel setup →
+  streaming; then always microphone sensitivities (order certificate → TEDS → nominal); settling
+  of the inputs (lab: the CCLD supply and the high-pass filter; hardware only); **signal check**
+  (1 s without excitation). The simulated combined device has the steps "Simulated device
+  (output + 4 inputs)" and "Channel setup". A failing step is marked red with the error message,
+  and the line above the list names it. Before Connect the list shows the steps of the
+  instruments the configuration selects; after Disconnect it shows the last connection.
 * One **card per channel**: "ch1 → port M1", status, TEDS type and serial number, sensitivity and
-  its source, the level of the signal check in dB SPL. Orange "check: …" for no TEDS, a nominal
-  sensitivity or a TEDS serial number that differs from the configuration; red "FAULT" for a
-  failed signal check (LAN-XI flag INVALID: cable or CCLD fault; clipped; no signal; overload).
+  its source, the level of the signal check in dB SPL. Orange "check: …" for no TEDS (on a module
+  that reads TEDS), a nominal sensitivity or a TEDS serial number that differs from the
+  configuration; red "FAULT" for a failed signal check (an input fault the module reports, e.g.
+  LAN-XI flag INVALID: cable or CCLD fault; clipped; no signal; overload).
 * A **table**: Channel, Port, Microphone, Sensitivity [mV/Pa], Source, TEDS s/n, Level [dB SPL],
   Signal check.
 
@@ -438,12 +516,19 @@ second, the header note gives the live level of every channel. After the measure
 record of repetition 1, long records as a min / max envelope so that every peak stays visible. A
 display high-pass at 20 Hz removes the slow CCLD settling drift; the raw data are not changed and
 are stored in volts. Without a valid sensitivity for every channel the graphs show mV.
-For a swept sine the parts of the record that are **not analysed** are shaded grey: before the
-sweep (the "click" when the generator output is switched on and the start-frequency tone) and
-after it (the jump back to the start frequency and the click when the output is switched off).
+For a swept sine the parts of the record that are **not analysed** are shaded grey: normally
+before the sweep (the "click" when the generator output is switched on and the start-frequency
+tone) and after it (the jump back to the start frequency and the click when the output is
+switched off).
 The sweep is located in every repetition by a matched filter; only the sweep enters the transfer
-functions and the calibration (`docs/theory.md`, section 4). If the sweep cannot be found, the
-message pane says so and the whole excited interval is used.
+functions and the calibration (`docs/theory.md`, section 4). A sweep that starts too close to the
+band (above f_lo/1.3) is analysed from the detected start, one that stops too close (below
+1.1 × f_hi) with a ring-down margin after its end, so the shading starts or ends there (see
+"Swept-sine range" above). The header note then says so per end: before the analysed part there
+is only the pre-roll and the output-on transient and the start-frequency tone are analysed, or
+the analysed part continues past the sweep end and includes an output-off transient within the
+margin. If the sweep cannot be found, the message pane says so and the whole excited interval is
+used.
 Summary **Channels**: Channel, Port, Peak [Pa], Level [dB SPL] (rms of the displayed record,
 including pre- and post-roll), Sensitivity [mV/Pa], Source (TEDS, Certificate, Nominal).
 
@@ -538,20 +623,34 @@ and symbols; 1 transfer functions (swept sine, stepped sine, random noise); 2 sw
 calibration; 3 plane-wave decomposition; 4 pressure and particle velocity at the specimen faces;
 5 reflection, transmission and dissipation; 6 transfer impedance; 7 transmission loss; 8 transfer
 matrix (scripts only); 9 air properties and tube losses; 10 geometric validity range; 11 validity
-criteria; 12 units and level references. The derivations are in `theory.md`.
+criteria; 12 units and level references; 13 references (standards and literature). Every section
+ends with a grey "Sources:" line: the standards and papers it follows, cited as [n] of section 13,
+and what is this program's own choice (for example the sweep gate, the SNR estimators and every
+validity threshold). The derivations are in `theory.md`, whose reference list is the same.
 
 ## 7. Menus
 
 * **File**: Open measurement…, Load configuration…, Save configuration…, Exit.
   * *Open measurement…* shows a measurement saved by Save measurement again: select `raw.mat` (or
     `result.mat`) in its folder under `data\`. Every view shows the saved data and results (the
-    results are not recomputed), Last result reads "Opened: `<folder>`" and the message pane gives
+    results are not recomputed), drawn with the analysis band and the coherence and |R_term|
+    limits they were computed with (as in the saved figures), not with those of the loaded
+    configuration; Last result reads "Opened: `<folder>`" and the message pane gives
     the measurement time, the specimen and the calibration of the saved results. If the tube
     set-up of the saved results (its `config.json`) differs from the IMPEDANCE TUBE fields, a
     dialog asks "Use the saved set-up" (puts it into the fields) or "Keep the current fields".
-    **Reprocess** then computes the results again with the fields and the active calibration;
-    **Save measurement** writes a new folder. The opened files are only read, never changed. It
-    asks about an unsaved measurement first and works connected or not.
+    If the microphones were on other ports when the measurement was recorded (`meas.mics` in
+    `raw.mat`, or the folder's `config.json`) than the configuration says now (e.g. re-cabled
+    since, or another configuration loaded), a second dialog shows both assignments and asks
+    "Use the recorded mapping" (the default, also when the dialog is closed) or "Keep the
+    configuration's mapping" (only to correct an assignment that was recorded wrongly). The
+    choice applies to Reprocess of this measurement only; the message pane records it.
+    **Reprocess** then computes the results again with the fields, the active calibration and that
+    assignment; **Save measurement** writes a new folder whose `config.json` holds the assignment
+    of its results. The opened files are only read, never changed. It asks about an unsaved
+    measurement first and works connected or not. From a script:
+    `app.openMeasurement(folder, useSavedTube, useRecordedMapping)` (each `'ask'` - the
+    default, a hidden window takes the default answer -, `true` or `false`).
   * *Load configuration…* asks about an unsaved measurement; when connected it asks "Disconnect and
     load" (the operating mode, the microphones and the calibration settings belong to the
     connection). The last measurement is cleared.
@@ -600,13 +699,74 @@ before measuring if the code was edited. Without a `.git` folder (copied project
 missing in the file keeps its default. Lengths in metres, amplitudes in Vpp (the window shows Vpk
 = Vpp/2), NaN / `null` = not provided (the program never guesses a value).
 
+### Choosing the instruments
+
+The instruments are chosen **only in the configuration file** (`formatVersion` 2); the window has
+no selector and shows which instruments are in use (INSTRUMENTS "In use" and the lamps, section 4;
+the Instruments table of Setup > Connection, section 6). Each role names a **driver**, and each
+driver keeps its own settings in a sub-struct named after it:
+
+```json
+"generator": { "driver": "keysight33220a", "maxVpp": 2, "load": "INF",
+               "keysight33220a": { "host": "169.254.2.20", "port": 5025, "timeout": 5 } },
+"daq":       { "driver": "lanxi",
+               "lanxi": { "host": "169.254.64.156", "timeout": 10, "connector": "BNC" } }
+```
+
+1. **Find the driver.** `tim.instr.drivers()` lists the registered drivers; today
+   `keysight33220a` (Keysight/Agilent 33220A function generator), `lanxi` (HBK LAN-XI module,
+   Open API), `simcombined` (a simulated device with one output and four inputs on one sample
+   clock, for both roles, simulation mode only) and `demo` (the demo signal generator DEMO-SG1,
+   an imaginary instrument: the worked example of `docs/adding_an_instrument.md`, simulation mode
+   only). `d = tim.instr.driverInfo('lanxi')` shows its display name, its roles
+   (`d.capabilities.roles`), its default settings (`d.defaults.settings`) and what it allows
+   (`d.capabilities`: sample rates, input ranges, filters, loads, levels, sweep times). The
+   Instruments table of Setup > Connection shows the same values in its tooltip.
+2. **Name it** in `generator.driver` and / or `daq.driver`. A driver that takes both roles (one
+   device with output and inputs) is named in both sections and reads its settings from
+   `daq.<driver>` only; settings of it in `generator.<driver>` are not used (warning
+   `tim:config:misplacedSettings` when the file is loaded and at Connect).
+3. **Its own settings** (address, time-out, connector, …) go into `generator.<driver>` or
+   `daq.<driver>`; keys left out take the driver's defaults. A file may keep the settings of
+   several drivers and switch with `driver`.
+4. **The generic settings** (`generator.maxVpp`, `generator.load`, the excitation levels and sweep
+   durations, the `acquisition` section) mean the same for every driver, but their allowed values
+   come from the selected driver, which checks them and names any value it does not support.
+   Loading a file (File > Load configuration…, File > Open measurement…, start-up,
+   `tim.app.loadConfig`) only **warns** about such a value - a file written by tubebench 1.1.0 or
+   on another set-up still loads; the EXCITATION fields start within the driver's limits (e.g. at
+   the generator's smallest level). **Connect** refuses it with the message (window: "Check the
+   settings"). The smallest level of the generator is checked for the swept sine (calibration,
+   Test E) and the selected signal; another level is refused when it is played.
+   `acquisition.sampleRate`, `range`, `filter` and `ccld` left out, `null` or `""` take the
+   driver's default.
+5. **Connect.** Before connecting the window shows the display names of the selected drivers,
+   after Connect the vendor, model, serial number and firmware each instrument reported, and the
+   checklist, the lamp labels, the Connect / Disconnect texts and the limits of the EXCITATION
+   fields follow the drivers. Every measurement stores the drivers, their settings and these
+   identities (`metadata.json`: `generator`, `daq`); a calibration records the acquisition module
+   and its input settings, and the CALIBRATION line warns when the measurement uses another one.
+
+An instrument without a driver needs one first: `docs/adding_an_instrument.md` is the
+step-by-step procedure (with the templates of `templates/instrument/`; in Claude Code the skill
+`add-instrument` runs it), `docs/instrument_interface.md` the contract a driver implements. A file
+of the older layout (`formatVersion` 1: `generator.host` / `port` / `timeout` and a `lanxi`
+section, as `config/user_config.json` still is) loads with the same settings; File > Save
+configuration… writes the new layout. A driver name this installation does not know (a measurement folder from
+another set-up) loads with a warning and is shown as `unknown driver "<name>"`, so the data can
+still be opened and reprocessed; Connect then reports the error.
+
+### All keys
+
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | `"simulation"` | `"simulation"` or `"hardware"` (lab file: hardware) |
 | `ui.language` | `"en"` | `"en"` or `"ko"`: operator prompts, dialog titles and buttons of the calibration steps (including the step header and the diagram hint), the excitation confirmation (also its drive line in the log line "Excitation confirmed") and the channel identification, and the command-window prompts of scripts. The calibration prompts are also written to the log in the selected language, and the errors "estimated loudspeaker power exceeds the limit" and "Amplifier gain not entered" are raised in it. All other log lines and errors, the window labels and the documents stay in English. |
-| `generator.host`, `port` | 169.254.2.20, 5025 | 33220A (SCPI over TCP) |
-| `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit** of the programmed amplitude in Vpp, at most 20 Vpp |
-| `generator.load` | `"INF"` | 33220A output load setting, exactly `"INF"` or `"50"`, see below |
+| `generator.driver` | `"keysight33220a"` | generator driver |
+| `generator.keysight33220a.host`, `port`, `timeout` | 169.254.2.20, 5025, 5 s | 33220A (SCPI over TCP); old layout: `generator.host`, `port`, `timeout` |
+| `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit** of the programmed amplitude in Vpp, at most the driver's maximum (33220A: 20 Vpp at `"INF"`, 10 Vpp at `"50"`) |
+| `generator.load` | `"INF"` | output load setting, one of the driver's values (33220A: exactly `"INF"` or `"50"`, see below) |
+| `generator.allowUnconfirmedOff` | false | only for a generator that cannot report whether its output is off (none of today's drivers): true accepts it in hardware mode |
 | `amplifier.model` | `""` | `"none (direct drive)"` (must start with "none"), `"power amplifier"` or a model name |
 | `amplifier.gainFactor` | NaN | voltage gain as a factor (×10 = 10 = 20 dB); 1 for direct drive; `gain_dB` is derived |
 | `amplifier.gainSetting` | `""` | free text, e.g. the knob position (scripts) |
@@ -616,18 +776,19 @@ missing in the file keeps its default. Lengths in metres, amplitudes in Vpp (the
 | `loudspeaker.impedance_ohm` | 8 | nominal impedance (field Loudspeaker [Ω]) |
 | `loudspeaker.maxPower_W` | 1.0 | loudspeaker power limit (field Power limit [W]) |
 | `loudspeaker.ratedPower_W` | 25 | rated power: a power limit above it is flagged |
-| `lanxi.host`, `connector` | 169.254.64.156, `"BNC"` | LAN-XI module; `"BNC"` or `"LEMO"`, whichever the microphones use |
-| `acquisition.sampleRate` | 16384 | 4096, 8192, 16384, 32768 or 65536 Hz |
-| `acquisition.range`, `filter` | `"10 Vpeak"`, `"0.7 Hz"` | input range and high-pass filter |
+| `daq.driver` | `"lanxi"` | acquisition (DAQ) driver |
+| `daq.lanxi.host`, `timeout`, `connector` | 169.254.64.156, 10 s, `"BNC"` | LAN-XI module; `"BNC"` or `"LEMO"`, whichever the microphones use (`""`, possible in files of 1.1.0: the module keeps its own setting); old layout: `lanxi.host`, `timeout`, `connector` |
+| `acquisition.sampleRate` | 16384 (driver default) | a rate of the DAQ driver; LAN-XI 3676: 4096, 8192, 16384, 32768 or 65536 S/s |
+| `acquisition.range`, `filter` | `"10 Vpeak"`, `"0.7 Hz"` (driver defaults) | input range and high-pass filter, values of the DAQ driver |
 | `acquisition.settleTime` | 3 | seconds of CCLD / high-pass settling after the channel setup (hardware) |
 | `acquisition.sensitivityPolicy` | `"certificate>teds>nominal"` | order of the sensitivity sources |
-| `mics(i)` | ch1–ch4 in M1–M4 | `channel` (LAN-XI input), `position` (port 1–4 = M1–M4, M1 nearest the loudspeaker), `model`, `serial`, `nominalSensitivity_VperPa` (11.2 mV/Pa), `certificateSensitivity_VperPa`, `certificateDate` |
+| `mics(i)` | ch1–ch4 in M1–M4 | `channel` (DAQ input), `position` (port 1–4 = M1–M4, M1 nearest the loudspeaker), `model`, `serial`, `nominalSensitivity_VperPa` (11.2 mV/Pa), `certificateSensitivity_VperPa`, `certificateDate` |
 | `geometry` | D 29 mm, positions NaN | `diameter` (D), `micPositions` (x of M1–M4), `spacingUp`/`spacingDown` (s1, s2), `xFront`, `xRear`; written by the IMPEDANCE TUBE fields |
 | `tubeDrawing` | lab CAD | part sizes for the drawings only |
 | `environment` | 20 °C, 101325 Pa | `temperature_C`, `pressure_Pa`; `c_override`, `rho_override` replace the computed values; `relativeHumidity` is recorded only |
 | `excitation` | section 8 | `mode` and the settings of `sweep`, `stepped`, `noise` |
 | `analysis.refChannel` | 1 | reference channel of the transfer functions |
-| `analysis.fMin`, `fMax`, `df` | 120, 4500, 2 Hz | analysis band and frequency-line spacing (`fMax` ≤ 0.45 × sample rate) |
+| `analysis.fMin`, `fMax`, `df` | 120, 4500, 2 Hz | analysis band and frequency-line spacing (`fMax` ≤ the usable band of the DAQ driver, LAN-XI: 0.45 × sample rate) |
 | `analysis.lossModel` | `"kirchhoff"` | tube-loss model: `"kirchhoff"` (visco-thermal wall losses, attenuation and phase-velocity reduction, matching characteristic impedance), `"iso10534"` (ISO 10534-2 attenuation only, for ISO-conformant work) or `"none"`. The same model is used by the analysis, Tests D/E and the virtual tube (`theory.md` section 1). `"iso10534"` and `"none"` bias a thin-element Z_t (up to about 47 % and about two thirds of Z_t at \|Z_t\|/(ρc) = 0.05 in the lab tube) and give a "CHECK: …" warning. A configuration saved before `"kirchhoff"` became the default (2026-10-09), and the `config.json` of an older measurement folder, still name `"iso10534"`. |
 | `analysis.velocityRef` | `"mean"` | velocity in Z_t: `"mean"`, `"upstream"` or `"downstream"` |
 | `analysis.coherenceMin`, `snrMin_dB` | 0.98, 20 dB | quality limits of the validity masks |
@@ -731,6 +892,10 @@ folder = tim.app.saveMeasurement(meas, res, s.Cfg, 'foam_25mm', figs);
 s.close();
 ```
 
+* `s.Gen` is the generator and `s.Daq` the acquisition module (one object for a device that takes
+  both roles); `s.Gen.identity()` / `s.Daq.identity()` return what the instrument reported
+  (`vendor`, `model`, `serial`, `firmware`, `raw`) and `metadata()` what is stored with every
+  measurement. `connect` logs both in the command window.
 * In hardware mode the excitation confirmation appears in the command window ("Type y to
   continue …"); `s.ExcitationConfirm = @(msg) …` replaces it.
 * `s.setExcitation(ex)`, `s.setLoudspeaker(Z, Pmax)` and `s.setGeometryEnvironment(geom, env)`
@@ -744,9 +909,16 @@ calibration:
 
 ```matlab
 S = load('data/<folder>/raw.mat');  cfg2 = tim.app.loadConfig('config/user_config.json');
+cfg2 = tim.app.useRecordedMapping(cfg2, S.meas.mics);   % the ports the microphones were recorded in
 C = load('calibration/CAL-20261009-101500.mat', 'cal');
 res2 = tim.app.processMeasurement(S.meas, cfg2, C.cal);
 ```
+
+`tim.app.useRecordedMapping` sets the port of every DAQ channel in `cfg2.mics` to the one the
+measurement was recorded with (the configuration loaded now may have been re-cabled since); its
+second output says whether the two differed. Leave that line out only to correct an assignment
+that was recorded wrongly: `processMeasurement` then uses the configuration's assignment and adds
+the warning "Microphone mapping of the configuration … differs …" to `res2.diagnostics.warnings`.
 
 ## 12. Stored data
 
@@ -759,7 +931,7 @@ never overwritten; a suffix `_2`, `_3`, … is added if needed.
 
 | File | Content |
 |---|---|
-| `raw.mat` | `meas`: raw volts of every repetition, settings, generator events, microphones and sensitivities, metadata (instrument identities, firmware, TEDS, LAN-XI setup, amplifier, configuration) and the undecoded stream bytes of the last repetition |
+| `raw.mat` | `meas`: raw volts of every repetition, settings, generator events, microphones and sensitivities, metadata (the drivers with their display names and settings, the instrument identities with firmware, TEDS, the LAN-XI setup, amplifier, configuration) and the undecoded stream bytes of the last repetition |
 | `result.mat` | `res` (spectra, calibration info, analysis, validity); not for background noise or a measurement without results |
 | `config.json`, `metadata.json` | configuration snapshot; metadata including `softwareInfo` |
 | `results.csv` | one row per frequency line: R, τ, R_term, Z_t, TL, power fractions, condition numbers, every mask and flag |
@@ -780,7 +952,8 @@ with a measurement.
 
 A saved folder is shown again in the window with **File > Open measurement…** (section 7), or
 from a script with `app.openMeasurement(folder)`; without the window: `load(fullfile(folder,
-'raw.mat'))` and `tim.app.processMeasurement(meas, cfg, cal)`.
+'raw.mat'))`, `cfg = tim.app.useRecordedMapping(cfg, meas.mics)` and
+`tim.app.processMeasurement(meas, cfg, cal)` (section 11).
 
 Simulated measurements are labelled "SIMULATED DATA" in `README.txt` and in the metadata, and are
 stored separately in `data\simulation\` and `calibration\simulation\`, so they cannot be confused
@@ -797,11 +970,13 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 |---|---|
 | Start measurement is greyed out | not connected; a failed or stopped connection leaves the instruments disconnected: remove the cause (Setup > Connection names the failed step) and press Connect |
 | Alert "Check the settings" | a field is not valid (e.g. the stop frequency is not above the start frequency, L1, d or L2 is not a number): correct it and press Connect, Start measurement or Run switching calibration… again |
-| Status "Generator output not confirmed off", Generator lamp red | the read-back after a Stop or an error did not confirm that the 33220A output is off: switch the output off at the instrument |
+| Status "Generator output not confirmed off", Generator lamp red | the read-back after a Stop or an error did not confirm that the generator output (33220A) is off: switch the output off at the instrument |
+| "In use" or the Instruments table shows `unknown driver "…"` | the configuration names a driver this installation does not have (e.g. a configuration from another set-up): the data can be opened and reprocessed, Connect is refused; choose a registered driver (section 9, "Choosing the instruments") |
+| "In use" shows other instruments than expected | the configuration selects them: check `generator.driver` and `daq.driver` and the operating mode (Simulation shows the simulated instruments, marked "(simulated)") |
 | Alert "Measurement cancelled" | Cancel in "Confirm excitation": the loudspeaker was not driven; nothing to repair |
 | "enter the voltage gain set on the amplifier …" or "Amplifier gain not entered" | an amplifier is chosen: type its gain into Amplifier gain |
 | Excitation refused: estimated loudspeaker power exceeds the limit | lower the Amplitude or the amplifier gain, or raise Power limit [W] deliberately |
-| Signal check: LAN-XI flag INVALID on all channels, no TEDS | microphones not connected, or wrong connector (`lanxi.connector` BNC ↔ LEMO), cable fault |
+| Signal check: LAN-XI flag INVALID on all channels, no TEDS | microphones not connected, or wrong connector (`daq.lanxi.connector` BNC ↔ LEMO; in a file of the older layout, as the lab file: `lanxi.connector`), cable fault |
 | Card "check: nominal sensitivity" | no certificate value and no TEDS: enter `certificateSensitivity_VperPa` |
 | Card "check: TEDS serial differs from the configuration" | microphone on the wrong channel, or `mics(i).serial` outdated |
 | `tim:lanxi:state` | the module is in an unexpected state: Disconnect returns it to Idle (`s.Daq.shutdown()` in scripts) |
@@ -810,7 +985,8 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | `tim:gen:amplitude` | requested amplitude above `generator.maxVpp`, or changed at the front panel |
 | `tim:gen:scpiError` | the 33220A reported an error (message included); output switched off |
 | "Excitation not detected" | amplifier off or muted, loudspeaker disconnected, level too low |
-| Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed or other mode: check the set-up and recalibrate |
+| Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed, other mode, another acquisition module or input settings, another microphone on a channel, or calibration sweeps with data integrity problems: check the set-up and recalibrate |
+| Calibration message "C3 (ch3/ch1): no valid frequency line" | no usable signal on that input (microphone unplugged, cable or CCLD fault): the calibration of the other channels is saved, that channel stays uncalibrated and the empty-tube check is skipped; repair the input and calibrate again |
 | Few valid frequency lines | Results > Validity: "no valid calibration" (load or run a calibration), low coherence / low SNR (amplitude, repetitions), termination not anechoic (τ, TL), velocity mismatch (thick specimen: thin-element Z_t not applicable) |
 | Transfer impedance view empty, "Thin-element model not applicable" | the specimen is thick (k·d > 1): use Reflection and transmission and Transmission loss |
 | A view shows "Preparing the view…" | the views are prepared in the background during the first half minute after the start (section 2); after a running action it is prepared first. "This view could not be prepared" names the cause in Messages: close and start the program again |

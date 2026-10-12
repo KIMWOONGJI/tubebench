@@ -1,6 +1,6 @@
 %% BENCH TEST WITHOUT IMPEDANCE TUBE - run section by section (Ctrl+Enter)
-% Situation: microphones connected to the LAN-XI, but NOT mounted in the
-% tube. Goal: verify everything that does not need the tube
+% Situation: microphones connected to the DAQ (lab: the LAN-XI), but NOT
+% mounted in the tube. Goal: verify everything that does not need the tube
 %   B0 connection / TEDS / integrity (Test A)
 %   B1 channel identification (tap test)
 %   B2 first excitation at low level (speaker in free air)
@@ -38,9 +38,9 @@ end
 bench.B0 = tim.val.testA_acquisition(s, 3);
 fprintf('Test A passed: %d\n  fatal: %s\n  background 100-5000 Hz [dB SPL]: %s\n', bench.B0.passed, ...
     strjoin(bench.B0.fatal, ' | '), mat2str(bench.B0.backgroundLevel_dB_100_5000Hz, 3));
-% A channel with "INVALID" and no TEDS: swap its cable/microphone with a
-% working channel and repeat B0 - does the fault follow the microphone,
-% the cable or the LAN-XI input?
+% A channel with a fault flag (LAN-XI: "INVALID") and no TEDS: swap its
+% cable/microphone with a working channel and repeat B0 - does the fault
+% follow the microphone, the cable or the DAQ input?
 
 %% B1 - channel identification: blow gently onto each microphone in turn
 % A figure window counts down ch1 -> ch4 (6 s each). Do NOT tap the table or

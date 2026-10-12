@@ -5,6 +5,10 @@ This document defines every convention used in the code (`+tim/+acoustics`, `+ti
 quantities are SI. The GUI tab **Formula** (`tim.gui.equationsPanel`) shows the same equations in
 short form, with the default thresholds read from `tim.app.defaultConfig` at run time.
 
+Sources are cited as [n]. The list at the end (References) is, word for word, section 13 of the
+Formula tab (`TestFormulaPanel` compares them). A definition, threshold or procedure without a
+source is this program's own choice, and its reason is given here.
+
 ## 1. Conventions, symbols, air and tube losses
 
 | Item | Convention |
@@ -32,9 +36,9 @@ and `TL_τ`, and `τ_a`, `R_a` for the anechoic-termination coefficients derived
 
 ### Air properties (`tim.acoustics.airProperties`)
 
-    c   = 343.2 m/s · √(T / 293 K)                         ISO 10534-2
+    c   = 343.2 m/s · √(T / 293 K)                         ISO 10534-2 [1]
     ρ   = p_s / (287.05 J/(kg K) · T)                      ideal gas, dry air (R/M, M = 28.9647 g/mol)
-    μ   = 1.716·10⁻⁵ Pa s · (T/273.15 K)^{3/2} · 383.55 K / (T + 110.4 K)     Sutherland
+    μ   = 1.716·10⁻⁵ Pa s · (T/273.15 K)^{3/2} · 383.55 K / (T + 110.4 K)     Sutherland [15]
     ν   = μ/ρ,   κ = 1.4,   Pr = 0.709
 
 `T` is in kelvin (temperature in °C + 273.15). At 20 °C and 101.325 kPa: `c = 343.29 m/s`,
@@ -53,8 +57,8 @@ the error in `c` is amplified, see section 3A.
 
 ### Tube losses (`tim.acoustics.wavenumber`, `cfg.analysis.lossModel`)
 
-**`'kirchhoff'` (default).** Visco-thermal wall losses of a wide tube (Kirchhoff 1868; first order
-of the Zwikker–Kosten circular-tube model, Tijdeman 1975, Stinson 1991). With the viscous boundary
+**`'kirchhoff'` (default).** Visco-thermal wall losses of a wide tube (Kirchhoff [11]; first order
+of the Zwikker–Kosten circular-tube model [12], Tijdeman [13], Stinson [14]). With the viscous boundary
 layer `δ_v = √(2ν/ω)` and the radius `a = D/2`, the effective density and bulk modulus are
 
     ρ_eff/ρ = 1 + (1 − j)·δ_v/a,      K/K_eff = 1 + (κ − 1)(1 − j)·δ_v/(a·√Pr)
@@ -77,7 +81,7 @@ Against the exact circular-tube solution (Zwikker–Kosten / Stinson, Bessel fun
 lab geometry is recovered within 0.1 % (0.06 % found).
 
 **`'iso10534'`.** `k = ω/c − j·1.94·10⁻²·√f/(c·D)`, `Z_c = ρc`: the empirical ISO 10534-2 wall
-attenuation. It keeps `Re k = ω/c`, i.e. it omits the phase-velocity reduction of equal magnitude.
+attenuation [1]. It keeps `Re k = ω/c`, i.e. it omits the phase-velocity reduction of equal magnitude.
 That is harmless for `|R|` (error < 0.008) and is the ISO-conformant choice for absorption work. It
 biases the thin-element `Z_t`, which is a small difference of two pressures extrapolated over
 `x3 − x2`: the absolute error is about `k″·(x3 − x2)·ρc`, i.e. about `0.02ρc` at 4.5 kHz for
@@ -123,14 +127,17 @@ the empty-tube check; or measure a thin reference element with a known `Z_t`.
 
 ## 2. Two-microphone plane-wave decomposition
 
-On each side of the specimen the field between the microphones and the specimen is
+The two-microphone decomposition is that of Seybert and Ross [6] and Chung and Blaser [7]; the
+four-microphone arrangement, with one pair on each side of the specimen, that of ASTM E2611 [3]
+and Song and Bolton [8]. On each side of the specimen the field between the microphones and the
+specimen is
 
     p(x) = A·exp(−jkx) + B·exp(+jkx),       u(x) = (A·exp(−jkx) − B·exp(+jkx)) / Z_c
 
 The velocity follows from the linearised Euler equation of the cross-section average,
 `jωρ_eff·u = −∂p/∂x`: `u = k/(ωρ_eff)·(A e^{−jkx} − B e^{+jkx})`, and `k/(ωρ_eff) = 1/Z_c` with
 `Z_c = √(ρ_eff·K_eff)`. This is exact for the visco-thermal plane mode with the `'kirchhoff'` pair
-`(k, Z_c)` and for the lossless model. `'iso10534'` keeps `Z_c = ρc` (ASTM E2611 practice); for a
+`(k, Z_c)` and for the lossless model. `'iso10534'` keeps `Z_c = ρc` (ASTM E2611 [3] practice); for a
 visco-thermal tube the true `Z_c` then differs by about `0.36·(1 − j)·k″/k0` (< 0.6 % above
 100 Hz for `D = 29 mm`). `R`, `τ`, `R_term`, `δ_u`, `Z_t/Z_c`, the TL from `Z_t`, `τ_a`, `R_a` and
 the TL from `T` do not depend on `Z_c`; only the dimensional `u`, `Z_t` [Pa·s/m], `T12`, `T21` and
@@ -216,7 +223,7 @@ section gives `Z_t/Z_c = 2j·tan(kd/2)`. The Transfer impedance and Transmission
 `Z_t` and the TL from `Z_t` when `Re(k)·d > 1` anywhere in the analysis band (`tim.plots.thickSpecimen`,
 `d` = specimen thickness). For such specimens use the transfer matrix.
 
-For a pure series element `T = [1 Z_t; 0 1]`, `T12 = Z_t` (`tm.Zseries`).
+For a pure series element `T = [1 Z_t; 0 1]` (Munjal [10]), `T12 = Z_t` (`tm.Zseries`).
 
 **Transmission loss from Z_t** (`res.thin.TL_dB`). Inserting `T = [1 Z_t; 0 1]` into the
 anechoic-termination transmission coefficient of section 3B gives `τ_a = 2/(2 + Z_t/Z_c)`, hence
@@ -248,20 +255,22 @@ residual of Test C small.
 
 `[p_L; u_L] = T [p_R; u_R]` has four unknown complex elements per frequency. One excitation state
 gives one vector equation, i.e. two scalar equations. A complete `T` therefore needs **two
-independent acoustic states** (ASTM E2611): two terminations (two-load method) or two source
-positions. The GUI does not compute `T`; use `tim.acoustics.transferMatrix` from a script.
+independent acoustic states** (ASTM E2611 [3]; Song and Bolton [8]): two terminations (two-load
+method) or two source positions. The GUI does not compute `T`; use `tim.acoustics.transferMatrix`
+from a script.
 
 * **Two-load** (`transferMatrix('twoLoad', resA, resB)`):
   `T = P·Q⁻¹`, `P = [p_L⁽¹⁾ p_L⁽²⁾; u_L⁽¹⁾ u_L⁽²⁾]`, `Q = [p_R⁽¹⁾ p_R⁽²⁾; u_R⁽¹⁾ u_R⁽²⁾]` for loads (1)
   and (2). The column scaling of each load cancels, so relative pressures can be used. `cond(Q)`
   (with the velocity row multiplied by `Z_c`) is reported. If the loads are too similar, `T` is
   undetermined.
-* **One-load, symmetric** (`transferMatrix('oneLoadSymmetric', res)`): valid **only** if the
-  specimen is reciprocal (`det T = 1`) **and** symmetric (`T11 = T22`). Then, with
+* **One-load, symmetric** (`transferMatrix('oneLoadSymmetric', res)`; [3], [8], [9]): valid
+  **only** if the specimen is reciprocal (`det T = 1`) **and** symmetric (`T11 = T22`). Then, with
   `q = p_L u_R + p_R u_L`: `T11 = T22 = (p_R u_R + p_L u_L)/q`, `T12 = (p_L² − p_R²)/q`,
   `T21 = (u_L² − u_R²)/q`. This is an assumption-based reconstruction, not a general measurement.
 
-From `T` (anechoic-termination equivalents, independent of the actual termination):
+From `T` (anechoic-termination equivalents, independent of the actual termination; equal
+cross-sections, [3], [10]):
 
     τ_a = 2 / (T11 + T12/Z_c + Z_c·T21 + T22)
     R_a = (T11 + T12/Z_c − Z_c·T21 − T22) / (T11 + T12/Z_c + Z_c·T21 + T22)
@@ -298,7 +307,9 @@ which is independent of `S(f)`. That removes the dependence on:
 * the start-frequency tone the 33220A emits before and after a triggered sweep (it is outside the
   sweep gate of step 2 anyway).
 
-Estimator (`tim.dsp.sweepResponse`), per repetition:
+Estimator (`tim.dsp.sweepResponse`), per repetition. The H1 estimator and the coherence are those
+of Bendat and Piersol [16] (sweep measurements in general: Müller and Massarani [18]); the sweep
+gate, the frequency lines and the SNR are this program's:
 
 1. Detect the excited interval on the reference channel (band-limited short-time RMS in 10 ms
    frames, 12 dB above the pre-roll background).
@@ -319,9 +330,57 @@ Estimator (`tim.dsp.sweepResponse`), per repetition:
    `f_hi` to `1.1 f_hi` of ring-down (in the tube about 1 ms per 0.3 m of path, decaying with
    |R|). Ramps shorter than 10 ms are widened to 10 ms inside the sweep. The pre-roll noise
    estimate uses the same window energy. The window of repetition 1 is shown in the Time signals
-   view (grey: not analysed). If the sweep is not found, step 2' is used and a warning says so.
-   With the default band 120–4500 Hz the sweep should start at least 10 % below 120 Hz and stop at
-   least 10 % above 4500 Hz (default 80–5500 Hz).
+   view (grey: not analysed; its note names an end without the margin, below). If the sweep is
+   not found, step 2' is used and a warning says so.
+   The sweep must reach beyond the band: it should start at or below `f_lo/1.3` and stop at or
+   above `1.1 f_hi` (default 80–5500 Hz for 120–4500 Hz). Closer to the band the gate has no room
+   for its ramps at that end: they would fall on the band edges (the lower one at most half as
+   long as designed, the start-frequency tone cut close to the band; no ring-down margin above
+   `f_hi`), and the lines there would be biased while their coherence stays high, so they would
+   remain valid. **An end without that margin therefore gets another edge** (owner decision
+   2026-10-11), with exactly the thresholds of the warning (`f_start > f_lo/1.3`,
+   `f_stop < 1.1 f_hi`, with `f_lo`, `f_hi` the outer edges of the first and last line):
+
+   * **start**: as without the gate (step 2'), from the detected start of the excitation minus
+     10 ms with a 10 ms raised cosine - the output-on transient and the start-frequency tone are
+     inside the window, the tone is not cut;
+   * **end**: the window is extended past the end of the sweep `t0 + T` by the gate's ring-down
+     margin, the sweep law continued beyond `f_stop`: 1 up to `t(1.1 f_hi)`, a raised cosine down
+     to `t(1.5 f_hi)` (at least 10 ms, at most to the end of the record). An output-off transient
+     later than that stays out.
+
+   `res.diagnostics.excitation(r).gateEnds` records the edge used at each end of every repetition
+   (`'gate'`, `'detected start'`, `'ring-down margin'`), and `tim.dsp.sweepResponse` adds a warning
+   ("Sweep … too close to the analysis band for the sweep gate: …", in `res.diagnostics.warnings`
+   and the calibration log) that names the edge and the margin; `tim.app.validateConfig` reports
+   the configured range with the same limits (`tim.dsp.sweepGateLimits`, one definition for both:
+   `f_lo/1.3` = 91.5 Hz and `1.1 f_hi` = 4951.1 Hz for 120–4500 Hz at Δf = 2 Hz, printed as 91 and
+   4952 Hz; until the review of 2026-10-11 the check used the line centres, 92 and 4950 Hz, so a
+   sweep set to those values passed it and was analysed without the gate at that end). The lab
+   range (80–5500 Hz or wider for 120–4500 Hz) keeps the gate at both ends: the five lab folders
+   and both lab calibrations give bit-identical results with this rule.
+
+   *Choice of the edges (simulation, 2026-10-11; 3 s log sweep, band 120–4500 Hz, session-like
+   records with the output switched off 0.05 or 0.19 s after the sweep, max |H/H_true − 1|).*
+   Without the gate's ramps both candidates for the end - step 2' (to the detected end plus the
+   ring-down time) and the extension past `t0 + T` - remove the bias equally (|R_term| = 0.9:
+   120–4500 Hz 58 % with the gate → 0.9–2.2 %; 80–4600 Hz 7.9 % → 0.63 %; 80–4500 Hz 63 % →
+   0.62 %; |R_term| = 0.03: 16–18 % → 0.02–0.24 %; trigger latency 5–30 ms as in the rig or
+   0.13–0.28 s as measured on the lab). With an output-off click that does not follow the tube
+   (independent per channel, three times the signal RMS, as in `TestDsp`) step 2' always contains
+   it, while the ring-down margin past `t0 + T` leaves a click 0.19 s after the sweep at the edge of
+   the window (80–4600 Hz, |R_term| = 0.9: 92 % vs 13 %; with the click 0.05 s after the sweep both
+   contain it). The extension is therefore used at the end. At the start only step 2'
+   applies (there is no ring-down before the sweep); 109–5500 Hz: 12 % → 0.63 % (|R_term| = 0.9).
+   A start without margin always contains the output-on click, so the advice stays: let the sweep
+   reach `f_lo/1.3` and `1.1 f_hi`.
+
+   *Measured with the gate before 2026-10-11 (audit; noise-free rig, 3 s log sweep, band
+   120–4500 Hz, max |H/H_true − 1| over the band, |R_term| = 0.03 / 0.9):* 80–5500 Hz 0.10 % / 1.9 %
+   (as without the gate); start 100 Hz 0.28 % / 2.3 %, 105 Hz 0.77 % / 6.9 %, 109 Hz (still 10 %
+   below the band) 0.84 % / 13 %, 120 Hz 1.9 % / 19 %; stop 4950 Hz 0.10 % / 1.0 %, 4800 Hz 0.19 % /
+   0.9 %, 4600 Hz 2.5 % / 7.7 %, 4500 Hz 18 % / 63 %. The earlier advice ("at least 10 % below the
+   band") was not enough at the lower edge.
 
    *Measured on the lab tube (empty 75 mm section, 2026-10-09):* the trigger latency varied by
    0.15 s between repetitions (sweep start 1.128–1.277 s after the record start) and the output-off
@@ -334,18 +393,48 @@ Estimator (`tim.dsp.sweepResponse`), per repetition:
    included, and truncation leakage is confined to segments where the signal has decayed; the
    on/off transients are inside this window.
 3. FFT, then accumulate `Y_k Y_ref*`, `|Y_ref|²` and `|Y_k|²` over all FFT bins inside each
-   frequency line `[f − Δf/2, f + Δf/2)` (`Δf = cfg.analysis.df`, default 2 Hz) and over all
-   repetitions.
+   frequency line `[f − Δf/2, f + Δf/2]` (`Δf = cfg.analysis.df`, default 2 Hz) and over all
+   repetitions. The line is **symmetric about its frequency `f`**: a bin inside counts once, a
+   bin exactly on an edge `f ± Δf/2` counts with weight 1/2 in each of the two lines that share
+   it (at the ends of the grid in the one line). With the lab's power-of-two FFT every edge is a
+   bin (`f_s/N_FFT` = 0.125 Hz for a 5 s sweep, 0.25 Hz for 3 s), so a line holds `Δf·N_FFT/f_s`
+   bins in all (`nAvg` sums the weights) and its centroid is `f`.
+
+   *Change 2026-10-11 (audit finding, approved by the owner).* The line used to be half-open,
+   `[f − Δf/2, f + Δf/2)`: the bins `f − Δf/2 … f + Δf/2 − δ` (`δ = f_s/N_FFT`), centred at
+   `f − δ/2`, so `H`, `γ²` and the SNR were estimates at `f − δ/2` labelled `f`. The phase of
+   `H_k` was off by about `−(dφ_k/df)·δ/2` - a systematic inter-pair phase error, the quantity
+   section 3A identifies as critical for a low `Z_t` (in simulation 1.2·10⁻⁴ to 5.7·10⁻⁴ rad
+   median for a 3 s sweep, 0.2-0.6 % of a low `Z_t`; for a pure delay `τ` exactly `π τ δ`).
+   Every saved sweep result and calibration (`C_k` uses the same estimator) carries the shift.
+   The lab folders are reprocessed into new folders after the 1.2.0 merge (raw data are never
+   overwritten).
+
+   *Effect on the lab data* (the five folders of 2026-10-09/10 and both calibrations, reprocessed
+   read-only in memory on 2026-10-11; 5 s sweeps, 16 bins per line and repetition). Relative
+   responses `Y_k/Y_ref`: median phase change 3.5–6.2·10⁻⁴ rad per folder; up to 5·10⁻² rad and
+   4 % only at lines of low coherence where `H` is steep. `C_k` recomputed from the saved switching
+   sweeps:
+   at most 4·10⁻³ in magnitude and 3.9·10⁻³ rad (median 2.3–2.4·10⁻⁴ rad) on its valid lines, 2–3
+   lines change validity. New code with the recomputed calibration against the old code, on the
+   valid lines: calibrated pressures at most 6.3·10⁻³ in magnitude and 6.6·10⁻³ rad, |ΔR| at most
+   6.0·10⁻³, |ΔZ_t|/ρc at most 2.4·10⁻³ (1.4 % of `Z_t`; 0.1 % in three folders, the fifth has no
+   valid `Z_t` line); no folder has a valid `τ` line (termination not anechoic); 0–2 lines per
+   folder change a validity mask. The existing calibration files (`C_k` from the old band) applied
+   to the new `H`: |ΔR| at most 4.6·10⁻³ and |ΔZ_t|/ρc at most 2.6·10⁻³ against the results of the
+   old code; against a calibration recomputed with the new band (CAL-20261010-212544) the old
+   `C_k` leaves at most 4·10⁻³ and 3.9·10⁻³ rad in the calibrated pressures, |ΔR| 3.2·10⁻³ and
+   |ΔZ_t|/ρc 1.4·10⁻⁴.
 4. Compute
 
-        H_k^m = Σ Y_k Y_ref* / Σ |Y_ref|²                       (H1)
+        H_k^m = Σ Y_k Y_ref* / Σ |Y_ref|²                       (H1 [16])
         γ_k²  = |Σ Y_k Y_ref*|² / (Σ |Y_ref|² · Σ |Y_k|²)
 
    Because the sums run over neighbouring bins and repetitions, `γ²` is a meaningful consistency
    indicator. It is trivially 1 only for a single bin and a single repetition, which is reported
    as a warning.
 5. SNR: the signal energy of the frequency line is compared with the expected energy of the
-   background noise measured in the pre-roll (one-sided Welch PSD `G_n,k`, same taper and length):
+   background noise measured in the pre-roll (one-sided Welch PSD [17] `G_n,k`, same taper and length):
 
         E|N_k|² = G_n,k/2 · f_s · Σ_m w_m²          (per FFT bin)
         SNR_k  = 10·log10( max(Σ|Y_k|² − ΣE|N_k|², 10⁻⁴·ΣE|N_k|²) / ΣE|N_k|² )
@@ -376,7 +465,7 @@ by `FREQ` while the output stays on (phase continuous), and every step is analys
    and used for all channels.
 2. **Block fits.** The record is split into `n_b` blocks (`nBlocks`, default 4) of
    `N = ⌊N_rec/n_b⌋` samples. In block `i` a linear least-squares fit on `[cos, −sin, 1]` at `f̂`
-   (3-parameter sine fit, IEEE 1057) gives the phasor of every channel:
+   (3-parameter sine fit, IEEE 1057 [4]) gives the phasor of every channel:
 
         x_k(t) ≈ Re{Y_k,i e^{j2πf̂t}} + o_k,i
 
@@ -412,7 +501,8 @@ bias of +0.08 dB (white noise, N_rec = 8192) and +0.01 dB (N_rec = 16384); a str
 
 ## 6. Noise excitation (scripts only)
 
-The 33220A `FUNC NOIS` is used with Welch H1 estimation (`tim.dsp.welchResponse`, Hann window,
+The 33220A `FUNC NOIS` is used with Welch spectra [17] and the H1 estimator [16] (also for the SNR
+from the coherence; `tim.dsp.welchResponse`, Hann window,
 50 % overlap; note that MATLAB's `cpsd(a,b) = ⟨A·conj(B)⟩`, so `H = cpsd(x_c, x_ref) /
 pwelch(x_ref)`):
 
@@ -428,12 +518,12 @@ sine only. The periodic multisine (arbitrary waveform) mode is **not** implement
 
 | Limit | Formula | Value |
 |---|---|---|
-| Spacing lower limit (ASTM E1050: s ≥ 1 % of λ) | `0.01·c/s` | 118 Hz |
-| Spacing upper limit (ASTM E1050/E2611: `ks ≤ 0.8π`) | `0.40·c/s` | 4.73 kHz |
-| ISO 10534-2 spacing rule (`f·s < 0.45c`) | `0.45·c/s` | 5.33 kHz (not applied) |
+| Spacing lower limit (ASTM E1050 [2]: s ≥ 1 % of λ) | `0.01·c/s` | 118 Hz |
+| Spacing upper limit (ASTM E1050 [2] / E2611 [3]: `ks ≤ 0.8π`) | `0.40·c/s` | 4.73 kHz |
+| ISO 10534-2 [1] spacing rule (`f·s < 0.45c`) | `0.45·c/s` | 5.33 kHz (not applied) |
 | Singularity (`ks = π`) | `c/(2s)` | 5.92 kHz |
-| ISO 10534-2 diameter rule (`f·D < 0.58c`) | `0.58·c/D` | 6.87 kHz |
-| Cut-on of the (1,1) mode | `1.8412·c/(πD) = 0.586·c/D` | 6.94 kHz |
+| ISO 10534-2 [1] diameter rule (`f·D < 0.58c`) | `0.58·c/D` | 6.87 kHz |
+| Cut-on of the (1,1) mode [10] | `1.8412·c/(πD) = 0.586·c/D` | 6.94 kHz |
 
 The geometric validity range is
 
@@ -467,8 +557,12 @@ s = 29 mm). For thin elements of low impedance the inter-pair phase matters more
 3. `qualityOK`: coherence and SNR at all four ports, **and a valid complex calibration**. Without
    calibration nothing is ever valid.
 
-`valid = measured & geometryOK & qualityOK & ~nonPassive`. Criteria and defaults
-(`cfg.analysis`):
+`valid = measured & geometryOK & qualityOK & ~nonPassive`. An unknown coherence or SNR (NaN, e.g.
+the swept-sine SNR when no repetition had ≥ 0.1 s of noise-only pre-roll, section 4 step 5) fails
+its criterion, as in the switching calibration (`tim.cal.switchingCorrection`); before 2026-10-11
+it passed silently. `tim.app.validateConfig` reports a sweep pre-roll below 0.15 s. Criteria and
+defaults (`cfg.analysis`; every threshold is a configurable default of this program, not a value of a
+standard, and the geometric limits are those of section 7):
 
 | Flag (rejects when true) | Criterion | Default |
 |---|---|---|
@@ -522,7 +616,7 @@ they reject `R` only through their upstream part (`valid.upstream`).
 |---|---|
 | `p`, `u`, `Z_t`, `ρc` | Pa, m/s, Pa·s/m; `Z_t/(ρc)`, `R`, `τ`, `α_d`, `γ²`, `C_k`, `H_k` dimensionless |
 | `k`, `f`, positions | rad/m, Hz, m (mm in the GUI) |
-| Sound pressure level | `L_p = 20·log10(p_rms / 20 µPa)` dB SPL; tone of a step: `p_rms = \|Y\|/(√2·sensitivity)` |
+| Sound pressure level | `L_p = 20·log10(p_rms / 20 µPa)` dB SPL (reference value: ISO 1683 [5]); tone of a step: `p_rms = \|Y\|/(√2·sensitivity)` |
 | PSD | `10·log10(G_pp / (20 µPa)²)` dB re (20 µPa)²/Hz, one-sided Welch estimate |
 | Without sensitivities | dB re 1 V and dB re 1 V²/Hz |
 | `\|H_k\|`, `\|C_k\|` | `20·log10\|·\|` dB; phases in degrees |
@@ -531,13 +625,52 @@ they reject `R` only through their upstream part (`valid.upstream`).
 
 ## References
 
-* ISO 10534-2:1998, Acoustics – Determination of sound absorption coefficient and impedance in
-  impedance tubes – Part 2: Transfer-function method.
-* ASTM E1050, Standard test method for impedance and absorption of acoustical materials using a
-  tube, two microphones and a digital frequency analysis system.
-* ASTM E2611, Standard test method for normal incidence determination of porous material acoustical
-  properties based on the transfer matrix method.
-* IEEE 1057, Standard for digitizing waveform recorders (3-parameter sine fit).
-* G. Kirchhoff (1868), Ann. Phys. 134; H. Tijdeman (1975), J. Sound Vib. 39, 1–33;
-  M. R. Stinson (1991), J. Acoust. Soc. Am. 89, 550–558; C. Zwikker and C. W. Kosten (1949), Sound
-  absorbing materials.
+Cited as [n] above and in the Formula tab (section 13, the same text). The constants taken from
+ISO 10534-2 (`c`, the attenuation `1.94·10⁻²`, `f·D < 0.58c`, `f·s < 0.45c`, `s > 5 %` of the
+wavelength) are those of the 1998 edition; the 2023 edition and the 2024 editions of the ASTM
+standards were not checked against them (checked 2026-10-12: ISO 10534-2:1998 is withdrawn,
+E1050-24 and E2611-24 are the active ASTM editions).
+
+Standards
+
+* [1] ISO 10534-2:1998, Acoustics – Determination of sound absorption coefficient and impedance in
+  impedance tubes – Part 2: Transfer-function method. Withdrawn; revised as ISO 10534-2:2023,
+  Acoustics – Determination of acoustic properties in impedance tubes – Part 2: Two-microphone
+  technique for normal sound absorption coefficient and normal surface impedance.
+* [2] ASTM E1050, Standard test method for impedance and absorption of acoustical materials using
+  a tube, two microphones and a digital frequency analysis system (current edition E1050-24).
+* [3] ASTM E2611, Standard test method for normal incidence determination of porous material
+  acoustical properties based on the transfer matrix method (current edition E2611-24).
+* [4] IEEE Std 1057-2017, IEEE standard for digitizing waveform recorders (3-parameter sine fit).
+* [5] ISO 1683:2015, Acoustics – Preferred reference values for acoustical and vibratory levels.
+
+Literature
+
+* [6] A. F. Seybert and D. F. Ross (1977), Experimental determination of acoustic properties using
+  a two-microphone random-excitation technique, J. Acoust. Soc. Am. 61, 1362–1370.
+* [7] J. Y. Chung and D. A. Blaser (1980), Transfer function method of measuring in-duct acoustic
+  properties. I. Theory; II. Experiment, J. Acoust. Soc. Am. 68, 907–913 and 914–921.
+* [8] B. H. Song and J. S. Bolton (2000), A transfer-matrix approach for estimating the
+  characteristic impedance and wave numbers of limp and rigid porous materials, J. Acoust. Soc.
+  Am. 107, 1131–1152.
+* [9] J. S. Bolton, T. Yoo and O. Olivieri (2007), Measurement of normal incidence transmission
+  loss and other acoustical properties of materials placed in a standing wave tube, Brüel & Kjær
+  Technical Review No. 1.
+* [10] M. L. Munjal (2014), Acoustics of ducts and mufflers, 2nd ed., Wiley.
+* [11] G. Kirchhoff (1868), Ueber den Einfluss der Wärmeleitung in einem Gase auf die
+  Schallbewegung, Ann. Phys. Chem. 134, 177–193.
+* [12] C. Zwikker and C. W. Kosten (1949), Sound absorbing materials, Elsevier.
+* [13] H. Tijdeman (1975), On the propagation of sound waves in cylindrical tubes, J. Sound Vib.
+  39, 1–33.
+* [14] M. R. Stinson (1991), The propagation of plane sound waves in narrow and wide circular
+  tubes, and generalization to uniform tubes of arbitrary cross-sectional shape, J. Acoust. Soc.
+  Am. 89, 550–558.
+* [15] W. Sutherland (1893), The viscosity of gases and molecular force, Phil. Mag. (5) 36,
+  507–531.
+* [16] J. S. Bendat and A. G. Piersol (2010), Random data: analysis and measurement procedures,
+  4th ed., Wiley.
+* [17] P. D. Welch (1967), The use of fast Fourier transform for the estimation of power spectra:
+  a method based on time averaging over short, modified periodograms, IEEE Trans. Audio
+  Electroacoust. 15, 70–73.
+* [18] S. Müller and P. Massarani (2001), Transfer-function measurement with sweeps, J. Audio Eng.
+  Soc. 49, 443–471.

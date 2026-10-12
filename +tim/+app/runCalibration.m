@@ -9,7 +9,7 @@ function [cal, file, raw] = runCalibration(session, opts)
 %     I   : reference microphone in port a, microphone k in port b -> measure
 %     I'  : (optional) remove and reinsert both, same ports        -> repeat
 %     II  : interchange the two microphones (each keeps its own cable /
-%           preamplifier / LAN-XI input)                           -> measure
+%           preamplifier / DAQ input)                              -> measure
 %   The remaining microphones stay in the other ports (their signals are
 %   recorded but unused). The empty specimen section (lab: 75 mm,
 %   SIT-PT-003, without specimen) is mounted, so the tube is continuous
@@ -20,7 +20,9 @@ function [cal, file, raw] = runCalibration(session, opts)
 %   one sweep with the microphones in their measurement ports is evaluated
 %   as the empty-tube check, Test E (tau = exp(-j k d)), stored in
 %   cal.meta.emptyCheck; cal.meta.tube records the set-up (section, length,
-%   geometry, environment). The last prompt asks to mount the specimen
+%   geometry, environment) and cal.meta.acquisition the DAQ chain the factors
+%   include (driver, module identity, input settings; session.acquisitionChain,
+%   compared by tim.cal.calibrationContext). The last prompt asks to mount the specimen
 %   section again. In simulation the virtual rig models the empty specimen
 %   section (sample 'air') during the calibration and gets its specimen
 %   back afterwards, also after an error or Stop. See docs/calibration_procedure.md.
@@ -65,61 +67,97 @@ if isfinite(dSec) && dSec > 0, secTxt = sprintf(' (%g mm)', round(1e3 * dSec, 3)
 verify = ~isfield(cfg.calibration, 'verifyEmptySection') || cfg.calibration.verifyEmptySection;
 session.beginOperation();                       % STOP between steps stays pending
 opGuard = onCleanup(@() session.endOperation());
+home0 = zeros(1, 4); home0([cfg.mics.channel]) = [cfg.mics.position];
 if strcmp(cfg.mode, 'simulation') && ~isempty(session.Rig)
+    % the virtual microphones go back to their measurement ports on every
+    % exit (a Stop, Cancel or error in a switching step left them in the
+    % calibration ports, and the next measurement read swapped microphones)
+    restoreMics = onCleanup(@() homeMics(session, home0));
     specimen = session.setSimulationSample(struct('type', 'air'));          % operator mounts the empty section
     restoreSpecimen = onCleanup(@() session.setSimulationSample(specimen));  % also on error / STOP
 end
 % step 0: preparation checklist (empty specimen section mounted, absorbing
 % termination, ports sealed); microphones in their measurement ports
-home0 = zeros(1, 4); home0([cfg.mics.channel]) = [cfg.mics.position];
 prompt(tim.app.msg(lang, 'calPrepare', secTxt, ab(1), ab(2)), home0);
 session.log('%s', tim.app.msg(lang, 'calPrepare', secTxt, ab(1), ab(2)));
 results = cell(1, 4);
 raw = struct('channel', {}, 'config', {}, 'meas', {}, 'spectra', {});
-for k = chans
-    others = setdiff(1:4, [ref k]);
-    otherPos = setdiff(1:4, ab);
-    mapI = zeros(1, 4); mapI(ref) = ab(1); mapI(k) = ab(2); mapI(others) = otherPos;
-    mapII = mapI; mapII(ref) = ab(2); mapII(k) = ab(1);
-    seq = {'I', mapI, tim.app.msg(lang, 'calConfigI', k, ref, ab(1), k, ab(2))};
-    if cfg.calibration.repeatConfigI
-        seq(end+1, :) = {'Irep', mapI, tim.app.msg(lang, 'calConfigIrep', k)};
+% data integrity of every switching sweep (clipping, overload, device flags):
+% recorded with the calibration and checked by tim.cal.calibrationContext
+integrity = struct('channel', {}, 'config', {}, 'ok', {}, 'problems', {});
+try
+    for k = chans
+        others = setdiff(1:4, [ref k]);
+        otherPos = setdiff(1:4, ab);
+        mapI = zeros(1, 4); mapI(ref) = ab(1); mapI(k) = ab(2); mapI(others) = otherPos;
+        mapII = mapI; mapII(ref) = ab(2); mapII(k) = ab(1);
+        seq = {'I', mapI, tim.app.msg(lang, 'calConfigI', k, ref, ab(1), k, ab(2))};
+        if cfg.calibration.repeatConfigI
+            seq(end+1, :) = {'Irep', mapI, tim.app.msg(lang, 'calConfigIrep', k)}; %#ok<AGROW>
+        end
+        seq(end+1, :) = {'II', mapII, tim.app.msg(lang, 'calConfigII', k, ref, ab(2), k, ab(1))}; %#ok<AGROW>
+        sp = struct();
+        for i = 1:size(seq, 1)
+            session.throwIfStopped();
+            prompt(seq{i, 3}, seq{i, 2});
+            session.throwIfStopped();
+            session.log('%s', seq{i, 3});
+            m = session.measure('sweep');
+            s = tim.dsp.sweepResponse(m.records, m.fs, struct('refChannel', ref, 'fRange', [a.fMin a.fMax], ...
+                'df', a.df, 'preRoll', m.settings.preRoll, 'excitationBand', [m.settings.fStart m.settings.fStop], ...
+                'sweep', m.settings));    % sweep gate: generator on/off transients excluded
+            for w = reshape(s.warnings, 1, []), session.log('Warning: %s', w{1}); end
+            sp.(seq{i, 1}) = s;
+            raw(end+1) = struct('channel', k, 'config', seq{i, 1}, 'meas', m, 'spectra', s); %#ok<AGROW>
+            integrity(end+1) = struct('channel', k, 'config', seq{i, 1}, 'ok', m.integrityOk, ...
+                'problems', {integrityProblems(m)}); %#ok<AGROW>
+            if ~m.integrityOk
+                session.log(['Warning: configuration %s of ch%d has data integrity problems (%s): the calibration ' ...
+                    'factor C%d may be wrong - repeat the calibration at a lower level.'], seq{i, 1}, k, ...
+                    strjoin(integrity(end).problems, '; '), k);
+            end
+            coh = s.coherence(:, k); snr = min(s.snr_dB(:, [ref k]), [], 2);
+            okBins = coh >= cfg.calibration.coherenceMin & snr >= cfg.calibration.snrMin_dB;
+            report(struct('kind', 'measurement', 'channel', k, 'config', seq{i, 1}, ...
+                'fracOk', mean(okBins), 'coherenceMedian', median(coh, 'omitnan'), ...
+                'snrMedian_dB', median(snr, 'omitnan'), 'integrityOk', m.integrityOk));
+        end
+        o = struct('cohI', sp.I.coherence(:, k), 'cohII', sp.II.coherence(:, k), ...
+            'snrI', min(sp.I.snr_dB(:, [ref k]), [], 2), 'snrII', min(sp.II.snr_dB(:, [ref k]), [], 2), ...
+            'coherenceMin', cfg.calibration.coherenceMin, 'snrMin_dB', cfg.calibration.snrMin_dB);
+        if isfield(sp, 'Irep'), o.HIrepeat = sp.Irep.H(:, k); end
+        try
+            results{k} = tim.cal.switchingCorrection(sp.I.f, sp.I.H(:, k), sp.II.H(:, k), o);
+        catch err
+            if ~strcmp(err.identifier, 'tim:cal:noValidBins'), rethrow(err); end
+            % a dead or unplugged input: this channel stays uncalibrated, the
+            % other channels and every raw sweep are kept and saved
+            results{k} = [];
+            msg = sprintf(['C%d (ch%d/ch%d): no valid frequency line (coherence or SNR too low) - check the ' ...
+                'microphone, cable and input of ch%d; channel not calibrated'], k, k, ref, k);
+            session.log('%s', msg);
+            report(struct('kind', 'channel', 'channel', k, 'nValid', 0, 'Nf', numel(sp.I.f), ...
+                'repeatability', [], 'text', msg));
+            continue
+        end
+        r = results{k};
+        msg = sprintf('C%d (ch%d/ch%d): %d of %d frequency lines valid', k, k, ref, r.nValid, r.Nf);
+        if ~isempty(r.repeatability)
+            msg = sprintf('%s; remounting repeatability max. %.3f dB / %.2f°', msg, ...
+                r.repeatability.maxMag_dB, r.repeatability.maxPhase_deg);
+        end
+        session.log('%s', msg);
+        for n = 1:numel(r.notes), session.log('  Note: %s', r.notes{n}); end
+        report(struct('kind', 'channel', 'channel', k, 'nValid', r.nValid, 'Nf', r.Nf, ...
+            'repeatability', r.repeatability, 'text', msg));
     end
-    seq(end+1, :) = {'II', mapII, tim.app.msg(lang, 'calConfigII', k, ref, ab(2), k, ab(1))};
-    sp = struct();
-    for i = 1:size(seq, 1)
-        session.throwIfStopped();
-        prompt(seq{i, 3}, seq{i, 2});
-        session.throwIfStopped();
-        session.log('%s', seq{i, 3});
-        m = session.measure('sweep');
-        s = tim.dsp.sweepResponse(m.records, m.fs, struct('refChannel', ref, 'fRange', [a.fMin a.fMax], ...
-            'df', a.df, 'preRoll', m.settings.preRoll, 'excitationBand', [m.settings.fStart m.settings.fStop], ...
-            'sweep', m.settings));    % sweep gate: generator on/off transients excluded
-        for w = reshape(s.warnings, 1, []), session.log('Warning: %s', w{1}); end
-        sp.(seq{i, 1}) = s;
-        raw(end+1) = struct('channel', k, 'config', seq{i, 1}, 'meas', m, 'spectra', s); %#ok<AGROW>
-        coh = s.coherence(:, k); snr = min(s.snr_dB(:, [ref k]), [], 2);
-        okBins = coh >= cfg.calibration.coherenceMin & snr >= cfg.calibration.snrMin_dB;
-        report(struct('kind', 'measurement', 'channel', k, 'config', seq{i, 1}, ...
-            'fracOk', mean(okBins), 'coherenceMedian', median(coh, 'omitnan'), ...
-            'snrMedian_dB', median(snr, 'omitnan'), 'integrityOk', m.integrityOk));
+catch err
+    % the calibration ends before it was saved (Stop, Cancel, an error): the
+    % microphones may sit in the calibration ports (simulation: moved back)
+    if ~strcmp(cfg.mode, 'simulation')
+        session.log('%s', tim.app.msg(lang, 'calAborted'));
     end
-    o = struct('cohI', sp.I.coherence(:, k), 'cohII', sp.II.coherence(:, k), ...
-        'snrI', min(sp.I.snr_dB(:, [ref k]), [], 2), 'snrII', min(sp.II.snr_dB(:, [ref k]), [], 2), ...
-        'coherenceMin', cfg.calibration.coherenceMin, 'snrMin_dB', cfg.calibration.snrMin_dB);
-    if isfield(sp, 'Irep'), o.HIrepeat = sp.Irep.H(:, k); end
-    results{k} = tim.cal.switchingCorrection(sp.I.f, sp.I.H(:, k), sp.II.H(:, k), o);
-    r = results{k};
-    msg = sprintf('C%d (ch%d/ch%d): %d of %d frequency lines valid', k, k, ref, r.nValid, r.Nf);
-    if ~isempty(r.repeatability)
-        msg = sprintf('%s; remounting repeatability max. %.3f dB / %.2f°', msg, ...
-            r.repeatability.maxMag_dB, r.repeatability.maxPhase_deg);
-    end
-    session.log('%s', msg);
-    for n = 1:numel(r.notes), session.log('  Note: %s', r.notes{n}); end
-    report(struct('kind', 'channel', 'channel', k, 'nValid', r.nValid, 'Nf', r.Nf, ...
-        'repeatability', r.repeatability, 'text', msg));
+    rethrow(err);
 end
 home = zeros(1, 4); home([cfg.mics.channel]) = [cfg.mics.position];
 session.throwIfStopped();
@@ -130,6 +168,8 @@ meta.tube = struct('specimenSection', 'empty', 'sectionLength_m', dSec, ...
     'specimenThickness_m', g.xRear - g.xFront, 'geometry', g, 'environment', cfg.environment, ...
     'note', ['Calibrated with the empty specimen section mounted (no specimen): ' ...
     'tube continuous, port positions as in the measurement.']);
+meta.acquisition = session.acquisitionChain();   % C_k includes the DAQ inputs: driver, module, input settings
+meta.integrity = integrity;                       % per switching sweep: ok, problems (calibrationContext warns)
 cal = tim.cal.buildCalibration(sp.I.f, results, ref, meta);
 [willCheck, why] = checkPossible(verify, g, cal);
 % save NOW, before the "return the microphones" step: C_k does not depend on the
@@ -236,6 +276,15 @@ session.throwIfStopped();
 session.log(['Empty-tube check (Test E): one sweep with the empty specimen section mounted ' ...
     'and the microphones in their measurement ports.']);
 m = session.measure('sweep');
+if ~m.integrityOk
+    % a clipped or flagged check sweep says nothing about the calibration:
+    % not evaluated (neither passed nor failed)
+    chk = struct('performed', false, 'passed', false, 'text', ['not evaluated: data integrity problems in the ' ...
+        'check sweep (' strjoin(integrityProblems(m), '; ') ') - repeat it at a lower level'], ...
+        'measurementTimestamp', m.timestamp);
+    session.log('Empty-tube check (Test E): %s', chk.text);
+    return
+end
 res = tim.app.processMeasurement(m, cfg, cal);
 r = tim.val.testDE_reference(res, 'empty', struct());
 chk = r; chk.performed = true; chk.measurementTimestamp = m.timestamp;
@@ -250,6 +299,28 @@ else
         r.tauPhaseError_deg_rms, r.RconsistencyError_median, r.validBins);
 end
 session.log('%s', chk.text);
+end
+
+function p = integrityProblems(m)
+% the fatal integrity findings of all repetitions of a measurement (texts)
+p = {};
+for i = 1:numel(m.channelInfo)
+    g = m.channelInfo{i}.integrity;
+    if isfield(g, 'fatal'), p = [p, reshape(cellstr(g.fatal), 1, [])]; end %#ok<AGROW>
+end
+p = unique(p, 'stable');
+if isempty(p) && ~m.integrityOk, p = {'integrity check failed'}; end
+end
+
+function homeMics(session, home)
+% simulation: the virtual microphones back in their measurement ports (no
+% change, and no re-design of the rig, when they are there already)
+try
+    if ~isempty(session.Rig) && ~isequal(session.Rig.MicPosOfChannel, home)
+        session.setMicPositionsForSimulation(home);
+    end
+catch
+end
 end
 
 function hardwarePrompt(msg, lang)

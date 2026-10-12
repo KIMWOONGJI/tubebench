@@ -67,11 +67,13 @@ if ~isfield(vo, 'simulation') || isempty(vo.simulation)
 end
 vo.simulation = logical(vo.simulation);
 foot = versionText(res);
+vw = vo;                                              % Time signals: analysed part of the sweep (as the GUI)
+[vw.gate, vw.gateEnds] = tim.plots.analysisGate(res);
 
 % field, axes heights, view; header title and description (plain text, as
 % in the GUI) from tim.plots.viewText
 V = {
-    'waveforms',        [1 1 1 1], @(ax) tim.plots.timeSignals(ax, meas, setfield(vo, 'gate', tim.plots.analysisGate(res)))
+    'waveforms',        [1 1 1 1], @(ax) tim.plots.timeSignals(ax, meas, vw)
     'spectrum',         1,         @(ax) tim.plots.spectrum(ax, meas, res, vo)
     'transfer',         [1 1 1],   @(ax) tim.plots.transferFunctions(ax, res, vo)
     'reflection',       [2 1],     @(ax) tim.plots.reflection(ax, res, vo)

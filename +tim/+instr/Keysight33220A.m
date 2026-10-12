@@ -1,9 +1,14 @@
-classdef Keysight33220A < handle
+classdef Keysight33220A < tim.instr.SignalSource
     %KEYSIGHT33220A Driver for the Agilent/Keysight 33220A function generator.
     %
     %   gen = tim.instr.Keysight33220A(transport, 'MaxVpp', 1.0, 'Load', 'INF')
     %   transport: tim.instr.ScpiTcpTransport (hardware) or
     %              tim.instr.MockScpiTransport (simulation).
+    %   gen = tim.instr.create('source', cfg, ctx)   % registry (driver 'keysight33220a')
+    %
+    %   SignalSource of the instrument contract (docs/instrument_interface.md):
+    %   output read-back 'instrument' (OUTP?); relay output (OUTP OFF
+    %   disconnects it); bus-triggered sweep; 50 ohm source impedance.
     %
     %   SAFETY MODEL
     %   * The output is switched OFF on connect, on every configuration call,
@@ -22,9 +27,9 @@ classdef Keysight33220A < handle
         Identity struct = struct()
         MaxVpp double
         Load char
-        OutputArmed logical = false
         Mode char = 'none'           % 'none' | 'sine' | 'sweep' | 'noise'
         SweepSettings struct = struct()
+        Settings struct = struct()   % driver settings (host, port, timeout) from fromConfig
     end
 
     methods
@@ -182,8 +187,21 @@ classdef Keysight33220A < handle
             end
         end
 
-        function tf = isOutputOn(obj)
-            tf = str2double(obj.Transport.query('OUTP?')) == 1;
+        function tf = isOutputOn(obj, timeout)
+            %ISOUTPUTON Output state read back from the instrument (OUTP?).
+            %   isOutputOn(timeout) waits at most timeout s for the answer. An
+            %   answer other than 0 or 1 raises tim:gen:verify (never reported
+            %   as "off").
+            if nargin < 2
+                r = obj.Transport.query('OUTP?');
+            else
+                r = obj.Transport.query('OUTP?', timeout);
+            end
+            v = str2double(r);
+            if ~(v == 0 || v == 1)
+                error('tim:gen:verify', 'Unexpected answer "%s" to OUTP? (output state unknown).', r);
+            end
+            tf = v == 1;
         end
 
         function triggerSweep(obj)
@@ -241,6 +259,122 @@ classdef Keysight33220A < handle
         function delete(obj)
             try, obj.close(); catch, end
         end
+
+        %% ---- contract: identity, metadata, time-out ----------------------
+        function id = identity(obj)
+            %IDENTITY vendor, model, serial, firmware, raw (*IDN? reply); no I/O.
+            id = tim.instr.Instrument.emptyIdentity();
+            f = fieldnames(id);
+            for i = 1:numel(f)
+                if isfield(obj.Identity, f{i}), id.(f{i}) = obj.Identity.(f{i}); end
+            end
+        end
+
+        function md = metadata(obj)
+            %METADATA Stored with every measurement: contract fields plus the
+            %   fields of md.generator before 1.2.0 (identity, host, port,
+            %   maxVpp, load).
+            d = tim.instr.Keysight33220A.describe();
+            st = obj.Settings;
+            if isempty(fieldnames(st)), st = struct('host', '', 'port', NaN, 'timeout', NaN); end
+            md = struct('driver', d.name, 'displayName', d.displayName, 'roles', {obj.rolesInUse()}, ...
+                'identity', obj.identity(), 'sharedClock', false, 'settings', st, ...
+                'host', st.host, 'port', st.port, 'maxVpp', obj.MaxVpp, 'load', obj.Load);
+        end
+
+        function setTimeout(obj, t)
+            %SETTIMEOUT Shorten the SCPI time-out (closing the window).
+            if ~isempty(obj.Transport) && ismethod(obj.Transport, 'setTimeout')
+                obj.Transport.setTimeout(t);
+            end
+        end
+    end
+
+    %% ---- contract: class-level members ----------------------------------
+    methods (Static)
+        function d = describe()
+            d = struct('name', 'keysight33220a', ...
+                'displayName', 'Keysight/Agilent 33220A function generator', ...
+                'labels', struct('source', 'Generator'), ...
+                'defaults', struct('settings', struct('host', '169.254.2.20', 'port', 5025, 'timeout', 5)), ...
+                'texts', struct('settle', '', 'noun', 'generator', 'closed', 'output off'), ...
+                'simulation', 'protocol');
+        end
+
+        function c = capabilities()
+            % limits: 33220A User's Guide (docs/ref_33220A_scpi.md); amplitude
+            % per OUTP:LOAD: 20 / 10 Vpp maximum, 20 / 10 mVpp minimum (INF / 50)
+            src = struct('waveforms', {{'sine', 'sweep', 'noise'}}, 'sweepSpacing', {{'LOG', 'LIN'}}, ...
+                'frequencyRange', [1e-6 20e6], 'bandFraction', NaN, 'loads', {{'INF', '50'}}, ...
+                'maxVpp', [20 10], 'minVpp', [0.02 0.01], 'sweepTime', [1e-3 500], 'noiseCrest', 3.3, ...
+                'outputImpedance_ohm', 50, 'trigger', 'bus', 'readback', 'instrument', 'levelKnown', true);
+            c = struct('roles', {{'source'}}, 'sharedClock', false, 'rolesTogether', false, ...
+                'products', struct('name', {}, 'feature', {}), 'source', src);
+        end
+
+        function s = connectionSteps()
+            s = struct('key', 'gen', 'label', 'Function generator 33220A (SCPI)', 'role', 'source', 'phase', 'connect');
+        end
+
+        function report = checkConfig(cfg)
+            %CHECKCONFIG Driver settings (generator.keysight33220a) and the
+            %   generic source limits (tim.instr.SignalSource.checkSourceConfig).
+            d = tim.instr.Keysight33220A.describe();
+            st = tim.instr.Instrument.settingsFrom(cfg, 'generator', d.name, d.defaults.settings);
+            if ~(ischar(st.host) || isstring(st.host)) || isempty(strtrim(char(st.host)))
+                error('tim:config:host', 'Generator address (generator.%s.host) is empty.', d.name);
+            end
+            if ~(isscalar(st.port) && st.port >= 1 && st.port <= 65535 && st.port == round(st.port))
+                error('tim:config:port', 'Generator port (generator.%s.port) must be an integer 1 .. 65535.', d.name);
+            end
+            if ~(isscalar(st.timeout) && st.timeout > 0)
+                error('tim:config:timeout', 'Generator time-out (generator.%s.timeout) must be greater than 0 s.', d.name);
+            end
+            report = tim.instr.SignalSource.checkSourceConfig(cfg, tim.instr.Keysight33220A.capabilities(), d.displayName);
+        end
+
+        function obj = fromConfig(cfg, ctx)
+            %FROMCONFIG Connect (SCPI over TCP, or the mock on ctx.rig), identify,
+            %   output OFF (constructor). Reports the checklist step 'gen'.
+            st = ctx.settings;
+            sim = strcmp(ctx.mode, 'simulation');
+            if sim
+                detail = 'simulated generator';
+            else
+                detail = sprintf('%s:%d (SCPI over TCP)', st.host, st.port);
+            end
+            tim.instr.Instrument.reportStep(ctx, 'gen', 'run', detail);
+            if sim
+                tr = tim.instr.MockScpiTransport(ctx.rig);
+            else
+                tr = tim.instr.ScpiTcpTransport(st.host, st.port, st.timeout);
+            end
+            try
+                obj = tim.instr.Keysight33220A(tr, 'MaxVpp', cfg.generator.maxVpp, 'Load', cfg.generator.load);
+            catch err
+                try, tr.close(); catch, end
+                rethrow(err);
+            end
+            obj.Settings = st;
+            obj.Roles = ctx.roles;
+            tim.instr.Instrument.reportStep(ctx, 'gen', 'ok', sprintf('%s – output off', obj.Identity.raw));
+        end
+
+        function h = testHooks(obj)
+            %TESTHOOKS Simulation only: handles into the SCPI mock (contract tests).
+            tr = obj.Transport;
+            if ~isa(tr, 'tim.instr.MockScpiTransport')
+                error('tim:instr:noHooks', 'Test hooks need the generator on its mock transport (simulation).');
+            end
+            h = struct();
+            h.traffic = @() tr.Log;
+            h.breakLink = @() setProperty(tr, 'Broken', true);
+            h.outputOn = @() tr.State.OUTP == 1;
+            h.levelHistory = @() programmedLevels(tr.Log);
+            h.forceOutputOn = @() tr.write('OUTP ON');          % front panel / another program
+            h.forceLevel = @(vpp) tr.write(sprintf('VOLT %.4f', vpp));
+            h.injectError = @() setProperty(tr, 'InjectError', '-222,"Data out of range"');
+        end
     end
 
     methods (Access = private)
@@ -265,4 +399,17 @@ classdef Keysight33220A < handle
             end
         end
     end
+end
+
+function setProperty(obj, name, value)
+% assignment for the test hooks (an anonymous function cannot assign)
+obj.(name) = value;
+end
+
+function v = programmedLevels(log)
+% every amplitude the mock received ('> VOLT <Vpp>'), in order
+tok = regexp(log, '^> VOLT ([-+0-9.eE]+)$', 'tokens', 'once');
+tok = tok(~cellfun(@isempty, tok));
+v = cellfun(@(t) str2double(t{1}), tok);
+v = v(:).';
 end

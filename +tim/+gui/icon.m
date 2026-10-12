@@ -5,7 +5,8 @@ function file = icon(name)
 %
 %   'run' is an animated GIF (rotating arc). It is animated by the figure
 %   window itself, so it keeps turning while MATLAB is busy (e.g. during the
-%   slow LAN-XI channel setup). The others are PNG with transparency.
+%   slow channel setup of an acquisition module). The others are PNG with
+%   transparency.
 %   The files are written to resources/icons/ the first time they are needed.
 
 persistent folder
