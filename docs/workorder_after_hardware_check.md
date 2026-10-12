@@ -6,12 +6,15 @@
 | Status | planned - written 2026-10-12 after the owner's hardware check of 1.2.0 (`docs/hardware_status.md`); not started |
 | Requested by | the owner (Woongji Kim), during and after the hardware check |
 | Rules | as in CLAUDE.md; a change of the instrument communication needs a short hardware check with the owner present; the bus-traffic fixtures are regenerated only for an owner-approved change |
+| Decisions | owner, 2026-10-12: (1) the connection check before every measurement / calibration with an automatic reconnect - **approved, including the regeneration of the bus-traffic fixtures**; (2) the idle check every 60 s - **yes**; (3) the loudspeaker voltage as the level in direct drive - **in 1.2.1**. Branch `wo-003` |
 
 ## 1. Generator connection dropped by the 33220A (defect, known since 1.1.0)
 
 Observed on 2026-10-12 (`docs/hardware_status.md`, observation 1 of the check):
 - After an idle period (5–43 min) the first Start failed on its first SCPI commands. The instrument
   had dropped the connection without the PC noticing and answered with a reset.
+- The drop is **silent**: the Windows TCP state stayed "established" until the next request (no
+  FIN, no CloseWait), so it can only be found by sending something.
 - The window showed a MATLAB message in Korean, and the output "could not be confirmed off". The
   output had not been armed.
 - Disconnect → Connect restored the connection.
@@ -29,8 +32,9 @@ Tasks:
    - continue.
    If reconnecting fails, stop with an English error (`tim:scpi:connectionLost`) and turn the
    Generator lamp red. The output is never armed before the check has passed.
-3. Optional, owner to decide: an idle check every 60 s (never while `Busy`, a session operation or
-   a stream is active) that shows a lost connection on the lamp at once.
+3. An idle check every 60 s (owner: yes), never while `Busy`, a session operation or a stream is
+   active. It reconnects a dropped connection and shows a lost connection on the lamp at once. If
+   the 33220A drops only idle connections, it may also prevent the drop.
 4. Tests:
    - the local fake instrument (as in `TestInstruments`) closes or resets the socket while the
      session is idle;
@@ -58,7 +62,7 @@ Tasks:
    - Fill a list from the selected driver's `capabilities().loads`, store the choice with every
      measurement, and explain it next to the control and in the user guide. On the 33220A the
      setting changes only the meaning of the programmed amplitude; the source impedance stays 50 Ω.
-   - Direct drive (owner question): recommended, not yet decided:
+   - Direct drive (owner decision 2026-10-12: in 1.2.1):
      - keep the generator at High Z;
      - let the operator enter the loudspeaker voltage;
      - compute the generator voltage from the driver's source impedance (33220A: 50 Ω) and the
