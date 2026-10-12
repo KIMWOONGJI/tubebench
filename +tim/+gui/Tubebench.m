@@ -828,9 +828,20 @@ classdef Tubebench < handle
             h.ampRms = uilabel(rg, 'Text', '', 'FontColor', P.ui.muted, 'Tooltip', 'The level of the field as rms voltage.');
             h.durEst = uilabel(rg, 'Text', '', 'FontColor', P.ui.muted, 'HorizontalAlignment', 'right', ...
                 'Tooltip', 'Expected duration of one measurement.');
-            r = r + 1; h.drive = uilabel(left, 'Text', '', 'FontSize', 11, 'Interpreter', 'html', 'WordWrap', 'on', ...
-                'VerticalAlignment', 'top');
+            % the drive check (WO-004) in a white box: the signal path; the
+            % loudspeaker and the generator side by side, each with a bar of its
+            % share of the limit (a tick at 80 %) and its state; the maximum and
+            % the criterion that sets it (updateDrive)
+            r = r + 1;
+            h.drive = uigridlayout(left, [3 1], 'RowHeight', {14, 14, 14}, 'ColumnWidth', {'1x'}, 'RowSpacing', 1, ...
+                'Padding', [5 0 5 0], 'BackgroundColor', [1 1 1]);
             h.drive.Layout.Row = r; h.drive.Layout.Column = 1;
+            h.drivePath = uilabel(h.drive, 'Text', '', 'FontSize', 11, 'FontColor', P.ui.text);
+            meters = uigridlayout(h.drive, [1 2], 'ColumnWidth', {'1x', '1x'}, 'ColumnSpacing', 12, ...
+                'Padding', [0 0 0 0], 'BackgroundColor', [1 1 1]);
+            [h.spkName, h.spkBar, h.spkPct, h.spkState] = app.meterRow(meters, 'Speaker');
+            [h.genName, h.genBar, h.genPct, h.genState] = app.meterRow(meters, 'Generator');
+            h.driveMax = uilabel(h.drive, 'Text', '', 'FontSize', 11, 'FontColor', P.ui.muted);
             % ---------------- CALIBRATION
             r = r + 2; app.sectionBar(left, r, 'CALIBRATION');
             r = r + 1; rg = app.rowGrid(left, r, {LW, '1x'});
@@ -1530,6 +1541,55 @@ classdef Tubebench < handle
                 'Padding', [0 0 0 0], 'ColumnSpacing', 6, 'BackgroundColor', P.ui.panel);
             rg.Layout.Row = row; rg.Layout.Column = 1;
         end
+        function [nameL, bar, pct, st] = meterRow(~, parent, name)
+            % one meter of the drive check: name, a bar of the share of a limit
+            % (four plain panels in a grid: filled part, track, the 80 % tick,
+            % track - setBar), the share in %, the state as a coloured box
+            P = tim.gui.palette();
+            g = uigridlayout(parent, [1 4], 'ColumnWidth', {'fit', '1x', 36, 40}, 'ColumnSpacing', 4, ...
+                'Padding', [0 0 0 0], 'BackgroundColor', [1 1 1]);
+            nameL = uilabel(g, 'Text', name, 'FontSize', 11, 'FontColor', P.ui.text);
+            b = uigridlayout(g, [1 4], 'ColumnWidth', {'1x', '1x', 1, '1x'}, 'ColumnSpacing', 0, 'RowSpacing', 0, ...
+                'Padding', [0 3 0 3], 'BackgroundColor', [1 1 1]);
+            parts = gobjects(1, 4);
+            for i = 1:4, parts(i) = uipanel(b, 'BorderType', 'none', 'BackgroundColor', P.idle); end
+            bar = struct('grid', b, 'part', parts);
+            pct = uilabel(g, 'Text', '', 'FontSize', 10, 'HorizontalAlignment', 'right', 'FontColor', P.ui.muted);
+            st = uilabel(g, 'Text', '', 'FontSize', 10, 'FontWeight', 'bold', 'FontColor', [1 1 1], ...
+                'HorizontalAlignment', 'center', 'BackgroundColor', P.idle);
+        end
+
+        function setMeter(~, bar, pct, st, f, state, tip)
+            % one meter: the bar filled to the share f of the limit (0..1, the
+            % tick at 0.8), its % text and the state box (ok / near / over /
+            % unknown); the same tooltip on all of them
+            P = tim.gui.palette();
+            track = [0.89 0.90 0.93]; tick = [0.45 0.47 0.50];
+            switch state
+                case 'ok',   col = P.ok;   txt = 'OK';
+                case 'near', col = P.warn; txt = 'Near';
+                case 'over', col = P.fail; txt = 'Above';
+                otherwise,   col = P.fail; txt = 'Gain?';
+            end
+            if isfinite(f)
+                if f < 0.001, pct.Text = '<0.1 %'; else, pct.Text = sprintf('%.3g %%', 100 * f); end
+            else
+                pct.Text = '– %'; f = 0;
+            end
+            f = min(max(f, 0), 1);
+            w = @(x) sprintf('%.6fx', max(x, 1e-6));
+            if f <= 0.8
+                bar.grid.ColumnWidth = {w(f), w(0.8 - f), 1, w(0.2)};
+                c = {col, track, tick, track};
+            else
+                bar.grid.ColumnWidth = {w(0.8), 1, w(f - 0.8), w(1 - f)};
+                c = {col, tick, col, track};
+            end
+            for i = 1:4, bar.part(i).BackgroundColor = c{i}; end
+            st.Text = txt; st.BackgroundColor = col;
+            pct.Tooltip = tip; st.Tooltip = tip; bar.grid.Tooltip = tip;
+        end
+
         function l = label(~, parent, txt, tip, align)
             % field label of the control panel
             if nargin < 4, tip = ''; end
@@ -1974,12 +2034,15 @@ classdef Tubebench < handle
 
         function updateDrive(app)
             % the drive of the EXCITATION fields (WO-004, owner decisions
-            % 2026-10-12) in three lines below them: (1) the signal path, the
-            % generator in Vpp as its display shows it; (2) the loudspeaker
-            % check, the power at the nominal impedance against the test limit
-            % (OK / near the limit from 80 % / above); (3) the largest level and
-            % the criterion that sets it (tim.app.driveLimits). Also the Vrms of
-            % the level field and the expected duration of one measurement.
+            % 2026-10-12) in a white box below them: (1) the signal path, the
+            % generator in Vpp as its display shows it; (2) two meters side by
+            % side - the loudspeaker (power at the nominal impedance against the
+            % test limit: OK, Near from 80 %, Above) and the generator (its
+            % open-circuit voltage against generator.maxVpp and its own range:
+            % OK, Above), each a bar with a tick at 80 %, the share and the state;
+            % (3) the largest level and the criterion that sets it
+            % (tim.app.driveLimits). Also the Vrms of the level field and the
+            % expected duration of one measurement.
             P = tim.gui.palette(); h = app.H;
             c = app.fieldsCfg();
             kind = h.exMode.Value;
@@ -1988,7 +2051,6 @@ classdef Tubebench < handle
             L = tim.app.driveLimits(c, kind);
             direct = startsWith(lower(h.ampModel.Value), 'none');
             g = @(v) sprintf('%.3g', v);
-            col = @(rgb) sprintf('#%02X%02X%02X', round(255 * rgb));
             % Vrms of the field: the loudspeaker's, or the generator level's
             if strcmp(h.ampAt.Value, 'loudspeaker'), fv = d.Vspk_pk; else, fv = gen; end
             h.ampRms.Text = sprintf('= %s Vrms', g(fv / d.crest));
@@ -2001,27 +2063,30 @@ classdef Tubebench < handle
             else
                 l1 = sprintf('Generator %s Vpp %s → × ? → speaker ?', g(2 * gen), where);
             end
-            % (2) the loudspeaker
-            pct = 100 * d.fraction; if pct < 0.1, pt = '&lt; 0.1'; else, pt = g(pct); end   % (HTML label)
+            h.drivePath.Text = l1;
+            h.drivePath.Tooltip = sprintf(['The generator''s display shows %s Vpp (load setting %s); open-circuit ' ...
+                'voltage %s Vpp.'], g(2 * gen), loadName(d.load), g(d.Voc_pp));
+            % (2) the meters: the loudspeaker ...
             rated = '';
             if isfinite(d.rated_W), rated = sprintf(', rated %s', app.siText(d.rated_W, 'W')); end
-            switch d.state
-                case 'ok',   st = {'Speaker OK', P.ok};
-                case 'near', st = {'Speaker near the limit', P.warn};
-                case 'over', st = {'Speaker above the limit', P.fail};
-                otherwise,   st = {'Speaker: enter the amplifier gain', P.fail};
-            end
-            if L.limitAboveRated
-                l2 = sprintf('<b><font color="%s">Test limit above the rated power</font></b> (%s > %s)', col(P.fail), ...
-                    app.siText(d.limit_W, 'W'), app.siText(d.rated_W, 'W'));
-            elseif strcmp(d.state, 'unknown')
-                l2 = sprintf('<b><font color="%s">%s</font></b> (×) to check it', col(st{2}), st{1});
+            if strcmp(d.state, 'unknown')
+                tip = 'Loudspeaker: enter the amplifier gain (×) to check it.';
             else
-                l2 = sprintf('<b><font color="%s">%s</font></b>: %s at %s Ω = %s %% of %s%s', col(st{2}), st{1}, ...
-                    app.siText(d.P_W, 'W'), g(d.Z), pt, app.siText(d.limit_W, 'W'), rated);
+                tip = sprintf(['Loudspeaker: %s Vpk (%s Vrms), %s at the nominal %s Ω = %s %% of the test limit %s%s. ' ...
+                    'OK below 80 %%, near the limit from 80 %% (the real impedance can be 20 %% lower), refused above ' ...
+                    '100 %%.'], g(d.Vspk_pk), g(d.Vspk_rms), app.siText(d.P_W, 'W'), g(d.Z), g(100 * d.fraction), ...
+                    app.siText(d.limit_W, 'W'), rated);
             end
-            % (3) the maximum and its criterion; the generator's own limits
-            genOver = 2 * gen > L.maxVpp * (1 + 1e-6) && ~strcmp(L.binding, 'speaker');
+            app.setMeter(h.spkBar, h.spkPct, h.spkState, d.fraction, d.state, tip);
+            % ... and the generator: its level against the smallest of its limits
+            gen2 = L.criteria(~strcmp({L.criteria.key}, 'speaker'));
+            [genMax, k] = min([gen2.maxVpp]);
+            fg = 2 * gen / genMax;
+            genOver = fg > 1 + 1e-6;
+            gs = 'ok'; if genOver, gs = 'over'; end
+            app.setMeter(h.genBar, h.genPct, h.genState, fg, gs, sprintf(['Generator: %s Vpp open circuit = %s %% of ' ...
+                '%s.'], g(d.Voc_pp), g(100 * fg), gen2(k).text));
+            % (3) the maximum and its criterion
             i = find(strcmp({L.criteria.key}, L.binding), 1);
             by = L.criteria(i).text;
             if isfinite(L.maxSpeakerVpk)
@@ -2029,15 +2094,21 @@ classdef Tubebench < handle
             else
                 mx = sprintf('%s Vpk at the amp input', g(L.maxVpp / 2));   % (an amplifier without a gain)
             end
-            if genOver
-                l3 = sprintf('<b><font color="%s">Above %s</font></b>: max %s', col(P.fail), by, mx);
+            if L.limitAboveRated
+                h.driveMax.Text = sprintf('Test limit %s above the rated %s', app.siText(d.limit_W, 'W'), app.siText(d.rated_W, 'W'));
+                h.driveMax.FontColor = P.fail;
+            elseif genOver
+                h.driveMax.Text = sprintf('Above %s: max %s', by, mx);
+                h.driveMax.FontColor = P.fail;
             else
-                l3 = sprintf('Max %s, set by %s', mx, by);
+                h.driveMax.Text = sprintf('Max %s, set by %s', mx, by);
+                h.driveMax.FontColor = P.ui.muted;
             end
-            h.drive.Text = [l1 '<br>' l2 '<br>' l3];
-            h.drive.FontColor = P.ui.muted;
+            h.driveMax.Tooltip = strjoin(arrayfun(@(q) sprintf('%s: up to %s Vpk at the loudspeaker (%s Vpp programmed)', ...
+                q.text, g(q.maxSpeakerVpk), g(q.maxVpp)), L.criteria, 'UniformOutput', false), newline);
             app.DriveCheck = struct('state', d.state, 'binding', L.binding, 'generatorOver', genOver, ...
-                'limitAboveRated', L.limitAboveRated, 'maxSpeakerVpk', L.maxSpeakerVpk, 'genVpk', gen, 'drive', d);
+                'generatorFraction', fg, 'limitAboveRated', L.limitAboveRated, 'maxSpeakerVpk', L.maxSpeakerVpk, ...
+                'genVpk', gen, 'drive', d);
             h.durEst.Text = sprintf('about %s', app.durationText(app.expectedDuration()));
         end
 

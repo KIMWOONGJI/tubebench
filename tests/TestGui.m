@@ -781,7 +781,7 @@ classdef TestGui < matlab.unittest.TestCase
             end
             for n = {'mode','connect','disconnect','exMode','fStart','fStop','dur','amp','reps', ...
                     'ampModel','ampGain','genLoad','spkZ','spkP','ampAt','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
-                    'temp','pres','loadCal','runCal','save','reprocess','status','drive','fLimits','calLabel', ...
+                    'temp','pres','loadCal','runCal','save','reprocess','status','drive','drivePath','driveMax','spkState','genState','fLimits','calLabel', ...
                     'specimen','resultStatus','durEst','instr','ampRms','genLoadLabel'}
                 tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
             end
@@ -1045,11 +1045,11 @@ classdef TestGui < matlab.unittest.TestCase
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
             app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
-            tc.assertSubstring(h.drive.Text, 'Speaker OK');
+            tc.assertEqual(h.spkState.Text, 'OK');
             h.ampModel.Value = 'power amplifier';
             feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));
             tc.verifyFalse(app.GainEntered);
-            tc.verifySubstring(h.drive.Text, 'Speaker: enter the amplifier gain');
+            tc.verifyEqual(h.spkState.Text, 'Gain?');
             tc.verifyEqual(app.DriveCheck.state, 'unknown');
             feval(h.connect.ButtonPushedFcn, h.connect, []);
             tc.assertTrue(app.Session.Prepared);
@@ -1066,7 +1066,7 @@ classdef TestGui < matlab.unittest.TestCase
             h.ampGain.Value = 10;
             feval(h.ampGain.ValueChangedFcn, h.ampGain, struct('PreviousValue', 0));
             tc.verifyTrue(app.GainEntered);
-            tc.verifySubstring(h.drive.Text, 'Speaker OK');
+            tc.verifyEqual(h.spkState.Text, 'OK');
             tc.verifyEqual(app.DriveCheck.state, 'ok');
         end
 
@@ -1140,14 +1140,14 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(h.ampRms.Text, sprintf('= %.3g Vrms', 1 / sqrt(2)));
             tc.verifyEqual(app.DriveCheck.state, 'ok');
             tc.verifyEqual(app.DriveCheck.binding, 'speaker', 'sqrt(2 x 1 W x 8 ohm) = 4 Vpk');
-            tc.verifySubstring(h.drive.Text, 'Generator 0.2 Vpp into 600 Ω → ×10 → speaker 1 Vpk');
-            tc.verifySubstring(h.drive.Text, 'Speaker OK');
-            tc.verifySubstring(h.drive.Text, 'Max 4 Vpk at the speaker, set by the loudspeaker test limit');
-            for s = {3.79, 'near', 'Speaker near the limit'; 4.1, 'over', 'Speaker above the limit'}.'
+            tc.verifySubstring(h.drivePath.Text, 'Generator 0.2 Vpp into 600 Ω → ×10 → speaker 1 Vpk');
+            tc.verifyEqual({h.spkState.Text, h.spkPct.Text, h.genState.Text}, {'OK', '6.25 %', 'OK'});
+            tc.verifySubstring(h.driveMax.Text, 'Max 4 Vpk at the speaker, set by the loudspeaker test limit');
+            for s = {3.79, 'near', 'Near'; 4.1, 'over', 'Above'}.'
                 h.amp.Value = s{1};
                 feval(h.amp.ValueChangedFcn, h.amp, struct('PreviousValue', 1));
                 tc.verifyEqual(app.DriveCheck.state, s{2}, sprintf('%g Vpk', s{1}));
-                tc.verifySubstring(h.drive.Text, s{3});
+                tc.verifyEqual(h.spkState.Text, s{3});
             end
             % back to direct drive: High Z again, the same programmed level
             h.ampModel.Value = 'none (direct drive)';
@@ -1167,13 +1167,13 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(h.amp.Limits, [0.01 1] * 8 / 58, 'RelTol', 1e-9, 'the generator limits at the loudspeaker');
             h.amp.Value = 0.01;                                       % 10 mVpk at the loudspeaker
             feval(h.amp.ValueChangedFcn, h.amp, struct('PreviousValue', 0.1 * 8 / 58));
-            tc.verifySubstring(h.drive.Text, 'Generator 0.145 Vpp open circuit → speaker 0.01 Vpk');
-            tc.verifySubstring(h.drive.Text, 'set by generator.maxVpp (2 Vpp open circuit)', 'the maximum in direct drive');
+            tc.verifySubstring(h.drivePath.Text, 'Generator 0.145 Vpp open circuit → speaker 0.01 Vpk');
+            tc.verifySubstring(h.driveMax.Text, 'set by generator.maxVpp (2 Vpp open circuit)', 'the maximum in direct drive');
             tc.verifyEqual(app.DriveCheck.maxSpeakerVpk, 8 / 58, 'RelTol', 1e-9);
             h.spkZ.Value = 4;                                         % the loudspeaker voltage is kept
             feval(h.spkZ.ValueChangedFcn, h.spkZ, struct('PreviousValue', 8));
             tc.verifyEqual(h.amp.Value, 0.01, 'AbsTol', 1e-12);
-            tc.verifySubstring(h.drive.Text, 'Generator 0.27 Vpp');   % 2 x 0.01 * 54/4
+            tc.verifySubstring(h.drivePath.Text, 'Generator 0.27 Vpp');   % 2 x 0.01 * 54/4
             h.spkZ.Value = 8;
             feval(h.spkZ.ValueChangedFcn, h.spkZ, struct('PreviousValue', 4));
             feval(h.connect.ButtonPushedFcn, h.connect, []);            % reads the fields

@@ -346,20 +346,25 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 * **Choosing an amplifier** keeps the programmed level; until its gain is entered the field shows
   it at the amplifier input (Amp input [Vpk]) and Speaker [Vpk] cannot be chosen. When the gain is
   entered the field switches to Speaker [Vpk], the default with a known gain.
-* **Three lines below the fields** (WO-004) show the drive for the current settings:
+* **The drive check below the fields** (WO-004, a white box of three lines) shows the drive for
+  the current settings:
   1. the signal path: the generator in Vpp, as its display shows it, and what that number is
      ("open circuit" in direct drive, "into 600 Ω" at an amplifier input), the gain and the
      loudspeaker voltage, e.g. "Generator 0.2 Vpp into 600 Ω → ×10 → speaker 1 Vpk";
-  2. the **loudspeaker check**: **Speaker OK** (green, below 80 % of the test limit), **Speaker
-     near the limit** (orange, 80-100 %: the measurement may run), **Speaker above the limit** (red:
-     Start is refused), or "Speaker: enter the amplifier gain", with the power at the nominal
-     impedance, its share of the test limit and the rated power, e.g. "Speaker OK: 62.5 mW at 8 Ω
-     = 6.25 % of 1 W, rated 25 W"; red "Test limit above the rated power" when it is;
+  2. two **meters side by side**, each a bar of its share of the limit with a tick at 80 %, the
+     share in % and a state box (hover for the numbers):
+     - **Speaker**: the power at the nominal impedance against the test limit - **OK** (green,
+       below 80 %), **Near** (orange, 80-100 %: the measurement may run), **Above** (red: Start is
+       refused), or **Gain?** while an amplifier's gain is missing; the tooltip gives the voltage,
+       the power, its share and the rated power;
+     - **Generator**: its open-circuit voltage against the smallest of its limits
+       (`generator.maxVpp`, or its own largest level at the load) - **OK** or **Above**;
   3. the **largest level and the criterion that sets it**: the loudspeaker test limit,
      `generator.maxVpp` (open circuit) or the generator's own largest level at the load, e.g.
      "Max 4 Vpk at the speaker, set by the loudspeaker test limit (1 W at 8 Ω)" or, in direct drive
      with the lab file, "Max 0.138 Vpk at the speaker, set by generator.maxVpp (2 Vpp open
-     circuit)".
+     circuit)"; red "Test limit … above the rated …" when the test limit exceeds the rated
+     power. The tooltip lists every criterion.
 * The expected **Duration** is repetitions × (pre-roll + sweep duration + post-roll + 0.2 s) for
   the swept sine and repetitions × (1 s + steps × (settling + recording time)) for the stepped
   sine. The connection, the confirmation and the processing come on top.
