@@ -134,9 +134,13 @@ classdef ScpiTcpTransport < handle
             try
                 obj.Client = tcpclient(obj.Host, obj.Port, 'Timeout', obj.Timeout, 'ConnectTimeout', obj.Timeout);
             catch err
-                error('tim:scpi:connect', ...
-                    'Cannot open TCP socket %s:%d (%s). Check cabling, IP address and that no other program holds the socket.', ...
-                    obj.Host, obj.Port, err.message);
+                % MATLAB's own text (in the system language, with a help link)
+                % goes to the log only; the error is English (hardware check
+                % of 1.2.1, 2026-10-12: the window showed both)
+                obj.addLog('!', sprintf('cannot connect to %s:%d: %s', obj.Host, obj.Port, ...
+                    strtrim(regexprep(regexprep(err.message, '<[^>]*>', ''), '\s+', ' '))));
+                error('tim:scpi:connect', ['Cannot open TCP socket %s:%d: the instrument does not answer. Check ' ...
+                    'cabling, IP address and that no other program holds the socket.'], obj.Host, obj.Port);
             end
             configureTerminator(obj.Client, "LF");
             obj.LastIO = tic;

@@ -325,7 +325,7 @@ of `wo-001` into `main` followed on 2026-10-12.
 4. At 0.05 Vpp (direct drive, about 3.4 mVpk at the loudspeaker) most lines failed coherence or SNR
    (1403 / 1473 of 2191, no calibration loaded); at 0.5 and 1 Vpp none did.
 
-## Pending: hardware check of 1.2.1 (WO-003, branch `wo-003`)
+## Hardware check of 1.2.1 (WO-003, branch `wo-003`), 2026-10-12: passed
 
 SW-VERIFIED only (simulation, the protocol mock and a fake instrument on 127.0.0.1): the connection
 check before every excitation and every 60 s while the window is idle, with the automatic re-opening
@@ -353,10 +353,10 @@ check, at the approved level 0.025 Vpk (0.05 Vpp), empty specimen section:
 
 | Step | Status | Date, result |
 |---|---|---|
-| 1 idle drop, re-opened before the measurement | **PENDING** | |
-| 2 lost connection (cable pulled) | **PENDING** | |
-| 3 generator load in the window | **PENDING** | |
-| 4 amplitude at the loudspeaker | **PENDING** | |
+| 1 idle drop, re-opened before the measurement | **HW-VERIFIED** | 2026-10-12, run from the worktree `tubebench-wo003` (window started 16:49 with commit 1b511ce; later commits were not loaded). Idle 17:00 → 18:07 (67 min): the window's minute check replaced the connection 76 times silently, no connection-lost entry; the measurement at 18:07:25 (preceded by a re-open) and the one at 18:11:29 (34 s after the last minute re-open, so re-opened again) ran without an error, integrity OK; no reset stack trace in the MATLAB command window (none all session) |
+| 2 lost connection (cable pulled) | **HW-VERIFIED** | LAN cable pulled about 18:12: the minute check at 18:12:56 could not open a new connection (two attempts, 5 s each) and logged at 18:13:06 "Connection check: The connection to the generator was lost and could not be re-opened … then Disconnect and Connect."; the minute check stopped; nothing was switched on. Cable back, Disconnect → Connect (18:16:59), a measurement at 18:17:46 ran normally. The message contained MATLAB's own text of the failed connection (Korean, with a help link) - fixed afterwards: the error is English, the text goes to the transport log (`TestInstruments/scpiConnectFailureIsEnglish`). The red lamp and the status line: see the owner's note |
+| 3 generator load in the window | **HW-VERIFIED** | 16:49-16:51: "power amplifier", Generator load 50 Ω, Connect (the CHECK line of load 50 with an amplifier, the connection with load 50); Disconnect, back to direct drive → "Generator load: High Z for direct drive.", Connect sent `OUTP:LOAD INF`, Instruments table "limit 2 Vpp, load INF" |
+| 4 amplitude at the loudspeaker | **HW-VERIFIED** | 16:52: Speaker [Vpk] 0.00345 → generator 0.025 Vpk (`VOLT 0.0500`); the confirmation line gave both; `metadata.drive` Vspk 0.00345 V, Voc 0.050025 Vpp. The stored `ui.amplitudeAt` was still the value of Connect (the label had been changed after it) - fixed in bee3508 (`MeasurementSession.setAmplitudeAt`, tested) |
 
 ## After the merge (1.2.0)
 

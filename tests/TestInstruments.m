@@ -288,6 +288,28 @@ classdef TestInstruments < matlab.unittest.TestCase
             clear restore
         end
 
+        function scpiConnectFailureIsEnglish(tc)
+            % hardware check of 1.2.1 (2026-10-12, LAN cable pulled): the window
+            % showed MATLAB's own text of the failed connection (Korean, with a
+            % help link); the error is now English only (the text goes to the log)
+            port = 0;
+            for p = 50900 + randperm(90, 20)
+                try
+                    srv = tcpserver("127.0.0.1", p); delete(srv); port = p; break   % free, nobody listening
+                catch
+                end
+            end
+            tc.assumeGreaterThan(port, 0, 'no free local port');
+            try
+                tim.instr.ScpiTcpTransport('127.0.0.1', port, 1);
+                tc.verifyFail('the connection must fail');
+            catch err
+                tc.verifyEqual(err.identifier, 'tim:scpi:connect');
+                tc.verifyTrue(all(double(err.message) < 128), ['ASCII only: ' err.message]);
+                tc.verifyFalse(contains(err.message, '<'), 'no help link');
+            end
+        end
+
         function generatorReplacesAnIdleConnection(tc)
             % owner decision 2026-10-12 (WO-003): a connection idle for more
             % than ReopenAfterIdle_s is replaced before use - nothing is sent on
