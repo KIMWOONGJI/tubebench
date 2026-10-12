@@ -686,7 +686,7 @@ classdef Tubebench < handle
             left.Layout.Row = 1; left.Layout.Column = 1;
             h.left = left;
             LW = 106;                                 % label column of the two-column rows
-            ex = {116, '1x', 104, '1x'};              % excitation rows: label, field, label, field
+            ex = {130, '1x', 104, '1x'};              % excitation rows: label (the amplitude label is a list), field, label, field
             r = 0;
             % ---------------- INSTRUMENTS (texts of the instruments: refreshInstruments,
             % from the drivers the configuration selects)
@@ -793,7 +793,7 @@ classdef Tubebench < handle
                 'to the list and saved with the configuration (File > Save configuration).'], ...
                 'ValueChangedFcn', @(~, ~) app.onAmpModel(true));
             h.ampModel.Layout.Column = [2 4];
-            r = r + 1; rg = app.rowGrid(left, r, ex);
+            r = r + 1; rg = app.rowGrid(left, r, {ex{1}, 50, 90, '1x'});   % a short gain, room for the load list
             app.label(rg, 'Amplifier gain [×]', 'Voltage gain of the power amplifier as a factor: 10 = 20 dB.');
             h.ampGain = uieditfield(rg, 'numeric', 'Limits', [0 Inf], 'ValueDisplayFormat', '%.4g', ...
                 'Tooltip', ['Voltage gain of the power amplifier as a plain number, e.g. 10 for 20 dB; used to ' ...
