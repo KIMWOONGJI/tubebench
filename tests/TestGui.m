@@ -1049,6 +1049,7 @@ classdef TestGui < matlab.unittest.TestCase
             c.amplifier.model = 'none (direct drive)'; c.amplifier.gainFactor = 1; c.amplifier.gain_dB = 0;
             c.amplifier.knownModels = {'none (direct drive)'};               % as the lab file
             c.loudspeaker.impedance_ohm = 8; c.generator.maxVpp = 2; c.excitation.sweep.amplitudeVpp = 0.2;
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
             app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
@@ -1102,6 +1103,17 @@ classdef TestGui < matlab.unittest.TestCase
                 'the configuration stores the generator level');
             tc.verifyEqual(app.Session.Cfg.ui.amplitudeAt, 'loudspeaker');
             tc.verifyEqual(char(h.genLoad.Enable), 'off', 'fixed while connected');
+            % a change after Connect reaches the record of the next measurement (hardware check 2026-10-12)
+            h.ampAt.Value = 'generator';
+            feval(h.ampAt.ValueChangedFcn, h.ampAt, struct('PreviousValue', 'loudspeaker'));
+            tc.verifyEqual(h.amp.Value, 0.01 * 58 / 8, 'RelTol', 1e-9, 'the same level, as the generator''s');
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.assertNotEmpty(app.LastMeas);
+            tc.verifyEqual(app.LastMeas.metadata.config.ui.amplitudeAt, 'generator');
+            tc.verifyEqual(app.LastMeas.metadata.drive.Vspk_pk, 0.01, 'RelTol', 1e-9, 'metadata.drive: the loudspeaker level');
+            tc.verifyEqual(app.LastMeas.metadata.drive.Voc_pp, 2 * 0.01 * 58 / 8, 'RelTol', 1e-9, 'and the generator level');
+            h.ampAt.Value = 'loudspeaker';
+            feval(h.ampAt.ValueChangedFcn, h.ampAt, struct('PreviousValue', 'generator'));
             % choosing an amplifier shows the same generator level as the generator's
             h.ampModel.Value = 'power amplifier';
             feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));

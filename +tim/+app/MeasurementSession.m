@@ -516,6 +516,16 @@ classdef MeasurementSession < handle
             obj.Cfg = c;
         end
 
+        function setAmplitudeAt(obj, at)
+            %SETAMPLITUDEAT What the window's amplitude field gave: 'generator' or
+            %   'loudspeaker' (direct drive), stored with every measurement
+            %   (configuration ui.amplitudeAt). The excitation amplitudes are
+            %   the generator's in either case (metadata.drive has both levels).
+            c = obj.Cfg; c.ui.amplitudeAt = at;
+            tim.app.validateConfig(c, 'instruments');
+            obj.Cfg = c;
+        end
+
         %% ---- calibration ----------------------------------------------------
         function loadCalibration(obj, file)
             S = load(file, 'cal');

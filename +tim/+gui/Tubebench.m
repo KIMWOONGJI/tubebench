@@ -2734,6 +2734,7 @@ classdef Tubebench < handle
             % pass all operator settings of the GUI to the session
             s = app.Session;
             s.setExcitation(app.Cfg.excitation);
+            s.setAmplitudeAt(app.Cfg.ui.amplitudeAt);
             s.setLoudspeaker(app.Cfg.loudspeaker.impedance_ohm, app.Cfg.loudspeaker.maxPower_W);
             s.setGeometryEnvironment(app.Cfg.geometry, app.Cfg.environment);
             app.syncAmplifier();
