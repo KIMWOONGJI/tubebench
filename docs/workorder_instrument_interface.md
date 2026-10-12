@@ -285,7 +285,7 @@ first; no clicking or typing on the owner's screen; commit, never push unless as
   predates WO-001: the 33220A drops an idle socket connection now and then (fix planned for 1.2.1,
   `docs/workorder_after_hardware_check.md`).
 * After the merge (`docs/hardware_status.md`, "After the merge"): `config/user_config.json`
-  rewritten in the new layout (D7, approved by the owner 2026-10-11), and the five lab folders
+  rewritten in the new layout (D7, approved by the owner 2026-10-11; done 2026-10-12), and the five lab folders
   reprocessed into new folders because every swept-sine line is now centred on its frequency
   (which calibration they use is an open owner question).
 * The NI and audio guidance (guide section 4.1) is not tried on a device: there is none in the lab.

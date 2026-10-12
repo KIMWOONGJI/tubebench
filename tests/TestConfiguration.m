@@ -62,17 +62,18 @@ classdef TestConfiguration < matlab.unittest.TestCase
         end
 
         function configFilesLoad(tc)
-            % every file of config/ loads without a warning; user_config.json
-            % may stay in the old layout (owner's lab file)
+            % every file of config/ loads without a warning and is written in
+            % the current layout (user_config.json, the owner's lab file, since
+            % 2026-10-12: D7, rewritten after the hardware check)
             root = fileparts(fileparts(mfilename('fullpath')));
             for f = {'user_config.json', 'example_config.json', 'sim_thin_screen.json'}
                 c = tc.verifyWarningFree(@() tim.app.loadConfig(fullfile(root, 'config', f{1})), f{1});
                 tc.verifyEqual(c.formatVersion, 2, f{1});
                 tc.verifyTrue(isfield(c.generator, c.generator.driver) && isfield(c.daq, c.daq.driver), f{1});
+                u = jsondecode(tim.app.readTextUtf8(fullfile(root, 'config', f{1})));
+                tc.verifyEqual(u.formatVersion, 2, [f{1} ': the file shows the current layout']);
+                tc.verifyFalse(isfield(u, 'lanxi'), f{1});
             end
-            u = jsondecode(tim.app.readTextUtf8(fullfile(root, 'config', 'sim_thin_screen.json')));
-            tc.verifyEqual(u.formatVersion, 2, 'the templates show the current layout');
-            tc.verifyFalse(isfield(u, 'lanxi'));
         end
 
         function savedMeasurementOfOldVersionLoads(tc)

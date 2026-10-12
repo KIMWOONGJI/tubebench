@@ -383,6 +383,13 @@ These items, the fixes the check asked for and the open owner decisions are coll
   owner 2026-10-11): load it with `tim.app.loadConfig`, write it with `tim.app.saveConfig`, review
   the diff (only the layout may change: `generator.driver`, `daq.driver`, the driver sub-structs),
   and check that it loads without a warning and gives the same configuration as before.
+  **Done 2026-10-12** (after the merge of 1.2.1): the rewritten file loads without a warning and
+  gives the same configuration (`isequaln`), and `validateConfig` is silent. The diff has the new
+  layout (`generator.driver` with `generator.keysight33220a`, `daq.driver` with `daq.lanxi`, no
+  `lanxi` section) and the defaults the file did not name yet, now written out with unchanged
+  values (`ui.amplitudeAt`, `generator.allowUnconfirmedOff`, `amplifier.inputImpedance_ohm`, the
+  `loudspeaker` section). `TestConfiguration/configFilesLoad` now requires the current layout of
+  every file in `config/`.
 
 ## Required hardware tests (in this order)
 

@@ -86,6 +86,7 @@ Tasks:
 
 1. Rewrite `config/user_config.json` in the new layout (D7, approved 2026-10-11): load it, save it
    with `tim.app.saveConfig`, review the diff, and check that it loads without a warning.
+   **Done 2026-10-12** (`docs/hardware_status.md`, "After the merge").
 2. Reprocess the five lab folders into new folders (centred frequency lines). **Open owner
    decision:** which calibration to use. Recommended: calibrations recomputed from the saved raw
    switching sweeps with a small new function that writes new calibration files.

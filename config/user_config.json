@@ -1,31 +1,45 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "mode": "hardware",
   "projectName": "tubebench",
   "ui": {
-    "language": "en"
+    "language": "en",
+    "amplitudeAt": "generator"
   },
   "generator": {
-    "host": "169.254.2.20",
-    "port": 5025,
-    "timeout": 5,
+    "driver": "keysight33220a",
     "maxVpp": 2,
-    "load": "INF"
+    "load": "INF",
+    "allowUnconfirmedOff": false,
+    "keysight33220a": {
+      "host": "169.254.2.20",
+      "port": 5025,
+      "timeout": 5
+    }
   },
   "amplifier": {
     "model": "none (direct drive)",
     "gainFactor": 1,
     "gainSetting": "",
     "gain_dB": 0,
+    "inputImpedance_ohm": null,
     "knownModels": [
       "none (direct drive)"
     ],
     "confirmBeforeExcitation": true
   },
-  "lanxi": {
-    "host": "169.254.64.156",
-    "timeout": 10,
-    "connector": "BNC"
+  "loudspeaker": {
+    "impedance_ohm": 8,
+    "ratedPower_W": 25,
+    "maxPower_W": 1
+  },
+  "daq": {
+    "driver": "lanxi",
+    "lanxi": {
+      "host": "169.254.64.156",
+      "timeout": 10,
+      "connector": "BNC"
+    }
   },
   "acquisition": {
     "sampleRate": 16384,

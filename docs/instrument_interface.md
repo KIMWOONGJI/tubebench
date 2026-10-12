@@ -900,7 +900,7 @@ The owner approved every pending recommendation on 2026-10-11. The owner's hardw
 
 | Item | Decision - approved by the owner 2026-10-11 | Status |
 |---|---|---|
-| D7 | `config/user_config.json` stays in the old layout (`formatVersion` 1) until after the hardware check; then it is rewritten in the new layout | old layout kept; the rewrite follows the hardware check (not done before it) |
+| D7 | `config/user_config.json` stays in the old layout (`formatVersion` 1) until after the hardware check; then it is rewritten in the new layout | old layout kept until the hardware check; **rewritten in the new layout on 2026-10-12**, after the merge of 1.2.1 (same configuration, no warning) |
 | D8 | simulation through the real drivers over their protocol mocks plus the contract-level combined driver `simcombined`; no contract-level `SimulatedSource` / `SimulatedAcquisition` | as built |
 | D24 | the session sets `AbortFcn = @() Gen.outputOff()` at connect for every driver pair (a combined device: its own re-entrant `outputOff`, section 8.3) | done: `MeasurementSession.connect` (`setAbortHook`), cleared by `close`; after `acquire` returned with an error the session disarms the source; fault fixture regenerated from the code (Appendix B); tests `TestBusTraffic/outputOffBeforeTheStopOnAnAbnormalEnd`, `TestEndToEnd/combinedDeviceStopsItsOutputFirstOnADeviceError` |
 | D43 | the demo source `demo` stays registered, simulation only | as built |
