@@ -154,8 +154,14 @@ the step list of the Calibration view has one row per step.
      (dashed outline, "(no specimen)"), the absorbing termination, the calibration ports M1 (a)
      and M2 (b) with a **yellow glow**, every microphone in the colour of its LAN-XI channel and
      labelled with the channel (with "(ref)") and its serial number. The microphones that change
-     port are **lifted out of their holders, moved and lowered** into the new ports; dashed arrows
-     keep the moves visible. While the bar waits, the calibration ports **pulse**. The model can
+     port are **lifted out of their holders, moved and lowered** into the new ports, each at its
+     own height (+10 mm per further microphone); dashed arrows keep the moves visible. Path and
+     arrow turn with **rounded corners** (quarter circles, `tim.gui.calSwapPath`) of one radius
+     per drawing, computed from the tube: at most 0.4 × the smallest port spacing and a third of
+     the height of the path, small enough that a turning microphone has left its holder and stays
+     1 mm clear of the neighbouring microphone, and the arrow ends with 8 mm straight down (about
+     11.6 mm in the lab tube; corners stay sharp when this is below 1 mm, e.g. with ports less
+     than about 9 mm apart). While the bar waits, the calibration ports **pulse**. The model can
      be rotated and zoomed with its toolbar;
    * the **operator bar** above the model with the instruction: while the program waits it turns
      yellow and shows the buttons **Measure** (a sweep follows) or **Continue** (steps 1 and 12,

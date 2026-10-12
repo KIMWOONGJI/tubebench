@@ -108,7 +108,7 @@ Tasks:
   low-frequency settling after the 0.7 Hz high-pass, or room or electrical noise. If it is
   settling, make the check exclude it.
 
-## 6. Rounded microphone-swap paths in the Calibration view (owner request 2026-10-12, not started)
+## 6. Rounded microphone-swap paths in the Calibration view (owner request 2026-10-12, built 2026-10-12)
 
 The dashed swap paths and the animation of the Calibration view turn with sharp 90° corners
 (local `calPath` and `animateCalMics` in `Tubebench.m`; the dashed line has 4 vertices). The owner
@@ -140,3 +140,33 @@ calibration ports, tubeDrawing). Agent design review, 2026-10-12:
   the captures.
 - **Separate finding.** `lift` ignores the holder height, so with a very tall holder a microphone
   would be drawn sliding through it. This does not apply to the lab tube.
+
+**Built (branch `wo-003-paths`, 2026-10-12), as designed:**
+
+- `drawTube3D` returns `M.swapRadius` (local `swapRadius`): sMin from the sorted port positions
+  (gaps below 1 µm count as zero), h₁ = lift(1) − 2, ρ = max(microphone radius, 3.6 mm plug),
+  zExit = holder top − microphone tip (the lift at which the tip leaves the holder). Lab tube:
+  **11.6 mm** (0.4 × 29 mm limits; h₁/3 = 24.2, h₁ − 8 = 64.5, sMin − 2ρ − 1 = 20.8,
+  lift₁ − zExit − 1 = 58.75 mm).
+- `+tim/+gui/calSwapPath.m`: vertices (two quarter arcs of 16 segments, repeated vertices removed)
+  and length, or the points at fractions s of the exact arc length (straight parts and true
+  arcs; s ≤ 0 and s ≥ 1 give the exact end points). The radius used is min(r, |xb − xa|/2) and, as
+  a guard outside the design range, never more than zl − z0. The cosine easing stays in
+  `animateCalMics`, so the motion has the same timing as before.
+- `animateCalMics` uses it for the animation (z0 = 0, zl = lift(i)) and the dashed line
+  (z0 = zHandle + 2), with the same radius; the local `calPath` is removed; the arrowhead is
+  unchanged.
+- Tests: `TestCalSwapPath` (8 tests, the list above); `TestTube3D/swapRadiusOverTubeConfigurations`
+  (lab tube 11.6; s1 = 1 and 9 mm → 0; s1 = 10 mm → 1.8; s1 = 200 mm → 11.6; s1 = s2 = 200 mm →
+  h₁/3 = 24.2; L1 = d = L2 = 0 → 11.6; D = 1 and 500 mm → 11.6; an 80 mm holder → 0) and the
+  field in `TestTube3D/returnedStruct`; `TestGui/calibrationDiagramDrawnOnDemand` now also runs a
+  step with three movers (configuration II of ch2 → configuration I of ch3) in the hidden window
+  and checks the dashed paths (one line and one arrowhead per mover, from portX(from) at
+  zHandle + 2 to portX(to), none below that, turning ≤ 6°) and the final positions. 357 tests.
+- Verified 2026-10-12 in batch MATLAB R2022b (`-nojvm`): `TestCalSwapPath` 8 / 8 passed; Code
+  Analyzer: no new message in the changed files (`Tubebench.m` keeps its 21 old NOCOMMA notes).
+  **Not run yet:** `TestTube3D` and `TestGui` need graphics and more than 2 GB of free memory;
+  during the owner's hardware check only 1.1–1.7 GB were free. Run both (or the full suite)
+  before the merge.
+- Still open: the screen captures of several configurations (separate MATLAB, with the owner's
+  consent) and the owner's confirmation of the constants 0.4 and 1/3 on them.

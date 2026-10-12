@@ -56,7 +56,7 @@ or configuration.
 
 ## Status (2026-10-12, version 1.2.0)
 
-* **Software**: complete. 348 automated tests in 22 test classes (simulation and recorded hardware
+* **Software**: complete. 357 automated tests in 23 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -116,7 +116,8 @@ config/                 user_config.json (lab settings), example_config.json (te
 +tim/+gui               Tubebench (uifigure window; names no instrument: lamps, checklist,
                         texts, identity display and field limits come from the drivers),
                         ViewPage (header + graphs + summary of a view),
-                        drawTube3D (3D tube model), equationsPanel (Formula tab), Checklist,
+                        drawTube3D (3D tube model), calSwapPath (rounded microphone-swap
+                        paths of the Calibration view), equationsPanel (Formula tab), Checklist,
                         StartWindow (start window with progress), palette, icon, logo, closeApp
 +tim/+val               hardware validation procedures (Tests A–E)
 +tim/+cad               readStep (STEP assembly reader used for the tube dimensions)

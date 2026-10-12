@@ -289,6 +289,38 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.H.cal3D.portX, [-70 -41 116 145], 'AbsTol', 1e-9);
             app.drawCalSetup([], '', '');
             tc.verifyEqual(app.CalDrawCount, 1, 'no redraw when nothing changed');
+            % a calibration step in which three microphones move (configuration II
+            % of ch2 -> configuration I of ch3, ports a, b = M1, M2): the moves stay
+            % as dashed arrows with rounded corners (owner request 2026-10-12;
+            % tim.gui.calSwapPath, radius M.swapRadius)
+            from = [2 1 3 4]; to = [1 3 2 4];
+            app.drawCalSetup(to, 'move', 'step', from);
+            app.animateCalMics(from, to);
+            M = app.H.cal3D; z0 = M.zHandle + 2;
+            tc.verifyEqual(app.CalDrawn, to);
+            tc.verifyEqual(M.swapRadius, 11.6, 'AbsTol', 1e-9);
+            tc.verifyNumElements(findobj(ax, 'Tag', 'calPath', 'Type', 'line'), 3, 'one dashed line per mover');
+            tc.verifyNumElements(findobj(ax, 'Tag', 'calPath', 'Type', 'patch'), 3, 'one arrowhead per mover');
+            tc.assertNumElements(app.H.calPaths, 6);
+            for ch = 1:3                                     % movers ch1..ch3, in this order
+                l = app.H.calPaths(2 * ch - 1); a = app.H.calPaths(2 * ch);
+                x = l.XData(:); z = l.ZData(:);
+                tc.verifyEqual([x(1) z(1)], [M.portX(from(ch)) z0], 'AbsTol', 1e-9, 'starts above the old port');
+                tc.verifyEqual([x(end) z(end)], [M.portX(to(ch)) z0], 'AbsTol', 1e-9, 'ends at the new port');
+                tc.verifyGreaterThanOrEqual(min(z), z0 - 1e-9, 'never below the start');
+                tc.verifyEqual(max(z), M.zHandle + M.lift(ch), 'AbsTol', 1e-9, 'own height per mover');
+                tc.verifyGreaterThan(numel(x), 4, 'rounded corners');
+                d = diff([x z]); d = d(any(d ~= 0, 2), :);
+                turn = atan2d(abs(d(1:end - 1, 1) .* d(2:end, 2) - d(1:end - 1, 2) .* d(2:end, 1)), ...
+                    sum(d(1:end - 1, :) .* d(2:end, :), 2));
+                tc.verifyLessThanOrEqual(max(turn), 6, 'turning per segment');
+                tc.verifyEqual(mean(a.XData), M.portX(to(ch)), 'AbsTol', 1e-9, 'arrowhead at the new port');
+                tc.verifyEqual(min(a.ZData), z0, 'AbsTol', 1e-9);
+                T = M.micGroup(ch).Matrix;
+                tc.verifyEqual(M.micX0(ch) + T(1, 4), M.portX(to(ch)), 'AbsTol', 1e-9);
+                tc.verifyEqual(T(2:3, 4), [0; 0], 'AbsTol', 1e-9, 'lowered into the new port');
+            end
+            tc.verifyEqual(M.micGroup(4).Matrix, eye(4), 'ch4 stays');
         end
 
         function fileOfVersion110WithLevelsBelowTheMinimum(tc)

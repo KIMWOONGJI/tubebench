@@ -3102,8 +3102,10 @@ classdef Tubebench < handle
 
         function animateCalMics(app, from, to)
             % lift each moving microphone out of its holder above all others,
-            % across, down. Every mover has its own height (+10 mm) and depth
-            % (towards the viewer). Only the hgtransforms change - no redraw.
+            % across, down, with rounded corners (tim.gui.calSwapPath, radius
+            % M.swapRadius of the drawing). Every mover has its own height
+            % (+10 mm) and depth (towards the viewer). Only the hgtransforms
+            % change - no redraw.
             delete(app.H.calPaths(isgraphics(app.H.calPaths))); app.H.calPaths = gobjects(0);
             M = app.H.cal3D;
             if isempty(M) || isempty(from) || isequal(from, to), app.CalDrawn = to; return; end
@@ -3111,16 +3113,17 @@ classdef Tubebench < handle
             moving = find(from ~= to & to > 0);
             moving = moving(isgraphics(M.micGroup(moving)));
             if isempty(moving), app.CalDrawn = to; return; end
+            r = M.swapRadius;
             % time based (a uifigure frame takes 0.1-0.2 s): fixed duration
             T = 1.2; t0 = tic; last = false;
             while ~last
                 tt = toc(t0); last = tt >= T;
-                s = (1 - cos(pi * min(tt / T, 1))) / 2;           % ease in / out
+                s = (1 - cos(pi * min(tt / T, 1))) / 2;           % ease in / out (fraction of the path length)
                 for i = 1:numel(moving)
                     c = moving(i);
-                    [xx, dz] = calPath(s, M.portX(from(c)), M.portX(to(c)), 0, M.lift(i));
-                    dy = -12 * (i - 1) * dz / M.lift(i);
-                    M.micGroup(c).Matrix = makehgtform('translate', [xx - M.micX0(c), dy, dz]);
+                    p = tim.gui.calSwapPath(M.portX(from(c)), M.portX(to(c)), 0, M.lift(i), r, s);
+                    dy = -12 * (i - 1) * p(2) / M.lift(i);
+                    M.micGroup(c).Matrix = makehgtform('translate', [p(1) - M.micX0(c), dy, p(2)]);
                 end
                 drawnow limitrate; pause(0.02);
             end
@@ -3129,9 +3132,9 @@ classdef Tubebench < handle
             % keep the paths as dashed arrows in front of the cut plane (what was moved where)
             P = tim.gui.palette(); ax = app.H.axCalSetup; z0 = M.zHandle + 2;
             for i = 1:numel(moving)
-                c = moving(i); xa = M.portX(from(c)); xb = M.portX(to(c));
-                zl = M.zHandle + M.lift(i); y = -8 - 12 * (i - 1);
-                hp = line(ax, [xa xa xb xb], y * [1 1 1 1], [z0 zl zl z0], 'LineStyle', '--', ...
+                c = moving(i); xb = M.portX(to(c)); y = -8 - 12 * (i - 1);
+                V = tim.gui.calSwapPath(M.portX(from(c)), xb, z0, M.zHandle + M.lift(i), r);
+                hp = line(ax, V(:, 1), y * ones(size(V, 1), 1), V(:, 2), 'LineStyle', '--', ...
                     'Color', P.ch(c, :), 'LineWidth', 1.2, 'Tag', 'calPath');
                 ha = patch(ax, xb + [-2.5 2.5 0], y * [1 1 1], z0 + [6 6 0], P.ch(c, :), 'EdgeColor', 'none', 'Tag', 'calPath');
                 app.H.calPaths = [app.H.calPaths, hp, ha];
@@ -3694,16 +3697,4 @@ end
 function restoreBuilding(app, prev)
 % end of an on-demand preparation of a view (also on an error / closed window)
 if isvalid(app), app.setBuildingFlag(prev); end
-end
-
-function [x, y] = calPath(s, xa, xb, y0, yl)
-% point at fraction s of the path up - across - down (calibration animation)
-up = yl - y0; across = abs(xb - xa); d = s * (2 * up + across);
-if d < up
-    x = xa; y = y0 + d;
-elseif d < up + across
-    x = xa + sign(xb - xa) * (d - up); y = yl;
-else
-    x = xb; y = yl - (d - up - across);
-end
 end

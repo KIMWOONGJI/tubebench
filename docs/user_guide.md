@@ -532,7 +532,9 @@ bar** at the top ("**Calibration step 4 of 12:** …"; while the program waits f
 yellow and shows the buttons on its right, e.g. **Measure** and **Cancel calibration** - there is
 no separate dialog, the window is not dimmed and nothing covers the model), the 3D model in its
 calibration state below it (empty specimen section, absorbing termination, calibration ports
-M1 (a) and M2 (b) glowing yellow, microphones labelled with their channel and serial number), and
+M1 (a) and M2 (b) glowing yellow, microphones labelled with their channel and serial number; at
+every step the microphones that change port move along paths with rounded corners, which stay
+as dashed arrows), and
 the calibration factors |C_k| [dB] and ∠C_k [°] of ch2, ch3, ch4 relative to ch1 side by side at
 the bottom (grey = not valid). The right column holds the summary table "Calibration factors
 Ck = gk/gref" (per channel the share of valid frequency lines, the range of magnitude and phase over
