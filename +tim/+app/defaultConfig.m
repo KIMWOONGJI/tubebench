@@ -10,7 +10,11 @@ cfg = struct();
 cfg.formatVersion = 2;                  % 2: instruments selected by driver (tim.app.migrateConfig reads 1)
 cfg.mode = 'simulation';                % 'simulation' | 'hardware'
 cfg.projectName = 'tubebench';
-cfg.ui = struct('language', 'en');      % operator prompts and confirmations (tim.app.msg): 'en' (default) | 'ko'
+cfg.ui = struct('language', 'en', ...  % operator prompts and confirmations (tim.app.msg): 'en' (default) | 'ko'
+    'amplitudeAt', 'generator');        % what the window's amplitude field gives: 'generator' (the programmed
+                                        % level, default) | 'loudspeaker' (direct drive only; the window computes
+                                        % the generator level, tim.app.generatorAmplitude). The excitation
+                                        % amplitudes below are always the generator's.
 
 % ---------------- instruments ----------------
 % generator.driver and daq.driver select the instrument drivers (registry

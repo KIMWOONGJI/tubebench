@@ -1,7 +1,8 @@
-% Bus traffic of the simulated scenario of tests/TestBusTraffic.m (protocol mocks,
-% recorded by tim.instr.mockBusLog). One entry per line: "SCPI > command",
+% Bus traffic of the simulated normal-path scenario of tests/TestBusTraffic.m (record)
+% (protocol mocks, recorded by tim.instr.mockBusLog). One entry per line: "SCPI > command",
 % "SCPI < response", "REST METHOD path [body]", "STREAM open|close", "# section".
-% Recorded 2026-10-11 with commit 8ff47f38962b44d88935f653043c7f6f0792b865. Regenerate: TestBusTraffic.writeFixture()
+% Recorded 2026-10-12 with commit cca851e7cdc502e7e44ee700af9e1196540bfcc9. Regenerate: TestBusTraffic.writeFixture()
+% Regenerated 2026-10-12 with the owner's approval (WO-003): the connection check OUTP? before every excitation; faults: the reconnection scenario.
 # connect + prepareAcquisition + signal check
 SCPI > *IDN?
 SCPI < Agilent Technologies,33220A,MOCK0001,2.02-2.02-22-2
@@ -39,6 +40,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 # switching calibration (simulation default prompt) + empty-tube check
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -84,6 +87,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -129,6 +134,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -174,6 +181,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -219,6 +228,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -264,6 +275,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -309,6 +322,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -354,6 +369,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -399,6 +416,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -444,6 +463,8 @@ REST GET /rest/rec/onchange
 STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -490,6 +511,8 @@ STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
 # swept-sine measurement, 2 repetitions
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > FUNC SIN
@@ -554,6 +577,8 @@ STREAM close
 REST GET /rest/rec/onchange
 SCPI > OUTP OFF
 # stepped-sine measurement, 5 steps, 2 repetitions
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > TRIG:SOUR IMM
@@ -628,6 +653,8 @@ REST GET /rest/rec/onchange
 SCPI > OUTP OFF
 SCPI > OUTP OFF
 # noise measurement
+SCPI > OUTP?
+SCPI < 0
 SCPI > OUTP OFF
 SCPI > SWE:STAT OFF
 SCPI > TRIG:SOUR IMM

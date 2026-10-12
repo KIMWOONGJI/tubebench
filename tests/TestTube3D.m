@@ -4,7 +4,8 @@ classdef TestTube3D < matlab.unittest.TestCase
     %   white boxes), GENERIC specimen (thick block / thin plate), calibration
     %   mode with the empty section, dimension values never crossed by an
     %   extension line and never overlapping each other (user requests
-    %   2026-10-09). Invisible figures only.
+    %   2026-10-09), the corner radius of the swap paths over several tube
+    %   configurations (owner request 2026-10-12). Invisible figures only.
 
     properties
         fig
@@ -27,9 +28,10 @@ classdef TestTube3D < matlab.unittest.TestCase
             [g, td] = tc.lab();
             M = tim.gui.drawTube3D(tc.ax, g, td, [2 1 3 4]);
             for f = {'micGroup', 'micLabel', 'micX0', 'portX', 'portLabel', 'lift', 'zHandle', ...
-                    'labelSide', 'labelGap', 'glow', 'mapping'}
+                    'labelSide', 'labelGap', 'glow', 'mapping', 'swapRadius'}
                 tc.verifyTrue(isfield(M, f{1}), f{1});
             end
+            tc.verifyEqual(M.swapRadius, 11.6, 'AbsTol', 1e-9, 'lab tube: 0.4 x 29 mm');
             tc.verifySize(M.micGroup, [1 4]); tc.verifySize(M.micLabel, [1 4]);
             tc.verifyEqual(M.portX, [-70 -41 116 145], 'AbsTol', 1e-9);
             tc.verifyEqual(M.micX0, [-41 -70 116 145], 'AbsTol', 1e-9, 'micX0(c) = port of channel c');
@@ -197,6 +199,64 @@ classdef TestTube3D < matlab.unittest.TestCase
             tim.gui.drawTube3D(tc.ax, g, td);
             tc.verifyEqual(tc.textOf('dim_s1'), 's1 = 31 mm');
             tc.verifyEqual(tc.textOf('dim_s2'), 's2 = 27.5 mm');
+        end
+
+        function swapRadiusOverTubeConfigurations(tc)
+            % corner radius of the swap paths (owner request 2026-10-12): one per
+            % drawing, min(0.4 sMin, h1/3, h1 - 8, sMin - 2 rho - 1, lift1 - zExit - 1),
+            % 0 below 1 mm. Lab parts: lift1 74.5 mm (h1 72.5 mm) for every bore,
+            % rho 3.6 mm (plug), tip 14.75 mm and holder top 29.5 mm above the axis
+            [g, td] = tc.lab();
+            gS1 = cell(1, 4); s1 = [0.001 0.009 0.010 0.200];      % M1 moved, M2..M4 as in the lab
+            for k = 1:4, gS1{k} = g; gS1{k}.micPositions(1) = g.micPositions(2) - s1(k); end
+            g200 = g; g200.micPositions = [-0.241 -0.041 0.116 0.316];
+            gZero = g; gZero.xFront = 0; gZero.xRear = 0; gZero.micPositions = [-0.029 0 0 0.029];
+            gD1 = g; gD1.diameter = 0.001; gD500 = g; gD500.diameter = 0.5;
+            tdTall = td; tdTall.holderHeight = 0.08;
+            cases = { ...
+                'lab tube',                   g,          td,     11.6; ...
+                's1 = 1 mm',                  gS1{1},     td,     0; ...
+                's1 = 9 mm (0.8 mm: sharp)',  gS1{2},     td,     0; ...
+                's1 = 10 mm',                 gS1{3},     td,     1.8; ...
+                's1 = 200 mm (s2 29 mm)',     gS1{4},     td,     11.6; ...
+                's1 = s2 = 200 mm (h1/3)',    g200,       td,     72.5 / 3; ...
+                'L1 = d = L2 = 0',            gZero,      td,     11.6; ...
+                'D = 1 mm',                   gD1,        td,     11.6; ...
+                'D = 500 mm',                 gD500,      td,     11.6; ...
+                'holder 80 mm high',          g,          tdTall, 0};
+            for i = 1:size(cases, 1)
+                [id, G, T, r] = cases{i, :};
+                M = tim.gui.drawTube3D(tc.ax, G, T, 1:4, struct('mode', 'calibration'));
+                tc.verifyEqual(M.swapRadius, r, 'AbsTol', 1e-9, id);
+                % the bounds hold in every configuration
+                rb = 1e3 * G.diameter / 2; rB = max(1e3 * T.bodyDiameter / 2, rb + 4);
+                zExit = rB + 1e3 * T.holderHeight - (rb + 1e3 * T.micRecess);
+                rho = max(1e3 * T.micDiameter / 2, 3.6);
+                gp = diff(sort(M.portX)); sMin = min(gp(gp > 1e-3));
+                h1 = M.lift(1) - 2;
+                tc.verifyTrue(M.swapRadius == 0 || M.swapRadius >= 1, id);
+                if M.swapRadius > 0
+                    tc.verifyLessThanOrEqual(M.swapRadius - [0.4 * sMin, h1 / 3, sMin - 2 * rho - 1], 1e-9, id);
+                    tc.verifyGreaterThanOrEqual(h1 - M.swapRadius, 8 - 1e-9, [id ': 8 mm straight end of the arrow']);
+                    tc.verifyGreaterThanOrEqual(M.lift(1) - M.swapRadius, zExit + 1 - 1e-9, [id ': out of the holder']);
+                end
+            end
+            % the same radius in the Tube setup drawing
+            M = tim.gui.drawTube3D(tc.ax, g, td);
+            tc.verifyEqual(M.swapRadius, 11.6, 'AbsTol', 1e-9);
+            % the paths of a step with 3 movers stay between the plug top + 2 mm
+            % and their lift, from the old to the new port (lab tube)
+            from = [2 1 3 4]; to = [1 3 2 4];
+            M = tim.gui.drawTube3D(tc.ax, g, td, from, struct('mode', 'calibration'));
+            z0 = M.zHandle + 2;
+            for c = 1:3
+                xa = M.portX(from(c)); xb = M.portX(to(c));
+                P = tim.gui.calSwapPath(xa, xb, z0, M.zHandle + M.lift(c), M.swapRadius);
+                tc.verifyGreaterThanOrEqual(min(P(:, 2)), z0);
+                tc.verifyLessThanOrEqual(max(P(:, 2)), M.zHandle + M.lift(c));
+                tc.verifyEqual(P([1 end], 1), [xa; xb]);
+                tc.verifyGreaterThan(size(P, 1), 4, 'rounded');
+            end
         end
 
         function viewOnlyAndKeptRotation(tc)

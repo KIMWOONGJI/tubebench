@@ -10,9 +10,14 @@ classdef MockScpiTransport < handle
     %   forwarded so the simulated acquisition "hears" the excitation.
     %
     %   Fault injection: set FailNextQuery = true to emulate a timeout,
-    %   InjectError = '-222,"Data out of range"' to push an error, or
+    %   InjectError = '-222,"Data out of range"' to push an error,
     %   Broken = true to emulate a lost link (every command fails, nothing
-    %   reaches the instrument).
+    %   reaches the instrument, reopen() fails too), or Dropped = true to
+    %   emulate the 33220A dropping an idle connection unnoticed (hardware
+    %   check 2026-10-12): the next write or query fails with
+    %   tim:scpi:connectionLost and reaches nothing, isOpen() is false
+    %   afterwards, and reopen() opens a new connection (the instrument keeps
+    %   its settings, as the real one does).
     %
     %   Log lists every command ('> cmd'), every response ('< resp') and the
     %   close; the same lines go to tim.instr.mockBusLog (bus 'SCPI') while
@@ -24,12 +29,14 @@ classdef MockScpiTransport < handle
         FailNextQuery logical = false
         InjectError char = ''
         Broken logical = false   % lost link: every write / query fails with tim:scpi:timeout
+        Dropped logical = false  % the instrument dropped the connection: the next write / query fails
     end
     properties (SetAccess = private)
         State struct
         ErrorQueue cell = {}
         Log cell = {}
         Closed logical = false
+        Lost logical = false     % a write / query found the connection dropped (until reopen)
     end
 
     methods
@@ -63,10 +70,18 @@ classdef MockScpiTransport < handle
             obj.addLog(['< ' resp]);
         end
 
-        function tf = isOpen(obj), tf = ~obj.Closed; end
+        function tf = isOpen(obj), tf = ~obj.Closed && ~obj.Lost; end
         function close(obj)
             if ~obj.Closed, obj.addLog('close'); end
             obj.Closed = true;
+        end
+        function reopen(obj)
+            %REOPEN A new connection to the same instrument (state kept).
+            if obj.Broken
+                error('tim:scpi:connect', 'Cannot open TCP socket (mock: link lost).');
+            end
+            obj.addLog('reconnect');
+            obj.Closed = false; obj.Lost = false; obj.Dropped = false;
         end
     end
 
@@ -80,10 +95,18 @@ classdef MockScpiTransport < handle
 
         function assertOpen(obj)
             if obj.Closed, error('tim:scpi:closed', 'Mock transport closed.'); end
+            if obj.Lost, error('tim:scpi:connectionLost', 'The connection was closed by the instrument (mock).'); end
         end
 
         function assertLink(obj, cmd)
             if obj.Broken, error('tim:scpi:timeout', 'No response to "%s" (mock: link lost).', cmd); end
+            if obj.Dropped
+                % the command reaches nobody; the instrument answers with a reset
+                obj.Lost = true;
+                obj.addLog(sprintf('! connection lost while sending "%s"', cmd));
+                error('tim:scpi:connectionLost', ['The connection was closed while sending "%s": the instrument ' ...
+                    'dropped it (mock).'], cmd);
+            end
         end
 
         function addLog(obj, line)

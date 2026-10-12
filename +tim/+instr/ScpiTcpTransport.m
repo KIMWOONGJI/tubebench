@@ -7,6 +7,21 @@ classdef ScpiTcpTransport < handle
     %   Requires MATLAB R2020b+ (tcpclient with writeline/readline).
     %   Hardware status: VERIFIED against the real 33220A for *IDN?,
     %   SYST:ERR? and OUTP? (read-only) on 2026-10-08. See docs/hardware_status.md.
+    %
+    %   A LOST CONNECTION. The 33220A drops an idle socket connection now and
+    %   then without telling the PC (hardware check 2026-10-12): the next
+    %   command reaches nobody and the instrument answers it with a reset.
+    %   tcpclient (R2022b) reports that reset only in its own background
+    %   handler, which prints a stack trace in the command window ("현재 연결은
+    %   원격 호스트에 의해 강제로 끊겼습니다" on a Korean system; there is no
+    %   public way to suppress it, and ErrorOccurredFcn is not called), lets
+    %   the pending readline run into its time-out and fails the next
+    %   writeline. So a query on a dropped connection ends with
+    %   tim:scpi:timeout, a write with tim:scpi:connectionLost (English text;
+    %   isOpen() is false afterwards). reopen() opens a new connection to the
+    %   same address; the driver decides when (Keysight33220A.checkConnection).
+    %   The readline time-out warning of tcpclient is not shown: the
+    %   transport raises its own error instead.
 
     properties (SetAccess = private)
         Host char
@@ -17,6 +32,8 @@ classdef ScpiTcpTransport < handle
     properties (Access = private)
         Client = []
         Desynchronised logical = false   % a query timed out: its answer may still arrive
+        Lost logical = false             % a write failed: the connection is gone (until reopen)
+        LastIO = []                      % tic of the last successful write / answer (idleSeconds)
     end
 
     methods
@@ -27,20 +44,18 @@ classdef ScpiTcpTransport < handle
                 timeout (1,1) double = 5
             end
             obj.Host = host; obj.Port = port; obj.Timeout = timeout;
-            try
-                obj.Client = tcpclient(host, port, 'Timeout', timeout, 'ConnectTimeout', timeout);
-            catch err
-                error('tim:scpi:connect', ...
-                    'Cannot open TCP socket %s:%d (%s). Check cabling, IP address and that no other program holds the socket.', ...
-                    host, port, err.message);
-            end
-            configureTerminator(obj.Client, "LF");
+            obj.open();
         end
 
         function write(obj, cmd)
             obj.ensureOpen();
             obj.addLog('>', cmd);
-            writeline(obj.Client, cmd);
+            try
+                writeline(obj.Client, cmd);
+            catch err
+                obj.connectionLost(err, cmd);
+            end
+            obj.LastIO = tic;
         end
 
         function resp = query(obj, cmd, timeout)
@@ -54,10 +69,16 @@ classdef ScpiTcpTransport < handle
             old = obj.Client.Timeout;
             obj.Client.Timeout = timeout;
             restore = onCleanup(@() obj.restoreTimeout(old));
+            quiet = warning('off', 'transportlib:client:ReadlineWarning');   % (our own error below)
+            restoreWarn = onCleanup(@() warning(quiet));
             if obj.Desynchronised, obj.resynchronise(); end
             obj.discardInput();
             obj.addLog('>', cmd);
-            writeline(obj.Client, cmd);
+            try
+                writeline(obj.Client, cmd);
+            catch err
+                obj.connectionLost(err, cmd);
+            end
             resp = readline(obj.Client);
             if isempty(resp) || (isstring(resp) && ismissing(resp))
                 obj.Desynchronised = true;      % its answer may still arrive
@@ -65,10 +86,32 @@ classdef ScpiTcpTransport < handle
             end
             resp = strtrim(char(resp));
             obj.addLog('<', resp);
+            obj.LastIO = tic;
+        end
+
+        function s = idleSeconds(obj)
+            %IDLESECONDS Seconds since the last successful write or answer on
+            %   this connection (since it was opened when nothing yet).
+            s = toc(obj.LastIO);
         end
 
         function tf = isOpen(obj)
-            tf = ~isempty(obj.Client);
+            %ISOPEN The connection is open and not known to be lost.
+            tf = ~isempty(obj.Client) && ~obj.Lost;
+        end
+
+        function reopen(obj)
+            %REOPEN Close this connection and open a new one to the same
+            %   address (tim:scpi:connect when the instrument does not answer).
+            obj.Client = [];
+            obj.addLog('*', sprintf('re-opening the connection to %s:%d', obj.Host, obj.Port));
+            try
+                obj.open();
+            catch
+                pause(0.3);                      % (the instrument may still be closing the old one)
+                obj.open();
+            end
+            obj.Lost = false; obj.Desynchronised = false;
         end
 
         function setTimeout(obj, timeout)
@@ -87,9 +130,36 @@ classdef ScpiTcpTransport < handle
     end
 
     methods (Access = private)
+        function open(obj)
+            try
+                obj.Client = tcpclient(obj.Host, obj.Port, 'Timeout', obj.Timeout, 'ConnectTimeout', obj.Timeout);
+            catch err
+                % MATLAB's own text (in the system language, with a help link)
+                % goes to the log only; the error is English (hardware check
+                % of 1.2.1, 2026-10-12: the window showed both)
+                obj.addLog('!', sprintf('cannot connect to %s:%d: %s', obj.Host, obj.Port, ...
+                    strtrim(regexprep(regexprep(err.message, '<[^>]*>', ''), '\s+', ' '))));
+                error('tim:scpi:connect', ['Cannot open TCP socket %s:%d: the instrument does not answer. Check ' ...
+                    'cabling, IP address and that no other program holds the socket.'], obj.Host, obj.Port);
+            end
+            configureTerminator(obj.Client, "LF");
+            obj.LastIO = tic;
+        end
+        function connectionLost(obj, err, cmd)
+            % a write failed: mark the connection lost, raise the English error
+            obj.Lost = true;
+            obj.addLog('!', sprintf('connection lost while sending "%s": %s', cmd, ...
+                strtrim(regexprep(err.message, '\s+', ' '))));
+            error('tim:scpi:connectionLost', ['The connection to %s:%d was closed while sending "%s": the ' ...
+                'instrument dropped it or the link is down.'], obj.Host, obj.Port, cmd);
+        end
         function ensureOpen(obj)
             if isempty(obj.Client)
                 error('tim:scpi:closed', 'SCPI transport to %s is closed.', obj.Host);
+            end
+            if obj.Lost
+                error('tim:scpi:connectionLost', 'The connection to %s:%d was closed by the instrument or the link.', ...
+                    obj.Host, obj.Port);
             end
         end
         function restoreTimeout(obj, t)
@@ -109,7 +179,11 @@ classdef ScpiTcpTransport < handle
             % the timed-out query may arrive before or after the *IDN? is sent
             obj.discardInput();
             obj.addLog('>', '*IDN?');
-            writeline(obj.Client, '*IDN?');
+            try
+                writeline(obj.Client, '*IDN?');
+            catch err
+                obj.connectionLost(err, '*IDN?');
+            end
             for i = 1:10
                 r = readline(obj.Client);
                 if isempty(r) || (isstring(r) && ismissing(r))

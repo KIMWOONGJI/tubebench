@@ -217,7 +217,7 @@ source forms a voltage divider, `V_spk = V_oc·Z/(Z + 50 Ω)`:
 | Operating mode | Simulation (virtual tube, practice) or Hardware (the instruments of the configuration; lab: 33220A and LAN-XI module). **Fixed while connected**: press Disconnect to change it. |
 | Connect | Connects the generator (output off) and the acquisition module (lab: the LAN-XI), reads TEDS where the module can, sets up the channels and makes a 1 s signal check without excitation. Opens Setup > Connection, where every step is shown. |
 | Disconnect | Generator output off, acquisition stopped (LAN-XI: back to Idle), connections closed. |
-| Status | "Not connected" (grey); "Connecting (hardware)…", "Busy: …" or "Measurement – loudspeaker driven" (blue) while an action runs; "Ready (simulation)" (green); "Ready (hardware) – with warnings" or "Connected (hardware) – a check failed" (orange); "Generator output not confirmed off" (orange, section 3). The verdict of the connection checks stays in the status line after every later action. |
+| Status | "Not connected" (grey); "Connecting (hardware)…", "Busy: …" or "Measurement – loudspeaker driven" (blue) while an action runs; "Ready (simulation)" (green); "Ready (hardware) – with warnings" or "Connected (hardware) – a check failed" (orange); "Generator output not confirmed off" (orange, section 3); "Connection lost - Disconnect and Connect" (orange: an instrument connection could not be re-opened, see "Connection check" below). The verdict of the connection checks stays in the status line after every later action. |
 | Lamps | generator and acquisition module (labels from their drivers: Generator and LAN-XI in the lab; Output and Inputs for the simulated combined device), ch1–ch4: grey = not connected, blue = running, green = OK, orange = check, red = fault. The tooltip of the first two names the instrument and, once connected, its vendor, model, serial number and firmware. Details in Setup > Connection. |
 | In use | the instruments in use, one line each: before Connect the instruments the configuration selects (e.g. "Keysight/Agilent 33220A function generator", "HBK LAN-XI module (Open API)"); after Connect what each instrument reported about itself, e.g. "Generator: 33220A s/n …" and "LAN-XI: 3676-B-040 s/n 110283". In simulation mode the lines end with "(simulated)": the simulated instruments report realistic identities. |
 
@@ -231,6 +231,27 @@ stops with the alert "Check the settings" and does not connect: correct the fiel
 **Connect** again. A failed or stopped connection leaves no half-open connection: the status reads
 "Not connected", **Connect** and **Operating mode** are usable again, and Setup > Connection names
 the step that failed. Remove the cause and press **Connect** again.
+
+**Connection check.** The lab's 33220A drops an idle network connection now and then without
+telling the PC (hardware check of 2026-10-12; also with a static IP address and without MATLAB):
+before 1.2.1 the next Start then failed with a MATLAB message. Now the program checks the generator
+connection **before every measurement and calibration step**, and in hardware mode **every minute
+while the window is idle** (never during an action):
+
+* a connection that has been idle for more than 30 s is not used again: the program closes it and
+  opens a new one (the generator must report the same serial number, its output is switched off
+  and its load setting sent again). Nothing is written in the message pane; it takes a fraction of
+  a second. Because nothing is sent on an old connection, the dropped connection no longer causes
+  an error;
+* a connection used within the last 30 s is asked for the output state; if it has been dropped
+  anyway, it is replaced the same way and the message pane says "Generator: connection re-opened
+  (the instrument had closed it): …" (the MATLAB command window may then show a red stack trace,
+  harmless, section 13); the measurement runs as usual;
+* if the generator does not answer at all, nothing is switched on: the lamp turns red, the status
+  reads "Connection lost - Disconnect and Connect" and the minute check stops until the next
+  Connect.
+
+A Start pressed during the (short) check is not started; press it again.
 
 ### IMPEDANCE TUBE (lengths in mm)
 
@@ -272,12 +293,13 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Frequency [Hz] … to … | start and stop frequency, at most the usable band of the instruments (LAN-XI: 0.45 × sample rate, i.e. 7372.8 Hz at 16384 S/s; the tooltip states the limit) |
 | Sweep duration [s] | duration of one sweep, within the sweep times of the generator (33220A: 0.001–500 s); for the stepped sine the field is **Number of steps** (1–400) |
 | Repetitions | number of repetitions, averaged (1–100) |
-| Amplitude [Vpk] | generator amplitude, peak voltage, from the smallest level of the generator at the configured load (33220A: 0.01 Vpk at `"INF"`, 0.005 Vpk at `"50"`) up to the amplitude limit (`generator.maxVpp`/2) |
+| Amplifier | "none (direct drive)", "power amplifier", or the model of your amplifier: type it into the list and press Enter; it is added to the list and saved with the configuration (File > Save configuration…) |
+| Amplifier gain [×] | voltage gain of the amplifier as a plain number, e.g. 10 for 20 dB |
+| Generator load | the output load setting of the generator, from the values its driver accepts (33220A: **High Z** or **50 Ω**), sent to the generator at Connect; fixed while connected. Direct drive always uses High Z. See "Generator output load" below |
+| Loudspeaker [Ω] | nominal impedance of the loudspeaker |
+| Speaker limit [W] | power limit of the loudspeaker: an excitation above this estimated power is refused |
+| Generator [Vpk] ▾ / Speaker [Vpk] ▾ | the label of the amplitude field is a list: **Generator [Vpk]** (the programmed amplitude) or, in direct drive only, **Speaker [Vpk]** (the voltage at the loudspeaker; see below). The field: peak voltage; for the generator from its smallest level at the configured load (33220A: 0.01 Vpk at High Z, 0.005 Vpk at 50 Ω) up to the amplitude limit (`generator.maxVpp`/2); at the loudspeaker the same range converted (33220A at High Z, 8 Ω: 0.00138–0.138 Vpk for a 1 Vpk limit) |
 | Duration | expected duration of one measurement with these settings, e.g. "about 29 s" |
-| Amplifier | "none (direct drive)", "power amplifier", or type a model (typed models are added to the list) |
-| Amplifier gain | voltage gain of the amplifier as a factor, shown as ×10 (= 20 dB) |
-| Loudspeaker [Ω] | nominal loudspeaker impedance |
-| Power limit [W] | loudspeaker power limit: an excitation above this estimated power is refused |
 
 * Each signal keeps its own frequency range, duration or number of steps and repetitions:
   switching the Signal shows the values last used for that signal. The amplitude is common.
@@ -293,15 +315,26 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   it included). The message pane warns when the configuration or a processed sweep does not keep
   the margin, names the edge that was used and prints the two limits; the configuration check and
   the analysis use the same limits.
-* **Amplifier gain**: the field is disabled for "none (direct drive)" (gain ×1). When you choose an
-  amplifier, the field turns yellow and the message pane asks for the gain: **Start measurement
+* **Amplifier gain [×]**: the field is disabled for "none (direct drive)" (gain 1). When you choose
+  an amplifier, the field turns yellow and the message pane asks for the gain: **Start measurement
   and Run switching calibration… are refused until a gain has been entered** (typed into the
   field), also in simulation.
+* **Amplitude at the loudspeaker (direct drive)**: with the label set to **Speaker [Vpk]** the field is the
+  voltage at the loudspeaker. The program sets the generator to the matching level through the
+  generator's source impedance (33220A: 50 Ω) and the nominal loudspeaker impedance:
+  generator = loudspeaker × (Z + 50 Ω) / Z, e.g. 10 mVpk at 8 Ω needs 72.5 mVpk programmed at High
+  Z. Switching between generator and loudspeaker keeps the same level; a new Loudspeaker [Ω] keeps
+  the loudspeaker voltage. The configuration stores the generator amplitude (as always) and
+  `ui.amplitudeAt`; every measurement stores the drive estimate as well (`metadata.drive`: the
+  programmed level and the estimated loudspeaker voltage, current and power). The real loudspeaker
+  impedance varies with frequency, so the loudspeaker voltage is nominal. Choosing an amplifier
+  switches the field back to the generator amplitude.
 * The line below the fields shows the **estimated loudspeaker drive** for the current settings:
-  voltage (Vpk), current (peak) and power, the loudspeaker power limit and the generator amplitude
-  limit, e.g. "Estimated loudspeaker drive: 0.0138 Vpk, 1.72 mA peak, 11.9 µW (limit 1 W).
-  Generator limit 1 Vpk." It turns red above a limit, while the gain is not entered, or when the
-  power limit is set above the rated power of the loudspeaker (`loudspeaker.ratedPower_W`).
+  voltage (Vpk), current (peak) and power, the loudspeaker power limit, and the programmed generator
+  amplitude with its limit, e.g. "Estimated loudspeaker drive: 0.0138 Vpk, 1.72 mA peak, 11.9 µW
+  (limit 1 W). Generator 0.1 Vpk (limit 1 Vpk)." It turns red above a limit, while the gain is not
+  entered, or when the power limit is set above the rated power of the loudspeaker
+  (`loudspeaker.ratedPower_W`).
 * The expected **Duration** is repetitions × (pre-roll + sweep duration + post-roll + 0.2 s) for
   the swept sine and repetitions × (1 s + steps × (settling + recording time)) for the stepped
   sine. The connection, the confirmation and the processing come on top.
@@ -386,7 +419,9 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Stop | only while Connect, a measurement, the background-noise recording or the switching calibration runs |
 | Save measurement | a measurement or a background-noise record exists |
 | Reprocess | a measurement exists (not for background noise) |
-| Amplifier gain | an amplifier other than "none (direct drive)" is chosen |
+| Amplifier gain [×] | an amplifier other than "none (direct drive)" is chosen |
+| Generator load | an amplifier is chosen and the window is not connected (the driver offers more than one load) |
+| Generator [Vpk] / Speaker [Vpk] (the list) | "none (direct drive)" is chosen |
 | everything else, menus | no action running |
 
 ## 5. Workflow step by step
@@ -497,7 +532,9 @@ bar** at the top ("**Calibration step 4 of 12:** …"; while the program waits f
 yellow and shows the buttons on its right, e.g. **Measure** and **Cancel calibration** - there is
 no separate dialog, the window is not dimmed and nothing covers the model), the 3D model in its
 calibration state below it (empty specimen section, absorbing termination, calibration ports
-M1 (a) and M2 (b) glowing yellow, microphones labelled with their channel and serial number), and
+M1 (a) and M2 (b) glowing yellow, microphones labelled with their channel and serial number; at
+every step the microphones that change port move along paths with rounded corners, which stay
+as dashed arrows), and
 the calibration factors |C_k| [dB] and ∠C_k [°] of ch2, ch3, ch4 relative to ch1 side by side at
 the bottom (grey = not valid). The right column holds the summary table "Calibration factors
 Ck = gk/gref" (per channel the share of valid frequency lines, the range of magnitude and phase over
@@ -762,6 +799,7 @@ still be opened and reprocessed; Connect then reports the error.
 |---|---|---|
 | `mode` | `"simulation"` | `"simulation"` or `"hardware"` (lab file: hardware) |
 | `ui.language` | `"en"` | `"en"` or `"ko"`: operator prompts, dialog titles and buttons of the calibration steps (including the step header and the diagram hint), the excitation confirmation (also its drive line in the log line "Excitation confirmed") and the channel identification, and the command-window prompts of scripts. The calibration prompts are also written to the log in the selected language, and the errors "estimated loudspeaker power exceeds the limit" and "Amplifier gain not entered" are raised in it. All other log lines and errors, the window labels and the documents stay in English. |
+| `ui.amplitudeAt` | `"generator"` | what the amplitude field of the window gives: `"generator"` (the programmed amplitude) or `"loudspeaker"` (the voltage at the loudspeaker, direct drive only; section 4, EXCITATION). The excitation amplitudes are always the generator's. |
 | `generator.driver` | `"keysight33220a"` | generator driver |
 | `generator.keysight33220a.host`, `port`, `timeout` | 169.254.2.20, 5025, 5 s | 33220A (SCPI over TCP); old layout: `generator.host`, `port`, `timeout` |
 | `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit** of the programmed amplitude in Vpp, at most the driver's maximum (33220A: 20 Vpp at `"INF"`, 10 Vpp at `"50"`) |
@@ -774,7 +812,7 @@ still be opened and reprocessed; Connect then reports the error.
 | `amplifier.knownModels` | none (direct drive), power amplifier | items of the Amplifier list |
 | `amplifier.confirmBeforeExcitation` | true | excitation confirmation in hardware mode |
 | `loudspeaker.impedance_ohm` | 8 | nominal impedance (field Loudspeaker [Ω]) |
-| `loudspeaker.maxPower_W` | 1.0 | loudspeaker power limit (field Power limit [W]) |
+| `loudspeaker.maxPower_W` | 1.0 | loudspeaker power limit (field Speaker limit [W]) |
 | `loudspeaker.ratedPower_W` | 25 | rated power: a power limit above it is flagged |
 | `daq.driver` | `"lanxi"` | acquisition (DAQ) driver |
 | `daq.lanxi.host`, `timeout`, `connector` | 169.254.64.156, 10 s, `"BNC"` | LAN-XI module; `"BNC"` or `"LEMO"`, whichever the microphones use (`""`, possible in files of 1.1.0: the module keeps its own setting); old layout: `lanxi.host`, `timeout`, `connector` |
@@ -816,7 +854,15 @@ OUTP:LOAD setting only changes what the programmed amplitude means:
 | `"INF"` (default) | the open-circuit voltage | = programmed | direct drive; amplifier with a high-impedance input |
 | `"50"` | the voltage across a 50 Ω load | 2 × programmed | only an amplifier with a 50 Ω input (rejected with direct drive) |
 
-The amplitude field and the amplitude limit always refer to the programmed value. With `"50"` the
+The window's **Generator load** list sets `generator.load` (with an amplifier, while not connected);
+the setting is sent to the generator at Connect. On the 33220A it changes only what the programmed
+amplitude means: the source impedance stays 50 Ω. With direct drive the loudspeaker gets the
+open-circuit voltage divided by 50 Ω and its impedance: V_spk = V_oc · Z / (Z + 50 Ω), about 14 % at
+8 Ω, and at most about 2.8 Vpp (0.12 W) with the 33220A's 20 Vpp - a higher level needs an
+amplifier.
+
+The amplitude field (with the label Generator [Vpk]) and the amplitude limit refer to the
+programmed value. With `"50"` the
 excitation confirmation shows the programmed value ("programmed into 50 Ω") and the open-circuit
 voltage. The drive estimate uses `V_in = V_oc·Z_in/(Z_in + 50 Ω)` at the amplifier input, with
 `Z_in = amplifier.inputImpedance_ohm`; when that is NaN, `"INF"` means a high-impedance input
@@ -974,7 +1020,9 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | "In use" or the Instruments table shows `unknown driver "…"` | the configuration names a driver this installation does not have (e.g. a configuration from another set-up): the data can be opened and reprocessed, Connect is refused; choose a registered driver (section 9, "Choosing the instruments") |
 | "In use" shows other instruments than expected | the configuration selects them: check `generator.driver` and `daq.driver` and the operating mode (Simulation shows the simulated instruments, marked "(simulated)") |
 | Alert "Measurement cancelled" | Cancel in "Confirm excitation": the loudspeaker was not driven; nothing to repair |
-| "enter the voltage gain set on the amplifier …" or "Amplifier gain not entered" | an amplifier is chosen: type its gain into Amplifier gain |
+| "enter the voltage gain set on the amplifier …" or "Amplifier gain not entered" | an amplifier is chosen: type its gain into Amplifier gain [×] |
+| "Generator: connection re-opened (the instrument had closed it) …" | nothing to do: the generator had dropped its idle network connection and the program opened it again, with the output off (section 4, Connection check). The MATLAB command window may show a red stack trace "현재 연결은 원격 호스트에 의해 강제로 끊겼습니다" (an existing connection was forcibly closed by the remote host) at the same moment: MATLAB prints it, it is harmless |
+| "Connection lost - Disconnect and Connect", "The connection to the generator was lost and could not be re-opened …" | the generator does not answer: check its LAN cable and power, check the output at the generator, then Disconnect and Connect |
 | Excitation refused: estimated loudspeaker power exceeds the limit | lower the Amplitude or the amplifier gain, or raise Power limit [W] deliberately |
 | Signal check: LAN-XI flag INVALID on all channels, no TEDS | microphones not connected, or wrong connector (`daq.lanxi.connector` BNC ↔ LEMO; in a file of the older layout, as the lab file: `lanxi.connector`), cable fault |
 | Card "check: nominal sensitivity" | no certificate value and no TEDS: enter `certificateSensitivity_VperPa` |

@@ -17,7 +17,8 @@ Hardware sessions so far, all from this PC via the instruments' link-local Ether
 * **2026-10-12**: the owner's hardware check of the WO-001 instrument interface (steps 1-10, all
   passed), in the tube with the empty 75 mm section, direct drive, 0.025-0.5 Vpk; it found that the
   33220A drops an idle socket connection now and then (section "Hardware check of the refactored
-  drivers").
+  drivers"). In the afternoon, the owner's check of 1.2.1 (WO-003, steps 1-4, all passed; section
+  "Hardware check of 1.2.1"), run from the worktree `tubebench-wo003`.
 
 ## Instruments found
 
@@ -40,7 +41,7 @@ LAN-XI capabilities reported by `/rest/rec/module/info`:
 | 33220A TCP socket, `*IDN?`, `SYST:ERR?`, `OUTP?` | HW-VERIFIED | read-only queries |
 | 33220A configure sine/sweep/noise, `*TRG`, `*OPC?`, `OUTP ON/OFF` | HW-VERIFIED (sweep, sine); noise SW-VERIFIED | sine: bench 2026-10-08 (B2, stepped B5); sweep: in-tube 2026-10-09/10 and 2026-10-12 (SCPI log of the check: configuration, read-back, `OUTP ON`, `*TRG`, `*OPC?`, `OUTP OFF` per repetition). Noise (`FUNC NOIS`) not run on the instrument |
 | 33220A amplitude read-back safety check | HW-VERIFIED (pass path) | 2026-10-12: `VOLT?` read back before every `OUTP ON` (SCPI log); the refusal path is SW-VERIFIED only |
-| 33220A socket left idle | **known issue** (1.1.0 and 1.2.0) | 2026-10-12: after 5-45 min without traffic the 33220A had dropped the TCP connection three times without the PC noticing; the next measurement then failed on its first command ("connection forcibly closed by the remote host", then "must be connected to remote server") before any output was armed. Not every idle period: a connection was still alive after 18 min without traffic (12:10–12:29), another 9.5 min after a measurement (an `OUTP?` at 13:08:37). Workaround: Disconnect → Connect. Fix planned for 1.2.1 (section "Hardware check of the refactored drivers", observation 1) |
+| 33220A socket left idle | **known issue** of the instrument (1.1.0 and 1.2.0); **handled since 1.2.1: HW-VERIFIED** (section "Hardware check of 1.2.1") | 2026-10-12: after 5-45 min without traffic the 33220A had dropped the TCP connection three times without the PC noticing; the next measurement then failed on its first command ("connection forcibly closed by the remote host", then "must be connected to remote server") before any output was armed. Not every idle period: a connection was still alive after 18 min without traffic (12:10–12:29), another 9.5 min after a measurement (an `OUTP?` at 13:08:37). Workaround before 1.2.1: Disconnect → Connect. Since 1.2.1 a connection idle for more than 30 s is replaced before use, and a failed connection check re-opens it (section "Hardware check of the refactored drivers", observation 1) |
 | SCPI transport: a late reply after a query time-out is discarded; the next query resynchronises with `*IDN?` (audit fix 2026-10-11) | SW-VERIFIED | local fake instrument on 127.0.0.1 (`TestInstruments/scpiLateReplyIsNotTakenAsTheNextAnswer`); not exercised on the 33220A (a time-out needs a slow or interrupted link) |
 | LAN-XI: a fault while a recording starts (POST, its reply lost, or the RecorderRecording wait) closes the stream and stops the recording (audit fix 2026-10-11) | SW-VERIFIED | mock fault injection (`TestInstruments/lanxiStartFailureReleasesTheStream`); PENDING on hardware |
 | LAN-XI REST client (GET/PUT/POST, HTTP 403 handling) | HW-VERIFIED | `PUT /create` in Idle → `403 "Cannot create recording in module state Idle"` |
@@ -307,8 +308,15 @@ of `wo-001` into `main` followed on 2026-10-12.
    The transport (`ScpiTcpTransport`, `tcpclient`) is unchanged since 1.1.0, and the owner had seen
    the same before. Fix planned for 1.2.1: a check of the connection before every measurement or
    calibration with an automatic reconnect (same serial number, output off, `OUTP:LOAD`), an English
-   message, the lamp, and the reset handled by `tcpclient`'s `ErrorOccurredFcn` instead of a stack
-   trace in the command window.
+   message and the lamp (built in 1.2.1, branch `wo-003`; the stack trace MATLAB's tcpclient prints
+   in the command window on the reset cannot be suppressed - harmless). At 15:1x the owner set the 33220A
+   from DHCP + Auto IP (no DHCP server on this network) to a static IP with the same address
+   (169.254.2.20 / 255.255.0.0); an idle probe on one socket (`*IDN?` after 1, 2, 5, 10, 15 and 30 min
+   of idle) showed that it does not: the connection dropped between 15:21 and 15:26 (5 min idle,
+   "An existing connection was forcibly closed by the remote host" from a plain .NET socket, i.e.
+   without MATLAB); 1, 2, 10 and 15 min idle passed (the 30 min step was not run). So the 33220A
+   itself drops idle connections now and then; 1.2.1 therefore replaces a connection idle for more
+   than 30 s before use instead of sending on it (owner decision 2026-10-12).
 2. **ch3** has worked normally in every measurement (integrity and signal check OK); the fault of
    2026-10-08 has not recurred.
 3. **Signal check levels** (1 s without excitation, after the 3 s settle wait) were 66–72 dB SPL at
@@ -317,6 +325,43 @@ of `wo-001` into `main` followed on 2026-10-12.
    investigated (low-frequency settling after the 0.7 Hz high-pass, room or electrical noise).
 4. At 0.05 Vpp (direct drive, about 3.4 mVpk at the loudspeaker) most lines failed coherence or SNR
    (1403 / 1473 of 2191, no calibration loaded); at 0.5 and 1 Vpp none did.
+
+## Hardware check of 1.2.1 (WO-003, branch `wo-003`), 2026-10-12: passed
+
+SW-VERIFIED only (simulation, the protocol mock and a fake instrument on 127.0.0.1): the connection
+check before every excitation and every 60 s while the window is idle, with the automatic re-opening
+of a connection the generator dropped (`docs/workorder_after_hardware_check.md` section 1); the
+EXCITATION controls (generator load, the amplitude at the loudspeaker in direct drive). The owner's
+check, at the approved level 0.025 Vpk (0.05 Vpp), empty specimen section:
+
+1. **Idle drop**: Connect and leave the window idle for at least 30 min, then a short measurement
+   (1 repetition), then another one after 2 min idle. Expected: no error and no red stack trace in
+   the MATLAB command window (idle connections are replaced before use, silently); the measurement
+   runs; the output LED is on only during the sweep. A "Generator: connection re-opened (the
+   instrument had closed it) …" line may appear only if a drop fell into the last 30 s before a
+   use.
+2. **Lost connection**: connected and idle, pull the generator's LAN cable for about 2 min. Expected:
+   within a minute the Generator lamp turns red and the status reads "Connection lost - Disconnect
+   and Connect"; nothing is switched on. Plug the cable back, Disconnect → Connect, one short
+   measurement works.
+3. **Generator load**: not connected, choose "power amplifier" (no excitation), Generator load 50 Ω,
+   Connect: Setup > Connection shows "load 50"; Disconnect, back to "none (direct drive)": the list
+   returns to High Z; Connect shows "load INF".
+4. **Amplitude at the loudspeaker**: direct drive, the amplitude label set to "Speaker [Vpk]", 0.00345 Vpk (= 0.025
+   Vpk programmed at 8 Ω). Expected: the excitation confirmation and the log line "Excitation
+   confirmed" show generator 0.025 Vpk and loudspeaker about 0.00345 Vpk; the saved measurement has
+   `metadata.drive` with both.
+
+| Step | Status | Date, result |
+|---|---|---|
+| 1 idle drop, re-opened before the measurement | **HW-VERIFIED** | 2026-10-12, run from the worktree `tubebench-wo003` (window started 16:49 with commit 1b511ce; later commits were not loaded). Idle 17:00 → 18:07 (67 min): the window's minute check replaced the connection 76 times silently, no connection-lost entry; the measurement at 18:07:25 (preceded by a re-open) and the one at 18:11:29 (34 s after the last minute re-open, so re-opened again) ran without an error, integrity OK; no reset stack trace in the MATLAB command window (none all session) |
+| 2 lost connection (cable pulled) | **HW-VERIFIED** | LAN cable pulled about 18:12: the minute check at 18:12:56 could not open a new connection (two attempts, 5 s each) and logged at 18:13:06 "Connection check: The connection to the generator was lost and could not be re-opened … then Disconnect and Connect."; the minute check stopped; nothing was switched on. Cable back, Disconnect → Connect (18:16:59), a measurement at 18:17:46 ran normally. The message contained MATLAB's own text of the failed connection (Korean, with a help link) - fixed afterwards: the error is English, the text goes to the transport log (`TestInstruments/scpiConnectFailureIsEnglish`). The owner saw the Generator lamp red and the status "Connection lost - Disconnect and Connect" until the reconnection |
+| 3 generator load in the window | **HW-VERIFIED** | 16:49-16:51: "power amplifier", Generator load 50 Ω, Connect (the CHECK line of load 50 with an amplifier, the connection with load 50); Disconnect, back to direct drive → "Generator load: High Z for direct drive.", Connect sent `OUTP:LOAD INF`, Instruments table "limit 2 Vpp, load INF" |
+| 4 amplitude at the loudspeaker | **HW-VERIFIED** | 16:52: Speaker [Vpk] 0.00345 → generator 0.025 Vpk (`VOLT 0.0500`); the confirmation line gave both; `metadata.drive` Vspk 0.00345 V, Voc 0.050025 Vpp. The stored `ui.amplitudeAt` was still the value of Connect (the label had been changed after it) - fixed in bee3508 (`MeasurementSession.setAmplitudeAt`, tested) |
+
+Every step passed on the real instruments. With the rounded swap paths of the Calibration view
+(software only; the owner confirmed them on screen captures, 2026-10-12) this is version 1.2.1,
+merged into `main` on 2026-10-12.
 
 ## After the merge (1.2.0)
 

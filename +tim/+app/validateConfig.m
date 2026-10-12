@@ -74,6 +74,16 @@ if strcmp(ld, '50') && hasAmp && ~direct && isnan(zin)
         'the loudspeaker power check assumes a 50 Ω amplifier input. With a high-impedance input the loudspeaker ' ...
         'gets up to 4 × the estimated power – enter the amplifier input impedance (amplifier.inputImpedance_ohm).'];
 end
+if isfield(cfg, 'ui') && isfield(cfg.ui, 'amplitudeAt')
+    at = cfg.ui.amplitudeAt; if isstring(at), at = char(at); end
+    if ~ischar(at) || ~any(strcmp(at, {'generator', 'loudspeaker'}))
+        error('tim:config:ui', 'Amplitude field (ui.amplitudeAt) must be ''generator'' or ''loudspeaker''.');
+    end
+    if strcmp(at, 'loudspeaker') && hasAmp && ~direct
+        report{end+1} = ['The amplitude is entered as the loudspeaker voltage (ui.amplitudeAt) only with direct drive; ' ...
+            'with an amplifier the window shows the generator amplitude.'];
+    end
+end
 if isfield(cfg, 'loudspeaker')
     ls = cfg.loudspeaker;
     assert(ls.impedance_ohm > 0 && ls.maxPower_W > 0, 'tim:config:loudspeaker', ...

@@ -36,7 +36,9 @@ function out = drawTube3D(ax, geom, drawing, mapping, opts)
 %     M.micLabel(c), M.micX0(c) (port x it was drawn at), M.portX (M1..M4),
 %     M.glow (glow surfaces, FaceAlpha can be pulsed), M.lift (1x4 travel
 %     heights: the first clears every microphone), M.zHandle (plug top),
-%     M.labelSide(p) (-1 left / +1 right), M.labelGap, M.mapping.
+%     M.labelSide(p) (-1 left / +1 right), M.labelGap, M.mapping,
+%     M.swapRadius (corner radius of the swap paths, tim.gui.calSwapPath;
+%     0 = sharp corners).
 %
 %   x = tube axis (x = 0 at the specimen FRONT face, increasing towards the
 %   termination), z = up (microphones), y = depth (side view seen from -y).
@@ -208,6 +210,7 @@ end
 out.portX = x; out.mapping = mapping;
 out.zHandle = zTip + lM + 18;                        % plug top
 out.lift = (zTop - zTip + 4) + 10 * (0:3);           % the first lift clears every microphone and cable; +10 mm per further mover (they also move apart in depth)
+out.swapRadius = swapRadius(x, out.lift(1), max(rM, 3.6), rB + hHo - zTip);   % (3.6 mm: plug, see microphone)
 % hatch and outline of the cut faces (one line object each)
 if S.section && ~isempty(S.hatch)
     plot3(ax, S.hatch(:, 1), S.hatch(:, 2), S.hatch(:, 3), '-', 'Color', [0.45 0.47 0.52], 'LineWidth', 0.5);
@@ -320,6 +323,27 @@ view(ax, v);
 % "Restore view" of the toolbar must return to THIS drawing, not to the view
 % stored at the first zoom of an earlier drawing
 if isappdata(ax, 'matlab_graphics_resetplotview'), rmappdata(ax, 'matlab_graphics_resetplotview'); end
+end
+
+function r = swapRadius(x, lift1, rho, zExit)
+% corner radius of the swap paths of the Calibration view (one per drawing;
+% each path uses min(r, |xb - xa|/2), tim.gui.calSwapPath) [mm]:
+%   0.4 sMin, h1/3     the corner stays small against the port spacing and
+%                      the height of the path
+%   h1 - 8             the dashed arrow (h1 high, from the plug top + 2 mm)
+%                      ends straight: 6 mm arrowhead + 2 mm shank
+%   sMin - 2 rho - 1   a microphone turning towards the next column stays
+%                      1 mm clear of the microphone (or plug) standing there
+%   lift1 - zExit - 1  the microphone tip has left its holder by 1 mm before
+%                      it turns
+% sMin = smallest non-zero port spacing (a zero gap, e.g. L1 = d = L2 = 0,
+% does not count, nor a rounding residue below 1 um), h1 = lift1 - 2, rho =
+% microphone or plug radius, zExit = lift at which the tip leaves the
+% holder. Below 1 mm the corners stay sharp (r = 0).
+g = diff(sort(x(:).')); sMin = min([g(g > 1e-3), Inf]);
+h1 = lift1 - 2;
+r = max(0, min([0.4 * sMin, h1 / 3, h1 - 8, sMin - 2 * rho - 1, lift1 - zExit - 1]));
+if ~(r >= 1), r = 0; end
 end
 
 function S = shell(S, x0, x1, rIn, rOut, col, gaps, tag)
