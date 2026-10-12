@@ -56,7 +56,7 @@ or configuration.
 
 ## Status (2026-10-11)
 
-* **Software**: complete. 337 automated tests in 22 test classes (simulation and recorded hardware
+* **Software**: complete. 338 automated tests in 22 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -158,3 +158,5 @@ data/, calibration/     measurement and calibration output (never overwritten)
 LAN-XI Open API user guide BE 1872; HBK `open-api-tutorials` (stream format, single-module
 example) and `open-api-time-data-recorder` (MATLAB reference, MIT licence; used as a behavioural
 reference, not copied); Agilent 33220A User's Guide 33220-90002; ISO 10534-2; ASTM E1050; ASTM E2611.
+The sources of the formulas (standards and literature) are listed in `docs/theory.md` (References)
+and in the Formula tab of the window.

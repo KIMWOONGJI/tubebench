@@ -179,6 +179,10 @@ stored with every measurement. When releasing, bump the version number and date 
 - **Docs.**
   - Behaviour changes go into `docs/user_guide.md` (also opened by Help > User guide).
   - Analysis changes go into `docs/theory.md`.
+  - A formula's source is cited as [n]. The reference list of `docs/theory.md` and section 13 of
+    the Formula tab (`tim.gui.equationsPanel`) are the same text (`TestFormulaPanel` compares
+    them), and every Formula section ends with its "Sources:" line, which also names the
+    program's own choices.
   - The README states the test count.
   - Planned work for the next version is in `docs/workorder_*.md`.
 - **Errors.** Error and warning identifiers use the `tim:<area>:<what>` form.

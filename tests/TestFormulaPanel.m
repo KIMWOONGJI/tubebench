@@ -11,7 +11,8 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
     %   coefficient) and the code's choices (0.58 c/D, Zc in the velocity,
     %   Kirchhoff k, stepped SNR per block, the Zt bias of 'iso10534'); the
     %   texts name the control-panel section and fields; plain text has no
-    %   ASCII math.
+    %   ASCII math; every section ends with its sources, and the numbered
+    %   references are those of docs/theory.md, word for word.
 
     properties
         fig
@@ -44,7 +45,7 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
             for h = {'Conventions', 'Transfer functions', 'Switching calibration', 'decomposition', ...
                     'specimen faces', 'Reflection, transmission', 'Transfer impedance', 'Transmission loss', ...
                     'Transfer matrix (scripts only', 'Air properties', 'Geometric validity range', ...
-                    'Validity criteria', 'Units'}
+                    'Validity criteria', 'Units', 'References'}
                 tc.verifyTrue(any(contains(heads, h{1})), ['section ' h{1}]);
             end
             sl = findall(tc.fig, 'Type', 'uilabel', 'Tag', 'formula:h2');
@@ -148,6 +149,53 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
             tc.verifyTrue(contains(t, 'as entered in IMPEDANCE TUBE'), 'input section of the positions');
             tc.verifyFalse(contains(t, 'entered in Tube setup'), 'Tube setup is a view, not the input section');
             tc.verifyTrue(contains(t, 'field T [°C]') && contains(t, 'field p [kPa]'), 'field labels of T and p_s');
+        end
+
+        function everySectionNamesItsSources(tc)
+            % owner request 2026-10-12: every section ends with its sources ([n] of
+            % section 13 "References"); the list is that of docs/theory.md, word for word
+            g = findall(tc.fig, 'Type', 'uigridlayout', 'Scrollable', 'on');
+            kids = g.Children;
+            [~, o] = sort(arrayfun(@(h) h.Layout.Row, kids));
+            kids = kids(o);
+            tags = arrayfun(@(h) h.Tag, kids, 'UniformOutput', false);
+            hIdx = [find(strcmp(tags, 'formula:h')); numel(kids) + 1];
+            heads = arrayfun(@(h) h.Text, kids(hIdx(1:end - 1)), 'UniformOutput', false);
+            tc.verifyEqual(heads{end}, '13. References', 'last section');
+            cited = [];
+            for i = 1:numel(heads) - 1
+                b = hIdx(i) + 1:hIdx(i + 1) - 1;
+                src = kids(b(strcmp(tags(b), 'formula:src')));
+                tc.verifyNotEmpty(src, ['no sources in section ' heads{i}]);
+                tc.verifyEqual(tags{hIdx(i + 1) - 1}, 'formula:src', ['sources end section ' heads{i}]);
+                for s = reshape(src, 1, [])
+                    tc.verifyTrue(startsWith(s.Text, 'Sources: '), s.Text);
+                    tok = regexp(s.Text, '\[(\d+)\]', 'tokens');
+                    cited = [cited, cellfun(@(t) str2double(t{1}), tok)]; %#ok<AGROW>
+                end
+            end
+            % the list: [1] .. [N], every entry cited, every citation listed
+            rl = findall(tc.fig, 'Type', 'uilabel', 'Tag', 'formula:r');
+            num = str2double(regexprep({rl.Text}, '[\[\]]', ''));
+            txt = arrayfun(@(h) h.Parent.Children(strcmp({h.Parent.Children.Tag}, 'formula:rtext')).Text, ...
+                rl, 'UniformOutput', false);
+            [num, o] = sort(num); txt = txt(o);
+            tc.verifyEqual(num, 1:numel(num), 'numbered 1..N');
+            tc.verifyEmpty(setdiff(num, cited), 'every reference is cited');
+            tc.verifyEmpty(setdiff(cited, num), 'every citation is in the list');
+            % docs/theory.md: "* [n] text" under "## References", continuation lines indented
+            doc = strrep(tim.app.readTextUtf8(fullfile(tim.app.projectRoot(), 'docs', 'theory.md')), char(13), '');
+            doc = extractAfter(doc, sprintf('\n## References\n'));
+            tc.assertNotEmpty(doc, 'docs/theory.md has a section "## References"');
+            e = regexp(doc, '\n\* \[(\d+)\] ([^\n]*(?:\n {2,}[^\n]*)*)', 'tokens');
+            dn = cellfun(@(x) str2double(x{1}), e);
+            dt = cellfun(@(x) regexprep(x{2}, '\s*\n\s*', ' '), e, 'UniformOutput', false);
+            tc.verifyEqual(dn, num, 'same numbers in docs/theory.md');
+            if isequal(dn, num)
+                for i = 1:numel(num)
+                    tc.verifyEqual(txt{i}, dt{i}, sprintf('reference [%d]: Formula tab vs docs/theory.md', num(i)));
+                end
+            end
         end
 
         function plainTextHasNoAsciiMath(tc)

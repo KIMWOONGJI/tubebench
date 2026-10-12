@@ -623,7 +623,10 @@ and symbols; 1 transfer functions (swept sine, stepped sine, random noise); 2 sw
 calibration; 3 plane-wave decomposition; 4 pressure and particle velocity at the specimen faces;
 5 reflection, transmission and dissipation; 6 transfer impedance; 7 transmission loss; 8 transfer
 matrix (scripts only); 9 air properties and tube losses; 10 geometric validity range; 11 validity
-criteria; 12 units and level references. The derivations are in `theory.md`.
+criteria; 12 units and level references; 13 references (standards and literature). Every section
+ends with a grey "Sources:" line: the standards and papers it follows, cited as [n] of section 13,
+and what is this program's own choice (for example the sweep gate, the SNR estimators and every
+validity threshold). The derivations are in `theory.md`, whose reference list is the same.
 
 ## 7. Menus
 

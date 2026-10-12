@@ -5,7 +5,7 @@ There are two independent calibration layers. Neither replaces the other.
 | Layer | Purpose | Source | Used for |
 |---|---|---|---|
 | **A. Sensitivity** [mV/Pa] | absolute pressure, dB SPL, overload margins | individual calibration certificate, TEDS, or nominal 11.2 mV/Pa | `tim.acq.voltsToPascal`, time signals and spectra in Pa |
-| **B. Switching calibration**, calibration factor `C_k = g_k/g_ref` | relative magnitude **and phase** of the complete measurement chains | microphone-switching measurement in the tube (ISO 10534-2 / ASTM E1050 type) | transfer functions, wave decomposition (R, τ, Z_t, TL, T) |
+| **B. Switching calibration**, calibration factor `C_k = g_k/g_ref` | relative magnitude **and phase** of the complete measurement chains | microphone-switching measurement in the tube (ISO 10534-2 / ASTM E1050 type; Chung and Blaser 1980; references in theory.md) | transfer functions, wave decomposition (R, τ, Z_t, TL, T) |
 
 **A sensitivity (also from TEDS) is never a substitute for B.** The four-microphone method
 depends on phase differences of a few degrees at low frequency (k·s = 3.6° at 120 Hz for

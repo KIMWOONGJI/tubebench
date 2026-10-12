@@ -5,6 +5,10 @@ This document defines every convention used in the code (`+tim/+acoustics`, `+ti
 quantities are SI. The GUI tab **Formula** (`tim.gui.equationsPanel`) shows the same equations in
 short form, with the default thresholds read from `tim.app.defaultConfig` at run time.
 
+Sources are cited as [n]. The list at the end (References) is, word for word, section 13 of the
+Formula tab (`TestFormulaPanel` compares them). A definition, threshold or procedure without a
+source is this program's own choice, and its reason is given here.
+
 ## 1. Conventions, symbols, air and tube losses
 
 | Item | Convention |
@@ -32,9 +36,9 @@ and `TL_τ`, and `τ_a`, `R_a` for the anechoic-termination coefficients derived
 
 ### Air properties (`tim.acoustics.airProperties`)
 
-    c   = 343.2 m/s · √(T / 293 K)                         ISO 10534-2
+    c   = 343.2 m/s · √(T / 293 K)                         ISO 10534-2 [1]
     ρ   = p_s / (287.05 J/(kg K) · T)                      ideal gas, dry air (R/M, M = 28.9647 g/mol)
-    μ   = 1.716·10⁻⁵ Pa s · (T/273.15 K)^{3/2} · 383.55 K / (T + 110.4 K)     Sutherland
+    μ   = 1.716·10⁻⁵ Pa s · (T/273.15 K)^{3/2} · 383.55 K / (T + 110.4 K)     Sutherland [15]
     ν   = μ/ρ,   κ = 1.4,   Pr = 0.709
 
 `T` is in kelvin (temperature in °C + 273.15). At 20 °C and 101.325 kPa: `c = 343.29 m/s`,
@@ -53,8 +57,8 @@ the error in `c` is amplified, see section 3A.
 
 ### Tube losses (`tim.acoustics.wavenumber`, `cfg.analysis.lossModel`)
 
-**`'kirchhoff'` (default).** Visco-thermal wall losses of a wide tube (Kirchhoff 1868; first order
-of the Zwikker–Kosten circular-tube model, Tijdeman 1975, Stinson 1991). With the viscous boundary
+**`'kirchhoff'` (default).** Visco-thermal wall losses of a wide tube (Kirchhoff [11]; first order
+of the Zwikker–Kosten circular-tube model [12], Tijdeman [13], Stinson [14]). With the viscous boundary
 layer `δ_v = √(2ν/ω)` and the radius `a = D/2`, the effective density and bulk modulus are
 
     ρ_eff/ρ = 1 + (1 − j)·δ_v/a,      K/K_eff = 1 + (κ − 1)(1 − j)·δ_v/(a·√Pr)
@@ -77,7 +81,7 @@ Against the exact circular-tube solution (Zwikker–Kosten / Stinson, Bessel fun
 lab geometry is recovered within 0.1 % (0.06 % found).
 
 **`'iso10534'`.** `k = ω/c − j·1.94·10⁻²·√f/(c·D)`, `Z_c = ρc`: the empirical ISO 10534-2 wall
-attenuation. It keeps `Re k = ω/c`, i.e. it omits the phase-velocity reduction of equal magnitude.
+attenuation [1]. It keeps `Re k = ω/c`, i.e. it omits the phase-velocity reduction of equal magnitude.
 That is harmless for `|R|` (error < 0.008) and is the ISO-conformant choice for absorption work. It
 biases the thin-element `Z_t`, which is a small difference of two pressures extrapolated over
 `x3 − x2`: the absolute error is about `k″·(x3 − x2)·ρc`, i.e. about `0.02ρc` at 4.5 kHz for
@@ -123,14 +127,17 @@ the empty-tube check; or measure a thin reference element with a known `Z_t`.
 
 ## 2. Two-microphone plane-wave decomposition
 
-On each side of the specimen the field between the microphones and the specimen is
+The two-microphone decomposition is that of Seybert and Ross [6] and Chung and Blaser [7]; the
+four-microphone arrangement, with one pair on each side of the specimen, that of ASTM E2611 [3]
+and Song and Bolton [8]. On each side of the specimen the field between the microphones and the
+specimen is
 
     p(x) = A·exp(−jkx) + B·exp(+jkx),       u(x) = (A·exp(−jkx) − B·exp(+jkx)) / Z_c
 
 The velocity follows from the linearised Euler equation of the cross-section average,
 `jωρ_eff·u = −∂p/∂x`: `u = k/(ωρ_eff)·(A e^{−jkx} − B e^{+jkx})`, and `k/(ωρ_eff) = 1/Z_c` with
 `Z_c = √(ρ_eff·K_eff)`. This is exact for the visco-thermal plane mode with the `'kirchhoff'` pair
-`(k, Z_c)` and for the lossless model. `'iso10534'` keeps `Z_c = ρc` (ASTM E2611 practice); for a
+`(k, Z_c)` and for the lossless model. `'iso10534'` keeps `Z_c = ρc` (ASTM E2611 [3] practice); for a
 visco-thermal tube the true `Z_c` then differs by about `0.36·(1 − j)·k″/k0` (< 0.6 % above
 100 Hz for `D = 29 mm`). `R`, `τ`, `R_term`, `δ_u`, `Z_t/Z_c`, the TL from `Z_t`, `τ_a`, `R_a` and
 the TL from `T` do not depend on `Z_c`; only the dimensional `u`, `Z_t` [Pa·s/m], `T12`, `T21` and
@@ -216,7 +223,7 @@ section gives `Z_t/Z_c = 2j·tan(kd/2)`. The Transfer impedance and Transmission
 `Z_t` and the TL from `Z_t` when `Re(k)·d > 1` anywhere in the analysis band (`tim.plots.thickSpecimen`,
 `d` = specimen thickness). For such specimens use the transfer matrix.
 
-For a pure series element `T = [1 Z_t; 0 1]`, `T12 = Z_t` (`tm.Zseries`).
+For a pure series element `T = [1 Z_t; 0 1]` (Munjal [10]), `T12 = Z_t` (`tm.Zseries`).
 
 **Transmission loss from Z_t** (`res.thin.TL_dB`). Inserting `T = [1 Z_t; 0 1]` into the
 anechoic-termination transmission coefficient of section 3B gives `τ_a = 2/(2 + Z_t/Z_c)`, hence
@@ -248,20 +255,22 @@ residual of Test C small.
 
 `[p_L; u_L] = T [p_R; u_R]` has four unknown complex elements per frequency. One excitation state
 gives one vector equation, i.e. two scalar equations. A complete `T` therefore needs **two
-independent acoustic states** (ASTM E2611): two terminations (two-load method) or two source
-positions. The GUI does not compute `T`; use `tim.acoustics.transferMatrix` from a script.
+independent acoustic states** (ASTM E2611 [3]; Song and Bolton [8]): two terminations (two-load
+method) or two source positions. The GUI does not compute `T`; use `tim.acoustics.transferMatrix`
+from a script.
 
 * **Two-load** (`transferMatrix('twoLoad', resA, resB)`):
   `T = P·Q⁻¹`, `P = [p_L⁽¹⁾ p_L⁽²⁾; u_L⁽¹⁾ u_L⁽²⁾]`, `Q = [p_R⁽¹⁾ p_R⁽²⁾; u_R⁽¹⁾ u_R⁽²⁾]` for loads (1)
   and (2). The column scaling of each load cancels, so relative pressures can be used. `cond(Q)`
   (with the velocity row multiplied by `Z_c`) is reported. If the loads are too similar, `T` is
   undetermined.
-* **One-load, symmetric** (`transferMatrix('oneLoadSymmetric', res)`): valid **only** if the
-  specimen is reciprocal (`det T = 1`) **and** symmetric (`T11 = T22`). Then, with
+* **One-load, symmetric** (`transferMatrix('oneLoadSymmetric', res)`; [3], [8], [9]): valid
+  **only** if the specimen is reciprocal (`det T = 1`) **and** symmetric (`T11 = T22`). Then, with
   `q = p_L u_R + p_R u_L`: `T11 = T22 = (p_R u_R + p_L u_L)/q`, `T12 = (p_L² − p_R²)/q`,
   `T21 = (u_L² − u_R²)/q`. This is an assumption-based reconstruction, not a general measurement.
 
-From `T` (anechoic-termination equivalents, independent of the actual termination):
+From `T` (anechoic-termination equivalents, independent of the actual termination; equal
+cross-sections, [3], [10]):
 
     τ_a = 2 / (T11 + T12/Z_c + Z_c·T21 + T22)
     R_a = (T11 + T12/Z_c − Z_c·T21 − T22) / (T11 + T12/Z_c + Z_c·T21 + T22)
@@ -298,7 +307,9 @@ which is independent of `S(f)`. That removes the dependence on:
 * the start-frequency tone the 33220A emits before and after a triggered sweep (it is outside the
   sweep gate of step 2 anyway).
 
-Estimator (`tim.dsp.sweepResponse`), per repetition:
+Estimator (`tim.dsp.sweepResponse`), per repetition. The H1 estimator and the coherence are those
+of Bendat and Piersol [16] (sweep measurements in general: Müller and Massarani [18]); the sweep
+gate, the frequency lines and the SNR are this program's:
 
 1. Detect the excited interval on the reference channel (band-limited short-time RMS in 10 ms
    frames, 12 dB above the pre-roll background).
@@ -416,14 +427,14 @@ Estimator (`tim.dsp.sweepResponse`), per repetition:
    |ΔZ_t|/ρc 1.4·10⁻⁴.
 4. Compute
 
-        H_k^m = Σ Y_k Y_ref* / Σ |Y_ref|²                       (H1)
+        H_k^m = Σ Y_k Y_ref* / Σ |Y_ref|²                       (H1 [16])
         γ_k²  = |Σ Y_k Y_ref*|² / (Σ |Y_ref|² · Σ |Y_k|²)
 
    Because the sums run over neighbouring bins and repetitions, `γ²` is a meaningful consistency
    indicator. It is trivially 1 only for a single bin and a single repetition, which is reported
    as a warning.
 5. SNR: the signal energy of the frequency line is compared with the expected energy of the
-   background noise measured in the pre-roll (one-sided Welch PSD `G_n,k`, same taper and length):
+   background noise measured in the pre-roll (one-sided Welch PSD [17] `G_n,k`, same taper and length):
 
         E|N_k|² = G_n,k/2 · f_s · Σ_m w_m²          (per FFT bin)
         SNR_k  = 10·log10( max(Σ|Y_k|² − ΣE|N_k|², 10⁻⁴·ΣE|N_k|²) / ΣE|N_k|² )
@@ -454,7 +465,7 @@ by `FREQ` while the output stays on (phase continuous), and every step is analys
    and used for all channels.
 2. **Block fits.** The record is split into `n_b` blocks (`nBlocks`, default 4) of
    `N = ⌊N_rec/n_b⌋` samples. In block `i` a linear least-squares fit on `[cos, −sin, 1]` at `f̂`
-   (3-parameter sine fit, IEEE 1057) gives the phasor of every channel:
+   (3-parameter sine fit, IEEE 1057 [4]) gives the phasor of every channel:
 
         x_k(t) ≈ Re{Y_k,i e^{j2πf̂t}} + o_k,i
 
@@ -490,7 +501,8 @@ bias of +0.08 dB (white noise, N_rec = 8192) and +0.01 dB (N_rec = 16384); a str
 
 ## 6. Noise excitation (scripts only)
 
-The 33220A `FUNC NOIS` is used with Welch H1 estimation (`tim.dsp.welchResponse`, Hann window,
+The 33220A `FUNC NOIS` is used with Welch spectra [17] and the H1 estimator [16] (also for the SNR
+from the coherence; `tim.dsp.welchResponse`, Hann window,
 50 % overlap; note that MATLAB's `cpsd(a,b) = ⟨A·conj(B)⟩`, so `H = cpsd(x_c, x_ref) /
 pwelch(x_ref)`):
 
@@ -506,12 +518,12 @@ sine only. The periodic multisine (arbitrary waveform) mode is **not** implement
 
 | Limit | Formula | Value |
 |---|---|---|
-| Spacing lower limit (ASTM E1050: s ≥ 1 % of λ) | `0.01·c/s` | 118 Hz |
-| Spacing upper limit (ASTM E1050/E2611: `ks ≤ 0.8π`) | `0.40·c/s` | 4.73 kHz |
-| ISO 10534-2 spacing rule (`f·s < 0.45c`) | `0.45·c/s` | 5.33 kHz (not applied) |
+| Spacing lower limit (ASTM E1050 [2]: s ≥ 1 % of λ) | `0.01·c/s` | 118 Hz |
+| Spacing upper limit (ASTM E1050 [2] / E2611 [3]: `ks ≤ 0.8π`) | `0.40·c/s` | 4.73 kHz |
+| ISO 10534-2 [1] spacing rule (`f·s < 0.45c`) | `0.45·c/s` | 5.33 kHz (not applied) |
 | Singularity (`ks = π`) | `c/(2s)` | 5.92 kHz |
-| ISO 10534-2 diameter rule (`f·D < 0.58c`) | `0.58·c/D` | 6.87 kHz |
-| Cut-on of the (1,1) mode | `1.8412·c/(πD) = 0.586·c/D` | 6.94 kHz |
+| ISO 10534-2 [1] diameter rule (`f·D < 0.58c`) | `0.58·c/D` | 6.87 kHz |
+| Cut-on of the (1,1) mode [10] | `1.8412·c/(πD) = 0.586·c/D` | 6.94 kHz |
 
 The geometric validity range is
 
@@ -549,7 +561,8 @@ s = 29 mm). For thin elements of low impedance the inter-pair phase matters more
 the swept-sine SNR when no repetition had ≥ 0.1 s of noise-only pre-roll, section 4 step 5) fails
 its criterion, as in the switching calibration (`tim.cal.switchingCorrection`); before 2026-10-11
 it passed silently. `tim.app.validateConfig` reports a sweep pre-roll below 0.15 s. Criteria and
-defaults (`cfg.analysis`):
+defaults (`cfg.analysis`; every threshold is a configurable default of this program, not a value of a
+standard, and the geometric limits are those of section 7):
 
 | Flag (rejects when true) | Criterion | Default |
 |---|---|---|
@@ -603,7 +616,7 @@ they reject `R` only through their upstream part (`valid.upstream`).
 |---|---|
 | `p`, `u`, `Z_t`, `ρc` | Pa, m/s, Pa·s/m; `Z_t/(ρc)`, `R`, `τ`, `α_d`, `γ²`, `C_k`, `H_k` dimensionless |
 | `k`, `f`, positions | rad/m, Hz, m (mm in the GUI) |
-| Sound pressure level | `L_p = 20·log10(p_rms / 20 µPa)` dB SPL; tone of a step: `p_rms = \|Y\|/(√2·sensitivity)` |
+| Sound pressure level | `L_p = 20·log10(p_rms / 20 µPa)` dB SPL (reference value: ISO 1683 [5]); tone of a step: `p_rms = \|Y\|/(√2·sensitivity)` |
 | PSD | `10·log10(G_pp / (20 µPa)²)` dB re (20 µPa)²/Hz, one-sided Welch estimate |
 | Without sensitivities | dB re 1 V and dB re 1 V²/Hz |
 | `\|H_k\|`, `\|C_k\|` | `20·log10\|·\|` dB; phases in degrees |
@@ -612,13 +625,52 @@ they reject `R` only through their upstream part (`valid.upstream`).
 
 ## References
 
-* ISO 10534-2:1998, Acoustics – Determination of sound absorption coefficient and impedance in
-  impedance tubes – Part 2: Transfer-function method.
-* ASTM E1050, Standard test method for impedance and absorption of acoustical materials using a
-  tube, two microphones and a digital frequency analysis system.
-* ASTM E2611, Standard test method for normal incidence determination of porous material acoustical
-  properties based on the transfer matrix method.
-* IEEE 1057, Standard for digitizing waveform recorders (3-parameter sine fit).
-* G. Kirchhoff (1868), Ann. Phys. 134; H. Tijdeman (1975), J. Sound Vib. 39, 1–33;
-  M. R. Stinson (1991), J. Acoust. Soc. Am. 89, 550–558; C. Zwikker and C. W. Kosten (1949), Sound
-  absorbing materials.
+Cited as [n] above and in the Formula tab (section 13, the same text). The constants taken from
+ISO 10534-2 (`c`, the attenuation `1.94·10⁻²`, `f·D < 0.58c`, `f·s < 0.45c`, `s > 5 %` of the
+wavelength) are those of the 1998 edition; the 2023 edition and the 2024 editions of the ASTM
+standards were not checked against them (checked 2026-10-12: ISO 10534-2:1998 is withdrawn,
+E1050-24 and E2611-24 are the active ASTM editions).
+
+Standards
+
+* [1] ISO 10534-2:1998, Acoustics – Determination of sound absorption coefficient and impedance in
+  impedance tubes – Part 2: Transfer-function method. Withdrawn; revised as ISO 10534-2:2023,
+  Acoustics – Determination of acoustic properties in impedance tubes – Part 2: Two-microphone
+  technique for normal sound absorption coefficient and normal surface impedance.
+* [2] ASTM E1050, Standard test method for impedance and absorption of acoustical materials using
+  a tube, two microphones and a digital frequency analysis system (current edition E1050-24).
+* [3] ASTM E2611, Standard test method for normal incidence determination of porous material
+  acoustical properties based on the transfer matrix method (current edition E2611-24).
+* [4] IEEE Std 1057-2017, IEEE standard for digitizing waveform recorders (3-parameter sine fit).
+* [5] ISO 1683:2015, Acoustics – Preferred reference values for acoustical and vibratory levels.
+
+Literature
+
+* [6] A. F. Seybert and D. F. Ross (1977), Experimental determination of acoustic properties using
+  a two-microphone random-excitation technique, J. Acoust. Soc. Am. 61, 1362–1370.
+* [7] J. Y. Chung and D. A. Blaser (1980), Transfer function method of measuring in-duct acoustic
+  properties. I. Theory; II. Experiment, J. Acoust. Soc. Am. 68, 907–913 and 914–921.
+* [8] B. H. Song and J. S. Bolton (2000), A transfer-matrix approach for estimating the
+  characteristic impedance and wave numbers of limp and rigid porous materials, J. Acoust. Soc.
+  Am. 107, 1131–1152.
+* [9] J. S. Bolton, T. Yoo and O. Olivieri (2007), Measurement of normal incidence transmission
+  loss and other acoustical properties of materials placed in a standing wave tube, Brüel & Kjær
+  Technical Review No. 1.
+* [10] M. L. Munjal (2014), Acoustics of ducts and mufflers, 2nd ed., Wiley.
+* [11] G. Kirchhoff (1868), Ueber den Einfluss der Wärmeleitung in einem Gase auf die
+  Schallbewegung, Ann. Phys. Chem. 134, 177–193.
+* [12] C. Zwikker and C. W. Kosten (1949), Sound absorbing materials, Elsevier.
+* [13] H. Tijdeman (1975), On the propagation of sound waves in cylindrical tubes, J. Sound Vib.
+  39, 1–33.
+* [14] M. R. Stinson (1991), The propagation of plane sound waves in narrow and wide circular
+  tubes, and generalization to uniform tubes of arbitrary cross-sectional shape, J. Acoust. Soc.
+  Am. 89, 550–558.
+* [15] W. Sutherland (1893), The viscosity of gases and molecular force, Phil. Mag. (5) 36,
+  507–531.
+* [16] J. S. Bendat and A. G. Piersol (2010), Random data: analysis and measurement procedures,
+  4th ed., Wiley.
+* [17] P. D. Welch (1967), The use of fast Fourier transform for the estimation of power spectra:
+  a method based on time averaging over short, modified periodograms, IEEE Trans. Audio
+  Electroacoust. 15, 70–73.
+* [18] S. Müller and P. Massarani (2001), Transfer-function measurement with sweeps, J. Audio Eng.
+  Soc. 49, 443–471.
