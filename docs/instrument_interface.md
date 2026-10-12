@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Work order | WO-001 Part 1 (`docs/workorder_instrument_interface.md`; its §0 decides over older text) |
-| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). Part 2 (stage 6, section 14): the guide `docs/adding_an_instrument.md`, the templates `templates/instrument/` (tested by `tests/TestInstrumentTemplates.m`), the skill `.claude/skills/add-instrument/`, and the demo source `demo` made by following the guide. Fix stage after the review of the implementation (2026-10-11): loading only warns about driver limits, 0 V after the stop on every end of a combined device, block size from the driver in the contract cases, closing during connect / prepare, NI guidance (section 13.3). **Software-verified in simulation only**; the owner's hardware check (WO §0.3) is pending. Owner decisions of 2026-10-11 (section 13.4): D7, D8, D24, D43, D45 and two changes of the bus order approved; the session sets `AbortFcn` (D24) and the fault fixture is regenerated from the code. |
+| Status | **Implemented (as built), 2026-10-11** on `wo-001`: designed in stage 1, revised after the design review (stage 2: 24 issues, resolutions in section 13.2), implemented in stages A, B and C (section 14): contract classes, both drivers, registry, `tests/TestInstrumentContract.m`; configuration `formatVersion` 2, the session through the registry, metadata and the calibration's DAQ chain, `simcombined`; the window from the drivers with the identity display (section 7.1). Part 2 (stage 6, section 14): the guide `docs/adding_an_instrument.md`, the templates `templates/instrument/` (tested by `tests/TestInstrumentTemplates.m`), the skill `.claude/skills/add-instrument/`, and the demo source `demo` made by following the guide. Fix stage after the review of the implementation (2026-10-11): loading only warns about driver limits, 0 V after the stop on every end of a combined device, block size from the driver in the contract cases, closing during connect / prepare, NI guidance (section 13.3). **Hardware-verified on 2026-10-12**: the owner's hardware check (WO §0.3, ten steps in `docs/hardware_status.md`) passed; merged into `main` as 1.2.0. Owner decisions of 2026-10-11 (section 13.4): D7, D8, D24, D43, D45 and two changes of the bus order approved; the session sets `AbortFcn` (D24) and the fault fixture is regenerated from the code. |
 | Applies to | `tim.app.MeasurementSession`, `tim.gui.Tubebench`, `+tim/+app`, `+tim/+cal`, `+tim/+val`, the drivers in `+tim/+instr` and `+tim/+sim` |
 
 This document is the contract between the measurement program and an instrument driver. A
@@ -892,9 +892,8 @@ the code as built; every finding was reproduced or checked in the code first.
 
 ### 13.4 Owner decisions of 2026-10-11
 
-The owner approved every pending recommendation on 2026-10-11. The instruments are not connected;
-the owner's hardware check (WO §0.3, `docs/hardware_status.md`) follows, and only after it is
-`wo-001` merged into `main` as 1.2.0.
+The owner approved every pending recommendation on 2026-10-11. The owner's hardware check (WO
+§0.3, `docs/hardware_status.md`) passed on 2026-10-12, and `wo-001` was merged into `main` as 1.2.0.
 
 | Item | Decision - approved by the owner 2026-10-11 | Status |
 |---|---|---|

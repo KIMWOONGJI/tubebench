@@ -54,7 +54,7 @@ template (simulation mode, no geometry) - never copy it over `user_config.json`.
 software commit does not see uncommitted local changes - commit before measuring with edited code
 or configuration.
 
-## Status (2026-10-11)
+## Status (2026-10-12, version 1.2.0)
 
 * **Software**: complete. 338 automated tests in 22 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
@@ -70,8 +70,9 @@ or configuration.
 * **Hardware**: network, identification, the LAN-XI recorder state machine and binary streaming
   are verified on the real instruments. The generator output, the microphone chain, TEDS,
   calibration and the acoustic validation (Tests A–G) are **pending**; see
-  `docs/hardware_status.md`, which also lists the pending hardware check of the 1.2.0 instrument
-  interface (WO-001, branch `wo-001`: software-verified in simulation only).
+  `docs/hardware_status.md`. The 1.2.0 instrument interface (WO-001) passed the owner's hardware
+  check on 2026-10-12; known issue: the 33220A drops an idle socket connection now and then
+  (Disconnect → Connect; automatic reconnect planned for 1.2.1).
 * **Geometry**: CAD design values of the lab tube (s1 29, L1 41, d 75, L2 41, s2 29 mm; the
   specimen fills the 75 mm specimen section) are in `config/user_config.json`; verify them with
   calipers. The switching calibration is done with the empty specimen section mounted and ends
@@ -150,7 +151,7 @@ data/, calibration/     measurement and calibration output (never overwritten)
 | `docs/hardware_status.md` | verified vs pending, observations from the hardware sessions |
 | `docs/assumptions_and_limitations.md` | assumptions, limitations, future work |
 | `docs/ref_33220A_scpi.md`, `docs/ref_lanxi_openapi.md` | verified instrument protocol references |
-| `docs/instrument_interface.md` | contract for instrument drivers, as built (WO-001 for 1.2.0, stages A–C: contract classes, drivers, registry, contract tests, configuration by driver name, session through the registry, simulated combined device, the window from the drivers; Part 2: guide, templates, skill, demo); software-verified, hardware check pending |
+| `docs/instrument_interface.md` | contract for instrument drivers, as built (WO-001 for 1.2.0, stages A–C: contract classes, drivers, registry, contract tests, configuration by driver name, session through the registry, simulated combined device, the window from the drivers; Part 2: guide, templates, skill, demo); hardware check passed 2026-10-12 |
 | `docs/adding_an_instrument.md` | how to add a driver for another instrument, step by step (facts, suitability, templates, mock, tests, hardware verification with the owner, safety rules); worked example: the demo source, `docs/ref_demo_source.md` |
 
 ## References

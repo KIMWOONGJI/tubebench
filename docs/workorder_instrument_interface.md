@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.2.0 (next version; not before the start-up work of 2026-10-10 is merged) |
-| Status | **software complete** on branch `wo-001` (2026-10-11, review fixes included; section 7); owner decisions of 2026-10-11 recorded and implemented, and the review of those stages fixed (§0 item 6); **hardware check pending** (§0.3, planned for 2026-10-12) - software-verified in simulation only; merged into `main` (version 1.2.0) only after the owner's hardware check |
+| Status | **done**: software complete on branch `wo-001` (2026-10-11, review fixes included; section 7); owner decisions of 2026-10-11 recorded and implemented, and the review of those stages fixed (§0 item 6); **the owner's hardware check passed on 2026-10-12** (§0.3, ten steps, `docs/hardware_status.md`); merged into `main` as version 1.2.0 on 2026-10-12. Follow-up work (after-merge items, the fixes from the check): `docs/workorder_after_hardware_check.md` |
 | Requested by | the owner (Woongji Kim) |
 | Scope | software only; hardware tests need the owner's approval and presence |
 | Depends on | nothing else; the in-tube hardware verification stays on hold independently |
@@ -280,13 +280,10 @@ first; no clicking or typing on the owner's screen; commit, never push unless as
 
 **What remains**
 
-* The owner's hardware check (§0.3, planned for 2026-10-12): reconnect the 33220A and the LAN-XI
-  3676; connect and identify with the output off; a short measurement at a level the owner
-  approves (not above the configured default 0.2 Vpp) with the sweep gate at both ends; Stop
-  during a measurement (D24: output off before the LAN-XI stop); output-off read-back; closing;
-  optionally the sweep gate at an end without the margin; Open measurement and the microphone
-  mapping. The ten steps are listed in `docs/hardware_status.md`. Only then: hardware-verified,
-  version 1.2.0, merge into `main`.
+* ~~The owner's hardware check (§0.3)~~ - **passed on 2026-10-12** (all ten steps,
+  `docs/hardware_status.md`); version 1.2.0, merged into `main`. It found one known issue that
+  predates WO-001: the 33220A drops an idle socket connection now and then (fix planned for 1.2.1,
+  `docs/workorder_after_hardware_check.md`).
 * After the merge (`docs/hardware_status.md`, "After the merge"): `config/user_config.json`
   rewritten in the new layout (D7, approved by the owner 2026-10-11), and the five lab folders
   reprocessed into new folders because every swept-sine line is now centred on its frequency
