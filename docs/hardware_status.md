@@ -279,7 +279,7 @@ TCP state of the generator connection was logged from Windows.
 | 5 short measurement at an approved level (≤ 0.2 Vpp), sweep gate at both ends | **HW-VERIFIED** | 12:29, 0.05 Vpp, `data/20261012_123025_sweep_hwcheck-step5`: integrity OK on all four channels; `gateEnds` {gate, gate}, no warning; sweep found at 1.489 s, 5.006 s long (matched peak ratio 713); output off about 0.09 s after the sweep end, the start-frequency tone in between outside the gate; Time signals note "Grey: not analysed (before 1.49 s and after 6.49 s …)"; LED on only during the sweep (owner) |
 | 6 Stop during a measurement (D24: output off before the LAN-XI stop) | **HW-VERIFIED** | 12:38, Stop in repetition 2: SCPI `OUTP OFF` 12:38:12.267, REST `PUT /rest/rec/measurements/stop` 12:38:12.710 (D24 order); the messages as expected, `OUTP?` 0, partial data in `data/emergency/`; LED off at once (owner). 14:02:47 Stop, 14:03:34 the next measurement started without reconnecting and ran normally |
 | 7 output-off read-back | **HW-VERIFIED** | no "not confirmed off" after a normal end or a Stop; `OUTP?` 0 and the LED off. (The "not confirmed off" messages of observation 1 came from a dropped connection, not from a read-back mismatch.) |
-| 8 closing (idle, during a measurement) | **HW-VERIFIED** | 14:04:57 closed while idle (the PC closed the generator socket); 14:07:05 closed in repetition 2: "Closing: window close requested while busy - STOP requested first.", the repetition stopped at once (partial data 14:07:06). At the next Connect (14:08:40) the output read back off and the checklist step "LAN-XI recorder state Idle" read "Idle". The closing dialog itself was not read |
+| 8 closing (idle, during a measurement) | **HW-VERIFIED** | 14:04:57 closed while idle (the PC closed the generator socket); 14:07:05 closed in repetition 2: "Closing: window close requested while busy - STOP requested first.", the repetition stopped at once (partial data 14:07:06). At the next Connect (14:08:40) the output read back off and the checklist step "LAN-XI recorder state Idle" read "Idle". The session log in the MATLAB command window shows both closings: "Closing: Generator output off (confirmed)." and "Closing: Instruments disconnected." (14:04:56-59 and 14:07:08-09). At the idle closing `PUT /rest/rec/finish` timed out after the 2 s closing time-out ("shutdown step in RecorderStreaming failed"); the shutdown loop went on and the module was in Idle at the next Connect |
 | 9 sweep gate at an end without the margin (optional) | **HW-VERIFIED** | 12:43 / 12:53-12:59, 120–4500 Hz, 4 repetitions, 0.025-0.5 Vpk: the CHECK line at the first Start of the setting; `gateEnds` {detected start, ring-down margin} in every repetition; the warning as expected; integrity OK. First run of the fallback on real records |
 | 10 Open measurement and the microphone mapping | **HW-VERIFIED** | 14:08 (window not connected): no mapping question, the message pane ends with "Reprocess uses the IMPEDANCE TUBE fields and the active calibration (none - results not valid)."; Reprocess (14:12) reproduces the saved results bit for bit (H, R, R_term, Z_c, k, τ, masks, `gateEnds`). The optional part (another mapping) was not run |
 
@@ -297,9 +297,13 @@ of `wo-001` into `main` followed on 2026-10-12.
    failure came before the excitation confirmation); Disconnect → Connect restored the connection.
    While idle, Windows showed the connection as established and logged no adapter, Wi-Fi or standby
    event; ping and the Ethernet link stayed up; the ARP entry of 169.254.2.20 is the 33220A's own
-   MAC (00-30-D3-09-56-16, from its web page), so no address conflict. The instrument therefore
-   dropped the connection silently (or its close was not seen) and rejected it when data came. Not
-   every idle period: a connection was alive after 18 min, another 9.5 min after a measurement.
+   MAC (00-30-D3-09-56-16, from its web page), so no address conflict. A fourth drop confirmed that
+   the instrument drops the connection **silently**: the Windows TCP state, logged every 0.5 s,
+   showed the connection made at 14:08:40 as established without a break until 14:33:00, when the
+   owner pressed Start, and then gone - no FIN, no CloseWait; an `OUTP?` had still been answered at
+   14:18:42, so the drop happened within 14 min of idle. The PC cannot see such a drop without
+   sending something. Not every idle period: a connection was alive after 18 min, another 9.5 and
+   10 min after its last traffic.
    The transport (`ScpiTcpTransport`, `tcpclient`) is unchanged since 1.1.0, and the owner had seen
    the same before. Fix planned for 1.2.1: a check of the connection before every measurement or
    calibration with an automatic reconnect (same serial number, output off, `OUTP:LOAD`), an English
