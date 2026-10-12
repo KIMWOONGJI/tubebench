@@ -107,3 +107,36 @@ Tasks:
   later Connect, while the pre-roll of a measurement read about 45 dB SPL. Find out whether this is
   low-frequency settling after the 0.7 Hz high-pass, or room or electrical noise. If it is
   settling, make the check exclude it.
+
+## 6. Rounded microphone-swap paths in the Calibration view (owner request 2026-10-12, not started)
+
+The dashed swap paths and the animation of the Calibration view turn with sharp 90° corners
+(local `calPath` and `animateCalMics` in `Tubebench.m`; the dashed line has 4 vertices). The owner
+wants rounded corners that adapt to every tube configuration (diameter, s1/s2, L1/d/L2,
+calibration ports, tubeDrawing). Agent design review, 2026-10-12:
+
+- **Corners as circular fillets.** One radius per drawing, computed in `drawTube3D` (new field
+  `swapRadius`): r* = max(0, min(0.4·sMin, h₁/3, h₁ − 8, sMin − 2ρ − 1, lift₁ − zExit − 1)), set to 0
+  below 1 mm. Here sMin is the smallest non-zero port gap, h₁ = lift(1) − 2, 8 mm is the arrowhead
+  plus a straight shank, ρ is the microphone or plug radius, and zExit is the height at which the
+  microphone tip leaves its holder. About 11.6 mm in the lab tube. Each path uses
+  min(r*, |xb − xa|/2).
+- **Path function.** A new pure function `+tim/+gui/calSwapPath.m` returns the vertices and the
+  point at a fraction of the arc length. The dashed line and the animation both use it, and the
+  local `calPath` is removed.
+- **Why fillets.** The turning radius is bounded, there is no overshoot (each arc stays inside its
+  corner triangle), the straight parts are unchanged, and the arc length is exact. Two paths of
+  the same span never cross.
+- **Edge cases.** Adjacent or distant ports, a zero gap (L1 = d = L2 = 0), and spacings of 1–10 mm
+  (corners stay sharp below 1 mm). Other calibration positions and steps with 3 microphones moving.
+  Diameters of 1–500 mm (the lowest point stays above the tube).
+- **Tests.**
+  - New `TestCalSwapPath` (no window): r = 0 matches the old path; exact endpoints; continuity;
+    turning ≤ 6°; points inside the box; straight shank ≥ 8 mm; a width × radius table; no crossing.
+  - Add to `TestTube3D` (swapRadius over several tube configurations) and to `TestGui` (the paths in
+    a simulated calibration).
+  - Screen captures of several configurations, from a separate MATLAB with the owner's consent.
+- **Size.** About 330 lines in 7 files. The constants 0.4 and 1/3 are for the owner to confirm on
+  the captures.
+- **Separate finding.** `lift` ignores the holder height, so with a very tall holder a microphone
+  would be drawn sliding through it. This does not apply to the lab tube.
