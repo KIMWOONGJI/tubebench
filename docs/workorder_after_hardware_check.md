@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.2.1 |
-| Status | **sections 1, 2 and 6 done**: built on branch `wo-003` on 2026-10-12, the owner's hardware check of sections 1 and 2 passed (`docs/hardware_status.md`, "Hardware check of 1.2.1"), the rounded paths of section 6 confirmed by the owner on screen captures; version 1.2.1, merged into `main` on 2026-10-12. **Still open:** the after-merge items of section 3, the owner decisions of section 4 and the question of section 5 (written 2026-10-12 after the owner's hardware check of 1.2.0) |
+| Status | **sections 1, 2 and 6 done**: built on branch `wo-003` on 2026-10-12, the owner's hardware check of sections 1 and 2 passed (`docs/hardware_status.md`, "Hardware check of 1.2.1"), the rounded paths of section 6 confirmed by the owner on screen captures; version 1.2.1, merged into `main` on 2026-10-12. The after-merge items of section 3 were done the same evening. **Still open:** the owner decisions 2-4 of section 4 and the question of section 5 (written 2026-10-12 after the owner's hardware check of 1.2.0) |
 | Requested by | the owner (Woongji Kim), during and after the hardware check |
 | Rules | as in CLAUDE.md; a change of the instrument communication needs a short hardware check with the owner present; the bus-traffic fixtures are regenerated only for an owner-approved change |
 | Decisions | owner, 2026-10-12: (1) the connection check before every measurement / calibration with an automatic reconnect - **approved, including the regeneration of the bus-traffic fixtures**; (2) the idle check every 60 s - **yes**; (3) the loudspeaker voltage as the level in direct drive - **in 1.2.1**. Branch `wo-003` |
@@ -87,13 +87,15 @@ Tasks:
 1. Rewrite `config/user_config.json` in the new layout (D7, approved 2026-10-11): load it, save it
    with `tim.app.saveConfig`, review the diff, and check that it loads without a warning.
    **Done 2026-10-12** (`docs/hardware_status.md`, "After the merge").
-2. Reprocess the five lab folders into new folders (centred frequency lines). **Open owner
-   decision:** which calibration to use. Recommended: calibrations recomputed from the saved raw
-   switching sweeps with a small new function that writes new calibration files.
+2. Reprocess the five lab folders into new folders (centred frequency lines). Owner decision on
+   2026-10-12: use the existing calibration `CAL-20261010-212544` for all five. The recommended
+   alternative, recomputing the calibrations from the saved raw switching sweeps, was not chosen.
+   **Done 2026-10-12** (`docs/hardware_status.md`, "After the merge": the new folders and the
+   changes).
 
 ## 4. Open owner decisions carried over from 2026-10-11
 
-1. The calibration for item 3.2 (above).
+1. The calibration for item 3.2 (above): **decided 2026-10-12** (`CAL-20261010-212544`).
 2. An extrapolated gate ramp before the sweep start, for a sweep that starts without the margin.
    Recommended in simulation:
    - with an output-on click, 0.63 % error instead of 60 %;

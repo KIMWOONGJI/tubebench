@@ -379,6 +379,27 @@ These items, the fixes the check asked for and the open owner decisions are coll
   whose C_k come from the old line band, or calibrations recomputed from their saved raw
   switching sweeps) is an open owner question. The sweep-gate change does not affect them (the
   lab sweeps keep the margin; bit-identical results).
+  **Done 2026-10-12** with version 1.2.1 (commit 0025bdf). Owner decision 2026-10-12: all five
+  with the existing calibration `CAL-20261010-212544` (the first two had used
+  `CAL-20261009-191631`). Each was processed as File > Open measurement (the tube set-up of its
+  `config.json`, the recorded microphone mapping) → Reprocess → Save. The new folders have the same
+  `meas` as their source (`isequaln`) and a `REPROCESSED.txt` naming the source and the
+  calibration; the source folders were only read.
+
+  | Source folder | New folder | Valid lines (R) | Change on lines valid in both |
+  |---|---|---|---|
+  | `20261009_192503_sweep` | `20261012_200336_sweep` | 1860 → 1884 (1918 → 1929) | \|ΔR\| ≤ 0.043 (median 0.0057), \|ΔZt\| ≤ 0.034 ρc |
+  | `20261009_201658_sweep` | `20261012_200351_sweep` | 1622 → 1634 (1721 → 1745) | \|ΔR\| ≤ 0.032 (median 0.0064), \|ΔZt\| ≤ 0.016 ρc |
+  | `20261010_234024_sweep` | `20261012_200403_sweep` | 2096 → 2096 (2125 → 2125) | \|ΔR\| ≤ 0.0021, \|ΔZt\| ≤ 5·10⁻⁴ ρc |
+  | `20261010_234354_sweep_cyl75` | `20261012_200415_sweep_cyl75` | 2045 → 2046 (2104 → 2105) | \|ΔR\| ≤ 0.0043, \|ΔZt\| ≤ 6·10⁻⁴ ρc |
+  | `20261010_235332_sweep_metasil-cell1` | `20261012_200428_sweep_metasil-cell1` | 1591 → 1591 (1858 → 1859) | \|ΔR\| ≤ 0.0046 |
+
+  The three folders of 2026-10-10 change only by the centred lines. The two of 2026-10-09 change
+  mostly by the calibration: lines without a valid calibration 303 → 95, so more valid lines.
+  These two were measured the day before that calibration was made. The folders with d = 53.3 mm
+  (`…201658…`, `…metasil-cell1`) keep the calibration-context warning: the port distances
+  [29 135.3 29] mm differ from the calibration set-up ([29 157 29] mm), so its empty-tube check
+  (Test E) does not apply to them.
 * **Rewrite `config/user_config.json` in the new layout** (`formatVersion` 2, D7, approved by the
   owner 2026-10-11): load it with `tim.app.loadConfig`, write it with `tim.app.saveConfig`, review
   the diff (only the layout may change: `generator.driver`, `daq.driver`, the driver sub-structs),

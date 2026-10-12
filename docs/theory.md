@@ -407,8 +407,10 @@ gate, the frequency lines and the SNR are this program's:
    section 3A identifies as critical for a low `Z_t` (in simulation 1.2·10⁻⁴ to 5.7·10⁻⁴ rad
    median for a 3 s sweep, 0.2-0.6 % of a low `Z_t`; for a pure delay `τ` exactly `π τ δ`).
    Every saved sweep result and calibration (`C_k` uses the same estimator) carries the shift.
-   The lab folders are reprocessed into new folders after the 1.2.0 merge (raw data are never
-   overwritten).
+   The five lab folders were reprocessed into new folders on 2026-10-12 with version 1.2.1 and
+   the calibration `CAL-20261010-212544` (owner decision; raw data are never overwritten). The
+   folders and changes are listed in `docs/hardware_status.md`, "After the merge". That
+   calibration was itself computed with the old line band.
 
    *Effect on the lab data* (the five folders of 2026-10-09/10 and both calibrations, reprocessed
    read-only in memory on 2026-10-11; 5 s sweeps, 16 bins per line and repetition). Relative
