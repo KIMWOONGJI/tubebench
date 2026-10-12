@@ -56,15 +56,17 @@ EXCITATION rows (the panel keeps 7 field rows; height limit 930 px, `TestGui/lef
 | Loudspeaker [Ω] / Test limit [W] | nominal impedance, test power limit (the rated power in the tooltip and below) |
 | Level | the level reference (Speaker [Vpk], and Generator [Vpk] in direct drive or Amp input [Vpk] with an amplifier), the level, its Vrms, the expected duration |
 
-Below the rows, three lines replace the drive sentence:
+Below the rows, a white box of three lines replaces the drive sentence (as the mock-up; the
+owner asked for both bars, side by side, 2026-10-12):
 
 1. the signal path: the generator (in Vpp, as its display shows it, and what the number means:
    open-circuit or at the amplifier input), the gain, the loudspeaker in Vpk;
-2. the loudspeaker check: OK / Near limit / Above, the power at the nominal impedance, its share
-   of the test limit and the rated power;
+2. two meters side by side, each a bar of its share of the limit with a tick at 80 %, the share
+   and a state box: Speaker (power at the nominal impedance against the test limit: OK / Near /
+   Above, Gain? without a gain) and Generator (open-circuit voltage against `generator.maxVpp` or
+   its own range: OK / Above); the numbers in the tooltips;
 3. the largest level and the criterion that sets it (the loudspeaker test limit,
-   `generator.maxVpp`, or the generator's output), and the generator's share of `maxVpp` when it
-   matters.
+   `generator.maxVpp`, or the generator's own output).
 
 ## 3. Changes
 
@@ -136,3 +138,7 @@ Below the rows, three lines replace the drive sentence:
   drive, an amplifier without a gain, 600 Ω ×10 at 0.707 Vpk, near the limit (3.79 Vpk) and above
   it (4.1 Vpk). The three lines fit; the control panel needs no scrolling (930 px, the limit).
 - Code Analyzer: no new message in the changed files.
+- The two meters (owner request, the same evening): built from plain panels in grids (the bar
+  is four panels: filled part, track, the 80 % tick, track), so the box stays 45 px. Window tests
+  of the drive and the panel height 4 / 4; the five set-ups captured again: the meters, their
+  states and the three lines fit.
