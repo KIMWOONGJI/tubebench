@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.2.1 |
-| Status | planned - written 2026-10-12 after the owner's hardware check of 1.2.0 (`docs/hardware_status.md`); not started |
+| Status | **sections 1, 2 and 6 done**: built on branch `wo-003` on 2026-10-12, the owner's hardware check of sections 1 and 2 passed (`docs/hardware_status.md`, "Hardware check of 1.2.1"), the rounded paths of section 6 confirmed by the owner on screen captures; version 1.2.1, merged into `main` on 2026-10-12. **Still open:** the after-merge items of section 3, the owner decisions of section 4 and the question of section 5 (written 2026-10-12 after the owner's hardware check of 1.2.0) |
 | Requested by | the owner (Woongji Kim), during and after the hardware check |
 | Rules | as in CLAUDE.md; a change of the instrument communication needs a short hardware check with the owner present; the bus-traffic fixtures are regenerated only for an owner-approved change |
 | Decisions | owner, 2026-10-12: (1) the connection check before every measurement / calibration with an automatic reconnect - **approved, including the regeneration of the bus-traffic fixtures**; (2) the idle check every 60 s - **yes**; (3) the loudspeaker voltage as the level in direct drive - **in 1.2.1**. Branch `wo-003` |
@@ -165,8 +165,18 @@ calibration ports, tubeDrawing). Agent design review, 2026-10-12:
   zHandle + 2 to portX(to), none below that, turning ≤ 6°) and the final positions. 357 tests.
 - Verified 2026-10-12 in batch MATLAB R2022b (`-nojvm`): `TestCalSwapPath` 8 / 8 passed; Code
   Analyzer: no new message in the changed files (`Tubebench.m` keeps its 21 old NOCOMMA notes).
-  **Not run yet:** `TestTube3D` and `TestGui` need graphics and more than 2 GB of free memory;
-  during the owner's hardware check only 1.1–1.7 GB were free. Run both (or the full suite)
-  before the merge.
-- Still open: the screen captures of several configurations (separate MATLAB, with the owner's
-  consent) and the owner's confirmation of the constants 0.4 and 1/3 on them.
+  `TestTube3D` and `TestGui` need graphics and more than 2 GB of free memory, so they ran with the
+  full suite after the owner's hardware check (2318d8e: 357 / 358; the failure was the test calling
+  the private `animateCalMics`, now hidden instead, c5eb55b). Before the merge the full suite ran
+  again on the release state (version 1.2.1 on b9a3dca), split over two batch MATLAB processes
+  because the owner's MATLAB was open: 15 classes without Java (207 tests) and the 8 classes with
+  graphics (151 tests) - **358 / 358 passed** (2026-10-12, 19:16 and 19:41).
+- Screen captures (a separate visible MATLAB, with the owner's consent, 2026-10-12) of seven
+  configurations: the lab tube with ports 1–2 (a step with three movers, and a plain swap), 2–3 and
+  1–4 (radius 11.6 mm); s1 = 10 mm (1.8 mm); L1 = d = L2 = 0; D = 200 mm. Every path is rounded,
+  inside the drawing and clear of its neighbours. **The owner confirmed the constants 0.4 and 1/3
+  on them** (2026-10-12). They also showed two older label overlaps, not caused by the paths: the
+  port labels when two microphones share a position, and "EMPTY 75 mm section" over "M2 (b)" at
+  D = 200 mm. The same captures showed the amplitude label of the EXCITATION panel cut to
+  "Generator [V…"; its label column is now 130 px, and the gain / load row has its own widths, so
+  "High Z" is not cut either (b9a3dca).

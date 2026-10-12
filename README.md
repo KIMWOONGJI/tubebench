@@ -54,7 +54,7 @@ template (simulation mode, no geometry) - never copy it over `user_config.json`.
 software commit does not see uncommitted local changes - commit before measuring with edited code
 or configuration.
 
-## Status (2026-10-12, version 1.2.0)
+## Status (2026-10-12, version 1.2.1)
 
 * **Software**: complete. 358 automated tests in 23 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
@@ -71,8 +71,9 @@ or configuration.
   are verified on the real instruments. The generator output, the microphone chain, TEDS,
   calibration and the acoustic validation (Tests A–G) are **pending**; see
   `docs/hardware_status.md`. The 1.2.0 instrument interface (WO-001) passed the owner's hardware
-  check on 2026-10-12; known issue: the 33220A drops an idle socket connection now and then
-  (Disconnect → Connect; automatic reconnect planned for 1.2.1).
+  check on 2026-10-12. The 33220A drops an idle socket connection now and then; since 1.2.1 the
+  program replaces an idle connection before use and checks it every minute (hardware check of
+  1.2.1 passed on 2026-10-12).
 * **Geometry**: CAD design values of the lab tube (s1 29, L1 41, d 75, L2 41, s2 29 mm; the
   specimen fills the 75 mm specimen section) are in `config/user_config.json`; verify them with
   calipers. The switching calibration is done with the empty specimen section mounted and ends
