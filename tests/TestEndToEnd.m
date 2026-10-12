@@ -467,13 +467,17 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifySubstring(e, '0.1 Vpk (0.2 Vpp, open circuit); amplitude limit 1 Vpk');
             tc.verifyEqual(tim.app.msg('en', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE', 'INF'), e);
             e50 = tim.app.msg('en', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE', '50');
-            tc.verifySubstring(e50, ['0.1 Vpk (0.2 Vpp, programmed into 50 ' char(937) '; open circuit 0.2 Vpk); ' ...
-                'amplitude limit 1 Vpk']);
+            tc.verifySubstring(e50, ['0.1 Vpk (0.2 Vpp, programmed into 50 ' char(937) ' = at the amplifier input; ' ...
+                'open circuit 0.2 Vpk); amplitude limit 1 Vpk open circuit']);
             k50 = tim.app.msg('ko', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE', '50');
             tc.verifySubstring(k50, ' 0.2 Vpk); ');
+            % WO-004: any amplifier input, with the open-circuit voltage of the drive estimate
+            e600 = tim.app.msg('en', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE', '600', 0.2 * 650 / 600);
+            tc.verifySubstring(e600, ['programmed into 600 ' char(937) ' = at the amplifier input; open circuit 0.108 Vpk']);
             % same arguments in both languages: each one printed exactly once
             % (sprintf repeats the template for surplus arguments)
-            for t = {e, e50, k50, tim.app.msg('ko', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE')}
+            for t = {e, e50, k50, e600, tim.app.msg('ko', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE', '600', 0.2), ...
+                    tim.app.msg('ko', 'confirmExcitation', 'swept sine', 0.2, 2, 'LINE')}
                 tc.verifyEqual(count(t{1}, 'LINE'), 1);
                 tc.verifyEqual(count(t{1}, 'swept sine'), 1);
             end

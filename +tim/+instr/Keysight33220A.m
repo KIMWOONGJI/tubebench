@@ -15,8 +15,14 @@ classdef Keysight33220A < tim.instr.SignalSource
     %     on close and on delete.
     %   * outputOn() is refused unless armOutput() has been called by the
     %     measurement session (i.e. the user explicitly started a measurement).
-    %   * The programmed amplitude is limited to MaxVpp (user setting, chosen
-    %     to protect the amplifier/loudspeaker). Read-back is verified.
+    %   * The amplitude is limited to MaxVpp (user setting, chosen to protect
+    %     the amplifier/loudspeaker) as OPEN-CIRCUIT voltage: at a load setting
+    %     of R ohm the programmed level is at most MaxVpp * R / (R + 50)
+    %     (WO-004, 1.3.0). Read-back is verified.
+    %   * Load: 'INF' (the programmed level is the open-circuit voltage) or a
+    %     resistance 1 .. 10000 ohm written as a number ('50', '600'; manual
+    %     p.189): the level is the voltage across that resistance, e.g. the
+    %     input of an amplifier. A numeric load is read back (OUTP:LOAD?).
     %   * APPLy is never used (it forces OUTP ON, see manual p.175).
     %
     %   All SCPI strings follow the 33220A User's Guide (33220-90002, Ed. 4);
@@ -40,12 +46,12 @@ classdef Keysight33220A < tim.instr.SignalSource
             arguments
                 transport
                 opts.MaxVpp (1,1) double {mustBePositive} = 1.0
-                opts.Load (1,:) char {mustBeMember(opts.Load, {'INF', '50'})} = 'INF'
+                opts.Load (1,:) char {mustBeLoad(opts.Load)} = 'INF'
                 opts.Reset (1,1) logical = true
             end
             obj.Transport = transport;
             obj.MaxVpp = opts.MaxVpp;
-            obj.Load = opts.Load;
+            obj.Load = canonicalLoad(opts.Load);
             obj.identify();
             % Output OFF before anything else (it may have been left on).
             obj.Transport.write('OUTP OFF');
@@ -54,7 +60,7 @@ classdef Keysight33220A < tim.instr.SignalSource
                 obj.Transport.write('OUTP OFF');
             end
             obj.Transport.write('*CLS');
-            obj.Transport.write(['OUTP:LOAD ' opts.Load]);
+            obj.setLoad();
             obj.Transport.write('VOLT:UNIT VPP');
             obj.checkErrors('initialisation');
         end
@@ -170,10 +176,12 @@ classdef Keysight33220A < tim.instr.SignalSource
             if strcmp(obj.Mode, 'none')
                 error('tim:gen:mode', 'Output enable refused: generator not configured.');
             end
-            % Re-check amplitude against the safety limit right before enabling.
+            % Re-check amplitude against the safety limit right before enabling
+            % (open-circuit voltage, whatever the load setting).
             v = str2double(obj.Transport.query('VOLT?'));
-            if ~(v <= obj.MaxVpp * (1 + 1e-6))
-                error('tim:gen:amplitude', 'Programmed amplitude %.4g Vpp exceeds MaxVpp %.4g.', v, obj.MaxVpp);
+            if ~(v * obj.ocFactor() <= obj.MaxVpp * (1 + 1e-6))
+                error('tim:gen:amplitude', 'Programmed amplitude %.4g Vpp at load %s (open circuit %.4g Vpp) exceeds MaxVpp %.4g Vpp.', ...
+                    v, obj.Load, v * obj.ocFactor(), obj.MaxVpp);
             end
             obj.Transport.write('OUTP ON');
             obj.checkErrors('outputOn');
@@ -307,7 +315,7 @@ classdef Keysight33220A < tim.instr.SignalSource
                 end
                 obj.Transport.write('OUTP OFF');
                 obj.Transport.write('*CLS');
-                obj.Transport.write(['OUTP:LOAD ' obj.Load]);
+                obj.setLoad();
                 obj.Transport.write('VOLT:UNIT VPP');
                 obj.checkErrors('the reconnection');
             catch err
@@ -369,10 +377,11 @@ classdef Keysight33220A < tim.instr.SignalSource
 
         function c = capabilities()
             % limits: 33220A User's Guide (docs/ref_33220A_scpi.md); amplitude
-            % per OUTP:LOAD: 20 / 10 Vpp maximum, 20 / 10 mVpp minimum (INF / 50)
+            % per OUTP:LOAD: 20 / 10 Vpp maximum, 20 / 10 mVpp minimum (INF / 50);
+            % any load 1 .. 10000 ohm (p.189): the INF range x R / (R + 50)
             src = struct('waveforms', {{'sine', 'sweep', 'noise'}}, 'sweepSpacing', {{'LOG', 'LIN'}}, ...
                 'frequencyRange', [1e-6 20e6], 'bandFraction', NaN, 'loads', {{'INF', '50'}}, ...
-                'maxVpp', [20 10], 'minVpp', [0.02 0.01], 'sweepTime', [1e-3 500], 'noiseCrest', 3.3, ...
+                'maxVpp', [20 10], 'minVpp', [0.02 0.01], 'loadRange', [1 10000], 'sweepTime', [1e-3 500], 'noiseCrest', 3.3, ...
                 'outputImpedance_ohm', 50, 'trigger', 'bus', 'readback', 'instrument', 'levelKnown', true);
             c = struct('roles', {{'source'}}, 'sharedClock', false, 'rolesTogether', false, ...
                 'products', struct('name', {}, 'feature', {}), 'source', src);
@@ -446,16 +455,32 @@ classdef Keysight33220A < tim.instr.SignalSource
 
     methods (Access = private)
         function checkAmplitude(obj, vpp)
+            % vpp: the programmed level at the load setting
             if ~(isscalar(vpp) && vpp > 0)
                 error('tim:gen:amplitude', 'Amplitude must be a positive scalar [Vpp].');
             end
-            if vpp > obj.MaxVpp
-                error('tim:gen:amplitude', ...
-                    'Requested %.4g Vpp exceeds the configured safety limit MaxVpp = %.4g Vpp.', vpp, obj.MaxVpp);
+            oc = vpp * obj.ocFactor();
+            if oc > obj.MaxVpp * (1 + 1e-9)
+                error('tim:gen:amplitude', ['Requested %.4g Vpp at load %s (open circuit %.4g Vpp) exceeds the configured ' ...
+                    'safety limit MaxVpp = %.4g Vpp (open circuit).'], vpp, obj.Load, oc, obj.MaxVpp);
             end
-            if vpp < 0.01 * (1 + strcmp(obj.Load, 'INF'))
-                error('tim:gen:amplitude', 'Requested amplitude below instrument minimum.');
+            [lo, hi] = tim.instr.SignalSource.levelRange(tim.instr.Keysight33220A.capabilities().source, obj.Load);
+            if vpp < lo * (1 - 1e-9) || vpp > hi * (1 + 1e-9)
+                error('tim:gen:amplitude', 'Requested %.4g Vpp outside the range of the instrument at load %s (%.4g .. %.4g Vpp).', ...
+                    vpp, obj.Load, lo, hi);
             end
+        end
+
+        function f = ocFactor(obj)
+            % open-circuit voltage per volt programmed at the load setting
+            f = tim.instr.SignalSource.openCircuitFactor(tim.instr.Keysight33220A.capabilities().source, obj.Load);
+        end
+
+        function setLoad(obj)
+            % OUTP:LOAD; a numeric load is read back (the generator answers in ohm)
+            obj.Transport.write(['OUTP:LOAD ' obj.Load]);
+            R = tim.instr.SignalSource.loadOhm(obj.Load);
+            if isfinite(R), obj.verifyNumeric('OUTP:LOAD?', R, 1e-6, 'output load'); end
         end
 
         function verifyNumeric(obj, q, expected, relTol, what)
@@ -479,4 +504,17 @@ tok = regexp(log, '^> VOLT ([-+0-9.eE]+)$', 'tokens', 'once');
 tok = tok(~cellfun(@isempty, tok));
 v = cellfun(@(t) str2double(t{1}), tok);
 v = v(:).';
+end
+
+function mustBeLoad(load)
+% 'INF' or a resistance 1 .. 10000 ohm written as a number (OUTP:LOAD, manual p.189)
+if ~tim.instr.SignalSource.supportsLoad(tim.instr.Keysight33220A.capabilities().source, load)
+    error('tim:gen:load', 'Output load ''%s'': use INF or a resistance of 1 to 10000 ohm written as a number.', load);
+end
+end
+
+function t = canonicalLoad(load)
+% '600.0' -> '600', 'inf' -> 'INF' (the text sent with OUTP:LOAD and stored)
+R = tim.instr.SignalSource.loadOhm(load);
+if isinf(R), t = 'INF'; else, t = sprintf('%.10g', R); end
 end

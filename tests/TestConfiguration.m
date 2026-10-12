@@ -230,12 +230,14 @@ classdef TestConfiguration < matlab.unittest.TestCase
                 'excitation.stepped.amplitudeVpp', 0.01, '', ''
                 'excitation.noise.amplitudeVpp', 0.015, '', ''
                 'excitation.sweep.amplitudeVpp', 0.01, 'tim:config:amplitude', 'tim:config:amplitude'
-                'generator.maxVpp', 15, 'tim:config:maxVpp', 'tim:config:maxVpp'
+                'generator.maxVpp', 25, 'tim:config:maxVpp', 'tim:config:maxVpp'
                 'excitation.sweep.duration', 600, 'tim:config:sweep', 'tim:config:sweep'
                 'lanxi.connector', '', '', ''};
             for i = 1:size(cases, 1)
                 u = setPath(u0, cases{i, 1}, cases{i, 2});
-                if strcmp(cases{i, 1}, 'generator.maxVpp')         % 1.1.0: maxVpp up to 20 Vpp, also at load 50
+                if strcmp(cases{i, 1}, 'generator.maxVpp')
+                    % 1.1.0 allowed maxVpp up to 20 Vpp also at load 50; since 1.3.0 it is the
+                    % open-circuit voltage (WO-004), at most the 33220A's 20 Vpp at any load
                     u.generator.load = '50'; u.amplifier.model = 'power amplifier'; u.amplifier.inputImpedance_ohm = 50;
                 end
                 file = tc.writeJson(u, sprintf('v110_%d.json', i));
@@ -416,14 +418,101 @@ classdef TestConfiguration < matlab.unittest.TestCase
             end
             c.loudspeaker.impedance_ohm = 8;
             tc.verifyEqual(tim.app.generatorAmplitude(c, 0.01) / 2, 0.01 * 58 / 8, 'RelTol', 1e-12);
+            % WO-004: also with an amplifier of known gain - the generator load is
+            % the amplifier input, so the programmed level is the input voltage
+            % (High Z: the open-circuit voltage); without the gain: refused
             a = c; a.amplifier.model = 'power amplifier'; a.amplifier.gainFactor = 10;
-            tc.verifyError(@() tim.app.generatorAmplitude(a, 0.01), 'tim:gui:input', 'direct drive only');
+            tc.verifyEqual(tim.app.generatorAmplitude(a, 0.5), 2 * 0.05, 'RelTol', 1e-12, 'High Z amplifier input');
+            a6 = a; a6.generator.load = '600'; a6.amplifier.inputImpedance_ohm = 600;
+            tc.verifyEqual(tim.app.generatorAmplitude(a6, 0.5), 2 * 0.05, 'RelTol', 1e-12, 'load = amplifier input');
+            tc.verifyEqual(tim.app.driveEstimate(a6, 0.1).Vspk_pk, 0.5, 'RelTol', 1e-12);
+            n = a; n.amplifier.gainFactor = NaN; n.amplifier.gain_dB = NaN;
+            tc.verifyError(@() tim.app.generatorAmplitude(n, 0.01), 'tim:gui:input', 'no gain');
             c.ui.amplitudeAt = 'loudspeaker';
-            tc.verifyFalse(any(contains(tim.app.validateConfig(c), 'only with direct drive')), 'loudspeaker level with direct drive');
+            tc.verifyFalse(any(contains(tim.app.validateConfig(c), 'gain')), 'loudspeaker level with direct drive');
             a.ui.amplitudeAt = 'loudspeaker';
-            tc.verifyTrue(any(contains(tim.app.validateConfig(a), 'only with direct drive')));
+            tc.verifyFalse(any(contains(tim.app.validateConfig(a), 'not recorded')), 'with an amplifier of known gain');
+            n.ui.amplitudeAt = 'loudspeaker';
+            tc.verifyTrue(any(contains(tim.app.validateConfig(n), 'gain is not recorded')));
             c.ui.amplitudeAt = 'speaker';
             tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:ui');
+        end
+
+        function amplifierInputIsTheGeneratorLoad(tc)
+            % WO-004 (owner decisions 2026-10-12): generator.load 'INF' or a
+            % resistance as text; with direct drive only 'INF'; generator.maxVpp is
+            % the open-circuit voltage; the drive at a load of R ohm
+            c = tim.app.defaultConfig(); c.generator.maxVpp = 2;
+            c.amplifier.model = 'power amplifier'; c.amplifier.gainFactor = 10;
+            c.generator.load = '600'; c.amplifier.inputImpedance_ohm = 600;
+            c.excitation.sweep.amplitudeVpp = 0.1;
+            noLoadNote = @(r) ~any(contains(r, {'generator.load', 'inputImpedance'}));
+            tc.verifyTrue(noLoadNote(tim.app.validateConfig(c, 'instruments')), 'a 600 ohm amplifier input');
+            d = tim.app.driveEstimate(c, 0.1);
+            tc.verifyEqual(d.Voc_pp, 0.1 * 650 / 600, 'RelTol', 1e-12, 'open circuit at 600 ohm');
+            tc.verifyEqual(d.Vin_pk, 0.05, 'RelTol', 1e-12, 'the programmed level is at the amplifier input');
+            % maxVpp as open-circuit voltage: 1.9 Vpp into 600 ohm is 2.06 Vpp open circuit
+            c.excitation.sweep.amplitudeVpp = 1.9;
+            tc.verifyError(@() tim.app.validateConfig(c), 'tim:config:amplitude', 'open circuit above maxVpp');
+            c.excitation.sweep.amplitudeVpp = 1.8;
+            tc.verifyTrue(noLoadNote(tim.app.validateConfig(c, 'instruments')), '1.95 Vpp open circuit');
+            % a numeric load with direct drive is refused; 'inf' is not 'INF'
+            dd = c; dd.amplifier.model = 'none (direct drive)';
+            tc.verifyError(@() tim.app.validateConfig(dd), 'tim:config:load', 'direct drive needs High Z');
+            bad = c; bad.generator.load = '20000';
+            tc.verifyError(@() tim.app.validateConfig(bad, 'instruments'), 'tim:config:load', 'above 10 kOhm');
+            bad.generator.load = 'inf';
+            tc.verifyError(@() tim.app.validateConfig(bad, 'instruments'), 'tim:config:load', 'exact text');
+            % a load that differs from the amplifier input is reported; no input impedance: the risk
+            m = c; m.amplifier.inputImpedance_ohm = 50;
+            tc.verifyTrue(any(contains(tim.app.validateConfig(m), 'differs from the amplifier input')));
+            u = c; u.amplifier.inputImpedance_ohm = NaN;
+            r = tim.app.validateConfig(u);
+            tc.verifyTrue(any(contains(r, 'unknown input impedance')) && any(contains(r, '1.17 ×')), strjoin(r, ' | '));
+            % the level range of the 33220A scales with R / (R + 50) (manual p.189)
+            s = tim.instr.Keysight33220A.capabilities().source;
+            [lo, hi] = tim.instr.SignalSource.levelRange(s, '600');
+            tc.verifyEqual([lo hi], [0.02 20] * 600 / 650, 'RelTol', 1e-12);
+            tc.verifyEqual(tim.instr.SignalSource.levelRange(s, '50'), 0.01, 'listed load');
+            tc.verifyTrue(isnan(tim.instr.SignalSource.levelRange(s, '0.5')), 'below 1 ohm');
+            tc.verifyEqual(tim.instr.SignalSource.openCircuitFactor(s, 'INF'), 1);
+        end
+
+        function driveStatesAndLimits(tc)
+            % WO-004: the power at the nominal impedance against the test limit
+            % (ok / near from 80 % / over), noise with its crest factor, and the
+            % criterion that sets the largest level (tim.app.driveLimits)
+            c = tim.app.defaultConfig(); c.generator.maxVpp = 2;
+            c.amplifier.model = 'power amplifier'; c.amplifier.gainFactor = 10;
+            c.generator.load = '600'; c.amplifier.inputImpedance_ohm = 600;
+            c.loudspeaker.impedance_ohm = 8; c.loudspeaker.maxPower_W = 1;
+            vppFor = @(Vspk) 2 * Vspk / 10;                     % programmed Vpp for a loudspeaker Vpk
+            tc.verifyEqual(tim.app.driveEstimate(c, vppFor(0.707)).state, 'ok');
+            d = tim.app.driveEstimate(c, vppFor(3.79));
+            tc.verifyEqual(d.state, 'near'); tc.verifyEqual(d.fraction, 3.79^2 / 2 / 8, 'RelTol', 1e-12);
+            tc.verifyEqual(tim.app.driveEstimate(c, vppFor(4.1)).state, 'over');
+            dn = tim.app.driveEstimate(c, vppFor(4.1), 'noise');
+            tc.verifyEqual(dn.Vspk_rms, 4.1 / 3.3, 'RelTol', 1e-12, 'noise: peak / crest factor');
+            tc.verifyEqual(dn.state, 'ok');
+            n = c; n.amplifier.gainFactor = NaN;
+            tc.verifyEqual(tim.app.driveEstimate(n, 0.1).state, 'unknown');
+            % the speaker limit sets the maximum with this amplifier: sqrt(2 * 1 W * 8 ohm) = 4 Vpk
+            L = tim.app.driveLimits(c);
+            tc.verifyEqual(L.binding, 'speaker'); tc.verifyEqual(L.maxSpeakerVpk, 4, 'RelTol', 1e-12);
+            tc.verifyEqual(L.maxVpp, vppFor(4), 'RelTol', 1e-12);
+            % direct drive with maxVpp 2 Vpp: generator.maxVpp sets it, 1 Vpk x 8/58 at the loudspeaker
+            dd = c; dd.amplifier.model = 'none (direct drive)'; dd.generator.load = 'INF';
+            L = tim.app.driveLimits(dd);
+            tc.verifyEqual(L.binding, 'generator'); tc.verifyEqual(L.maxSpeakerVpk, 8 / 58, 'RelTol', 1e-12);
+            % the generator's own 20 Vpp when maxVpp is above it
+            dd.generator.maxVpp = 30;
+            tc.verifyEqual(tim.app.driveLimits(dd).binding, 'output');
+            % without a gain: no loudspeaker maximum, the generator sets the level
+            L = tim.app.driveLimits(n);
+            tc.verifyTrue(isnan(L.maxSpeakerVpk)); tc.verifyEqual(L.binding, 'generator');
+            tc.verifyEqual(L.maxVpp, 2 * 600 / 650, 'RelTol', 1e-12, 'maxVpp open circuit at 600 ohm');
+            r = c; r.loudspeaker.maxPower_W = 30;
+            tc.verifyTrue(tim.app.driveLimits(r).limitAboveRated, 'test limit above the rated 25 W');
         end
 
         function recordedMappingForReprocessing(tc)

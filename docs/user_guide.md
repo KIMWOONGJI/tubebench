@@ -112,20 +112,28 @@ The same style is used in the window and in the saved figures:
   measurement** or a step of the switching calibration. It is switched off as soon as the
   excitation ends and locked again after the measurement. **Measure background noise** and the
   signal check of Connect never drive the loudspeaker.
-* **Amplitude limit** (`generator.maxVpp`): the Amplitude field cannot exceed it, the settings are
-  checked against it, and the programmed value is read back from the generator (33220A) and
-  checked again right before the output is switched on. The field cannot go below the smallest
-  level of the generator either (33220A at load `"INF"`: 0.01 Vpk).
-* **Loudspeaker power limit**: the estimated loudspeaker power (generator amplitude × amplifier
-  gain, section 4) is checked before every excitation. Above the limit the excitation is refused,
-  also in simulation.
+* **Amplitude limit** (`generator.maxVpp`): the largest **open-circuit voltage** at the generator
+  terminals, whatever the load setting (since 1.3.0; with an amplifier input of R ohm the
+  programmed level is at most maxVpp · R / (R + 50 Ω)). The level field cannot exceed it, the
+  settings are checked against it, and the programmed value is read back from the generator
+  (33220A) and checked again right before the output is switched on. The field cannot go below
+  the smallest level of the generator either (33220A at load `"INF"`: 0.01 Vpk).
+* **Loudspeaker power limit** (Test limit [W]): the loudspeaker power at its **nominal impedance**,
+  P = V_rms² / Z (the convention of the rated power, IEC 60268-5), from the generator level, the
+  amplifier gain and the amplifier input (section 4), is checked before every excitation. Above the
+  limit the excitation is refused, also in simulation; from 80 % of the limit the window shows
+  "Speaker near the limit" (the real impedance may be 20 % below the nominal one, so the real power
+  up to 1.25 × the estimate). Noise counts with its crest factor (3.3), a sine or sweep with √2.
 * **Amplifier gain**: the gain is set by hand on the amplifier; the program cannot read or change
   it. When an amplifier is chosen, its gain must be entered (section 4) before a measurement or a
   calibration can start.
 * **Excitation confirmation** (hardware mode): before the loudspeaker is driven, the dialog
-  "Confirm excitation" shows the signal, the generator amplitude in Vpk (Vpp in brackets; with
-  `generator.load = "50"` the programmed value into 50 Ω and the open-circuit voltage, section 9),
-  the amplitude limit and the drive estimate with the amplifier gain. **Start excitation** drives
+  "Confirm excitation" shows the signal, the generator amplitude in Vpk (Vpp in brackets; with an
+  amplifier input as the load, e.g. `generator.load = "600"`, the programmed value into that
+  resistance - the voltage at the amplifier input - and the open-circuit voltage, section 9), the
+  amplitude limit (open circuit) and the drive estimate with the amplifier gain: the loudspeaker
+  voltage in Vpk and Vrms, the power at the nominal impedance and its share of the test limit
+  ("near the limit" from 80 %). **Start excitation** drives
   the loudspeaker, **Cancel** stops without driving it; the window then reports "Measurement
   cancelled: the loudspeaker was not driven." as information, not as an error. The question comes
   once per combination of amplitude and amplifier setting and again after any change (a
@@ -199,9 +207,12 @@ source forms a voltage divider, `V_spk = V_oc·Z/(Z + 50 Ω)`:
   0.3 m for a typical loudspeaker (estimate; it depends on the loudspeaker's sensitivity).
 * With 50 Ω source impedance the drive is current-like and the loudspeaker is poorly damped. This
   does **not** matter for the measurement, which uses only ratios of microphone signals.
-* Choose "none (direct drive)" in the Amplifier list (gain fixed at ×1) and keep
-  `generator.load = "INF"`; "50" with direct drive is rejected. Raise `generator.maxVpp`
-  deliberately (the lab file uses 2 Vpp = 1 Vpk).
+* Choose "none (direct drive)" in the Amplifier list (gain fixed at ×1); the generator load is
+  then High Z (`generator.load = "INF"`, owner decision 2026-10-12): the generator sets the
+  open-circuit voltage, and the loudspeaker impedance, which changes with frequency, divides it. A
+  numeric load with direct drive is rejected. Raise `generator.maxVpp` deliberately (the lab file
+  uses 2 Vpp = 1 Vpk open circuit, i.e. at most 0.138 Vpk, about 1.2 mW, at an 8 Ω loudspeaker; the
+  third line below the EXCITATION fields then reads "set by generator.maxVpp").
 * The drive estimate and the loudspeaker power limit take the source impedance from the generator
   driver (50 Ω for the 33220A). Another generator with an output of about 0 Ω (e.g. a DAQ analog
   output) drives an 8 Ω loudspeaker with about (58/8)² ≈ 50 times the power of the same voltage
@@ -294,12 +305,12 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Sweep duration [s] | duration of one sweep, within the sweep times of the generator (33220A: 0.001–500 s); for the stepped sine the field is **Number of steps** (1–400) |
 | Repetitions | number of repetitions, averaged (1–100) |
 | Amplifier | "none (direct drive)", "power amplifier", or the model of your amplifier: type it into the list and press Enter; it is added to the list and saved with the configuration (File > Save configuration…) |
-| Amplifier gain [×] | voltage gain of the amplifier as a plain number, e.g. 10 for 20 dB |
-| Generator load | the output load setting of the generator, from the values its driver accepts (33220A: **High Z** or **50 Ω**), sent to the generator at Connect; fixed while connected. Direct drive always uses High Z. See "Generator output load" below |
-| Loudspeaker [Ω] | nominal impedance of the loudspeaker |
-| Speaker limit [W] | power limit of the loudspeaker: an excitation above this estimated power is refused |
-| Generator [Vpk] ▾ / Speaker [Vpk] ▾ | the label of the amplitude field is a list: **Generator [Vpk]** (the programmed amplitude) or, in direct drive only, **Speaker [Vpk]** (the voltage at the loudspeaker; see below). The field: peak voltage; for the generator from its smallest level at the configured load (33220A: 0.01 Vpk at High Z, 0.005 Vpk at 50 Ω) up to the amplitude limit (`generator.maxVpp`/2); at the loudspeaker the same range converted (33220A at High Z, 8 Ω: 0.00138–0.138 Vpk for a 1 Vpk limit) |
-| Duration | expected duration of one measurement with these settings, e.g. "about 29 s" |
+| Amplifier gain [×] | voltage gain of the amplifier (Vout/Vin) as a plain number: 20 dB = ×10, 26 dB = ×20, 40 dB = ×100 (the tooltip gives the conversion; do not enter the dB value: a 40 dB amplifier entered as ×40 would get 2.5 × the shown loudspeaker voltage) |
+| Amp input [Ω] / Generator load | with an amplifier: its **input impedance** from the data sheet - a list with High Z, 50, 600 and 10000, or type a value (e.g. 2200) and press Enter. It is also the generator's **load setting** (`OUTP:LOAD`), sent at Connect, so the programmed level is the voltage at the amplifier input (High Z, or above the 33220A's 10 kΩ: the open-circuit voltage). Fixed while connected. In direct drive the label reads **Generator load** and the list is fixed at High Z. See "Generator output load" below |
+| Loudspeaker [Ω] | nominal (rated) impedance of the loudspeaker |
+| Test limit [W] | power limit of the loudspeaker for these measurements, at most its rated power (`loudspeaker.ratedPower_W`): an excitation above it (power at the nominal impedance) is refused |
+| Speaker [Vpk] ▾ / Generator [Vpk] ▾ / Amp input [Vpk] ▾ | the label of the level field is a list: **Speaker [Vpk]** (the voltage at the loudspeaker; with an amplifier it needs the gain) or the generator's level - **Generator [Vpk]** in direct drive (the open-circuit voltage), **Amp input [Vpk]** with an amplifier (the voltage at its input). The field: peak voltage; for the generator from its smallest level at the load (33220A: 0.01 Vpk at High Z, 0.0092 Vpk at 600 Ω) up to the amplitude limit (`generator.maxVpp`/2 open circuit, at the load × R/(R + 50 Ω)); at the loudspeaker the same range converted (33220A at High Z, 8 Ω: 0.00138–0.138 Vpk for a 1 Vpk limit) |
+| (after the field) | the level as Vrms (= Vpk/√2; noise: Vpk/3.3) and the expected duration of one measurement, e.g. "about 29 s" |
 
 * Each signal keeps its own frequency range, duration or number of steps and repetitions:
   switching the Signal shows the values last used for that signal. The amplitude is common.
@@ -319,22 +330,36 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   an amplifier, the field turns yellow and the message pane asks for the gain: **Start measurement
   and Run switching calibration… are refused until a gain has been entered** (typed into the
   field), also in simulation.
-* **Amplitude at the loudspeaker (direct drive)**: with the label set to **Speaker [Vpk]** the field is the
-  voltage at the loudspeaker. The program sets the generator to the matching level through the
-  generator's source impedance (33220A: 50 Ω) and the nominal loudspeaker impedance:
+* **Level at the loudspeaker**: with the label set to **Speaker [Vpk]** the field is the voltage at
+  the loudspeaker. The program sets the generator to the matching level. In direct drive through
+  the generator's source impedance (33220A: 50 Ω) and the nominal loudspeaker impedance:
   generator = loudspeaker × (Z + 50 Ω) / Z, e.g. 10 mVpk at 8 Ω needs 72.5 mVpk programmed at High
-  Z. Switching between generator and loudspeaker keeps the same level; a new Loudspeaker [Ω] keeps
-  the loudspeaker voltage. The configuration stores the generator amplitude (as always) and
-  `ui.amplitudeAt`; every measurement stores the drive estimate as well (`metadata.drive`: the
-  programmed level and the estimated loudspeaker voltage, current and power). The real loudspeaker
-  impedance varies with frequency, so the loudspeaker voltage is nominal. Choosing an amplifier
-  switches the field back to the generator amplitude.
-* The line below the fields shows the **estimated loudspeaker drive** for the current settings:
-  voltage (Vpk), current (peak) and power, the loudspeaker power limit, and the programmed generator
-  amplitude with its limit, e.g. "Estimated loudspeaker drive: 0.0138 Vpk, 1.72 mA peak, 11.9 µW
-  (limit 1 W). Generator 0.1 Vpk (limit 1 Vpk)." It turns red above a limit, while the gain is not
-  entered, or when the power limit is set above the rated power of the loudspeaker
-  (`loudspeaker.ratedPower_W`).
+  Z. With an amplifier (since 1.3.0) through its gain: amplifier input = loudspeaker / gain, e.g.
+  0.707 Vpk at the loudspeaker with ×10 is 70.7 mVpk at the amplifier input (with Amp input
+  600 Ω also the programmed level). Switching the label keeps the same level; a new Loudspeaker
+  [Ω], gain or amplifier input keeps the loudspeaker voltage. The configuration stores the
+  generator amplitude (as always) and `ui.amplitudeAt`; every measurement stores the drive
+  estimate as well (`metadata.drive`: the programmed and open-circuit levels, the estimated
+  loudspeaker voltage in Vpk and Vrms, current, power, its share of the test limit and the
+  state). The real loudspeaker impedance varies with frequency and the gain is the one you
+  entered, so the loudspeaker voltage is an estimate.
+* **Choosing an amplifier** keeps the programmed level; until its gain is entered the field shows
+  it at the amplifier input (Amp input [Vpk]) and Speaker [Vpk] cannot be chosen. When the gain is
+  entered the field switches to Speaker [Vpk], the default with a known gain.
+* **Three lines below the fields** (WO-004) show the drive for the current settings:
+  1. the signal path: the generator in Vpp, as its display shows it, and what that number is
+     ("open circuit" in direct drive, "into 600 Ω" at an amplifier input), the gain and the
+     loudspeaker voltage, e.g. "Generator 0.2 Vpp into 600 Ω → ×10 → speaker 1 Vpk";
+  2. the **loudspeaker check**: **Speaker OK** (green, below 80 % of the test limit), **Speaker
+     near the limit** (orange, 80-100 %: the measurement may run), **Speaker above the limit** (red:
+     Start is refused), or "Speaker: enter the amplifier gain", with the power at the nominal
+     impedance, its share of the test limit and the rated power, e.g. "Speaker OK: 62.5 mW at 8 Ω
+     = 6.25 % of 1 W, rated 25 W"; red "Test limit above the rated power" when it is;
+  3. the **largest level and the criterion that sets it**: the loudspeaker test limit,
+     `generator.maxVpp` (open circuit) or the generator's own largest level at the load, e.g.
+     "Max 4 Vpk at the speaker, set by the loudspeaker test limit (1 W at 8 Ω)" or, in direct drive
+     with the lab file, "Max 0.138 Vpk at the speaker, set by generator.maxVpp (2 Vpp open
+     circuit)".
 * The expected **Duration** is repetitions × (pre-roll + sweep duration + post-roll + 0.2 s) for
   the swept sine and repetitions × (1 s + steps × (settling + recording time)) for the stepped
   sine. The connection, the confirmation and the processing come on top.
@@ -420,8 +445,8 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Save measurement | a measurement or a background-noise record exists |
 | Reprocess | a measurement exists (not for background noise) |
 | Amplifier gain [×] | an amplifier other than "none (direct drive)" is chosen |
-| Generator load | an amplifier is chosen and the window is not connected (the driver offers more than one load) |
-| Generator [Vpk] / Speaker [Vpk] (the list) | "none (direct drive)" is chosen |
+| Amp input [Ω] | an amplifier is chosen and the window is not connected (direct drive: Generator load, fixed at High Z) |
+| Speaker / Generator / Amp input [Vpk] (the list) | direct drive, or an amplifier whose gain is entered |
 | everything else, menus | no action running |
 
 ## 5. Workflow step by step
@@ -799,21 +824,21 @@ still be opened and reprocessed; Connect then reports the error.
 |---|---|---|
 | `mode` | `"simulation"` | `"simulation"` or `"hardware"` (lab file: hardware) |
 | `ui.language` | `"en"` | `"en"` or `"ko"`: operator prompts, dialog titles and buttons of the calibration steps (including the step header and the diagram hint), the excitation confirmation (also its drive line in the log line "Excitation confirmed") and the channel identification, and the command-window prompts of scripts. The calibration prompts are also written to the log in the selected language, and the errors "estimated loudspeaker power exceeds the limit" and "Amplifier gain not entered" are raised in it. All other log lines and errors, the window labels and the documents stay in English. |
-| `ui.amplitudeAt` | `"generator"` | what the amplitude field of the window gives: `"generator"` (the programmed amplitude) or `"loudspeaker"` (the voltage at the loudspeaker, direct drive only; section 4, EXCITATION). The excitation amplitudes are always the generator's. |
+| `ui.amplitudeAt` | `"generator"` | what the level field of the window gives: `"generator"` (the programmed level: open circuit in direct drive, the amplifier input with an amplifier) or `"loudspeaker"` (the voltage at the loudspeaker; with an amplifier it needs the gain; section 4, EXCITATION). The excitation amplitudes are always the generator's. |
 | `generator.driver` | `"keysight33220a"` | generator driver |
 | `generator.keysight33220a.host`, `port`, `timeout` | 169.254.2.20, 5025, 5 s | 33220A (SCPI over TCP); old layout: `generator.host`, `port`, `timeout` |
-| `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit** of the programmed amplitude in Vpp, at most the driver's maximum (33220A: 20 Vpp at `"INF"`, 10 Vpp at `"50"`) |
-| `generator.load` | `"INF"` | output load setting, one of the driver's values (33220A: exactly `"INF"` or `"50"`, see below) |
+| `generator.maxVpp` | 0.5 (lab file 2) | **amplitude limit**: the largest **open-circuit** voltage at the generator terminals in Vpp, whatever the load setting (since 1.3.0; before, the programmed value), at most the driver's largest open-circuit voltage (33220A: 20 Vpp) |
+| `generator.load` | `"INF"` | output load setting: exactly `"INF"`, or a resistance in ohm written as text within the driver's range (33220A: `"1"`–`"10000"`, e.g. `"50"`, `"600"`); with an amplifier the window sets it to the amplifier input, direct drive needs `"INF"` (see below) |
 | `generator.allowUnconfirmedOff` | false | only for a generator that cannot report whether its output is off (none of today's drivers): true accepts it in hardware mode |
 | `amplifier.model` | `""` | `"none (direct drive)"` (must start with "none"), `"power amplifier"` or a model name |
 | `amplifier.gainFactor` | NaN | voltage gain as a factor (×10 = 10 = 20 dB); 1 for direct drive; `gain_dB` is derived |
 | `amplifier.gainSetting` | `""` | free text, e.g. the knob position (scripts) |
-| `amplifier.inputImpedance_ohm` | NaN | amplifier input impedance; NaN = from `generator.load` |
+| `amplifier.inputImpedance_ohm` | NaN | amplifier input impedance [Ω] from the data sheet (field Amp input [Ω]); NaN = from `generator.load` (`"INF"`: high-Z, a number: that resistance) |
 | `amplifier.knownModels` | none (direct drive), power amplifier | items of the Amplifier list |
 | `amplifier.confirmBeforeExcitation` | true | excitation confirmation in hardware mode |
 | `loudspeaker.impedance_ohm` | 8 | nominal impedance (field Loudspeaker [Ω]) |
-| `loudspeaker.maxPower_W` | 1.0 | loudspeaker power limit (field Speaker limit [W]) |
-| `loudspeaker.ratedPower_W` | 25 | rated power: a power limit above it is flagged |
+| `loudspeaker.maxPower_W` | 1.0 | loudspeaker test limit (field Test limit [W]): power at the nominal impedance; "near the limit" from 80 % |
+| `loudspeaker.ratedPower_W` | 25 | rated power: a test limit above it is flagged |
 | `daq.driver` | `"lanxi"` | acquisition (DAQ) driver |
 | `daq.lanxi.host`, `timeout`, `connector` | 169.254.64.156, 10 s, `"BNC"` | LAN-XI module; `"BNC"` or `"LEMO"`, whichever the microphones use (`""`, possible in files of 1.1.0: the module keeps its own setting); old layout: `lanxi.host`, `timeout`, `connector` |
 | `acquisition.sampleRate` | 16384 (driver default) | a rate of the DAQ driver; LAN-XI 3676: 4096, 8192, 16384, 32768 or 65536 S/s |
@@ -842,36 +867,41 @@ still be opened and reprocessed; Connect then reports the error.
 | `output.saveRawStream`, `exportCsv`, `exportFigures`, `figureFormats` | true, true, true, png | what Save measurement writes (add "pdf" for vector figures; about 3 s more per save) |
 | `simulation` | – | the virtual tube (geometry, specimen, termination, noise, generator clock error) |
 
-**Amplitudes**: the window and all messages use **Vpk** (generator peak voltage). The
-configuration stores `amplitudeVpp` and `generator.maxVpp` (= 2 × Vpk), the unit the 33220A is
-programmed in.
+**Amplitudes**: the level field and the messages use **Vpk** (owner decision 2026-10-12); the
+field also shows the Vrms, and the first line below the fields gives the generator in **Vpp**, as
+its display shows it (the program sets `VOLT:UNIT VPP`). The configuration stores
+`amplitudeVpp` and `generator.maxVpp` (= 2 × Vpk), the unit the 33220A is programmed in.
 
 **Generator output load (`generator.load`)**. The 33220A source impedance is always 50 Ω; the
-OUTP:LOAD setting only changes what the programmed amplitude means:
+OUTP:LOAD setting only changes what the programmed amplitude means (manual p.189: `INF` or any
+1 Ω - 10 kΩ):
 
 | `generator.load` | Programmed amplitude is | Open-circuit voltage | Use |
 |---|---|---|---|
-| `"INF"` (default) | the open-circuit voltage | = programmed | direct drive; amplifier with a high-impedance input |
-| `"50"` | the voltage across a 50 Ω load | 2 × programmed | only an amplifier with a 50 Ω input (rejected with direct drive) |
+| `"INF"` (default) | the open-circuit voltage | = programmed | direct drive (always); an amplifier with a high-impedance input (above 10 kΩ) |
+| a resistance R, e.g. `"600"` | the voltage across R | programmed × (R + 50 Ω) / R (`"50"`: 2 ×) | an amplifier with that input impedance (rejected with direct drive) |
 
-The window's **Generator load** list sets `generator.load` (with an amplifier, while not connected);
-the setting is sent to the generator at Connect. On the 33220A it changes only what the programmed
-amplitude means: the source impedance stays 50 Ω. With direct drive the loudspeaker gets the
-open-circuit voltage divided by 50 Ω and its impedance: V_spk = V_oc · Z / (Z + 50 Ω), about 14 % at
-8 Ω, and at most about 2.8 Vpp (0.12 W) with the 33220A's 20 Vpp - a higher level needs an
-amplifier.
+The window's **Amp input [Ω]** field (with an amplifier, while not connected) sets both
+`amplifier.inputImpedance_ohm` and `generator.load` to the amplifier's input impedance (owner
+decision 2026-10-12, WO-004), so the programmed level - and the generator's display - is the
+voltage at the amplifier input; the setting is sent to the generator at Connect and read back
+(`OUTP:LOAD?`). Above 10 kΩ the generator is set to `INF` (the difference is below 0.5 %). With
+direct drive the load is High Z: the loudspeaker gets the open-circuit voltage divided by 50 Ω and
+its impedance, V_spk = V_oc · Z / (Z + 50 Ω), about 14 % at 8 Ω, and at most about 2.8 Vpp
+(0.12 W) with the 33220A's 20 Vpp - a higher level needs an amplifier.
 
-The amplitude field (with the label Generator [Vpk]) and the amplitude limit refer to the
-programmed value. With `"50"` the
-excitation confirmation shows the programmed value ("programmed into 50 Ω") and the open-circuit
-voltage. The drive estimate uses `V_in = V_oc·Z_in/(Z_in + 50 Ω)` at the amplifier input, with
-`Z_in = amplifier.inputImpedance_ohm`; when that is NaN, `"INF"` means a high-impedance input
-(`V_in = V_oc`) and `"50"` a 50 Ω input (`V_in` = programmed value). The loudspeaker voltage is
-`V_in` × gain (amplifier output impedance ≈ 0) and the power `P = V_spk,pk²/(2Z)`. With `"50"`, an
-amplifier and no `amplifier.inputImpedance_ohm`, the settings check warns ("CHECK: Generator
-output load '50' … with an amplifier of unknown input impedance …"): with a high-impedance
-amplifier input the loudspeaker would get up to 4 × the estimated power. Enter the input impedance
-in `config/user_config.json` (no field in the window).
+The amplitude limit `generator.maxVpp` is an open-circuit voltage at every load. The excitation
+confirmation shows the programmed value ("programmed into 600 Ω = at the amplifier input") and
+the open-circuit voltage. The drive estimate uses `V_in = V_oc·Z_in/(Z_in + 50 Ω)` at the
+amplifier input, with `Z_in = amplifier.inputImpedance_ohm`; when that is NaN, `"INF"` means a
+high-impedance input (`V_in = V_oc`) and a resistance R an R-ohm input (`V_in` = programmed
+value). The loudspeaker voltage is `V_in` × gain (amplifier output impedance ≈ 0) and the power
+`P = V_spk,rms²/Z` at the nominal impedance (`V_spk,rms = V_spk,pk/√2`; noise: `/3.3`). A
+configuration written by a script with a resistance as the load, an amplifier and no
+`amplifier.inputImpedance_ohm` gives the warning "CHECK: Generator output load '…' with an
+amplifier of unknown input impedance …": with a high-impedance amplifier input the loudspeaker
+would get up to ((R + 50)/R)² × the estimated power (4 × at 50 Ω); a load that differs from the
+amplifier input impedance is reported too.
 
 ## 10. Results and how to read them
 
@@ -1020,17 +1050,20 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | "In use" or the Instruments table shows `unknown driver "…"` | the configuration names a driver this installation does not have (e.g. a configuration from another set-up): the data can be opened and reprocessed, Connect is refused; choose a registered driver (section 9, "Choosing the instruments") |
 | "In use" shows other instruments than expected | the configuration selects them: check `generator.driver` and `daq.driver` and the operating mode (Simulation shows the simulated instruments, marked "(simulated)") |
 | Alert "Measurement cancelled" | Cancel in "Confirm excitation": the loudspeaker was not driven; nothing to repair |
-| "enter the voltage gain set on the amplifier …" or "Amplifier gain not entered" | an amplifier is chosen: type its gain into Amplifier gain [×] |
+| "enter the voltage gain set on the amplifier …", "Amplifier gain not entered" or "Speaker: enter the amplifier gain" | an amplifier is chosen: type its gain into Amplifier gain [×] (as a factor: 20 dB = ×10) |
+| "Max … set by generator.maxVpp" with a low level, e.g. 0.138 Vpk at the speaker in direct drive | the amplitude limit `generator.maxVpp` (an open-circuit voltage; lab file 2 Vpp) is reached, not the loudspeaker limit: in direct drive only 8/58 of it reaches an 8 Ω loudspeaker. Raise `generator.maxVpp` deliberately, or use an amplifier |
+| Amplifier input "…": enter the input impedance … | Amp input [Ω] takes a number in ohm (e.g. 600, 10k) or High Z |
 | "Generator: connection re-opened (the instrument had closed it) …" | nothing to do: the generator had dropped its idle network connection and the program opened it again, with the output off (section 4, Connection check). The MATLAB command window may show a red stack trace "현재 연결은 원격 호스트에 의해 강제로 끊겼습니다" (an existing connection was forcibly closed by the remote host) at the same moment: MATLAB prints it, it is harmless |
 | "Connection lost - Disconnect and Connect", "The connection to the generator was lost and could not be re-opened …" | the generator does not answer: check its LAN cable and power, check the output at the generator, then Disconnect and Connect |
-| Excitation refused: estimated loudspeaker power exceeds the limit | lower the Amplitude or the amplifier gain, or raise Power limit [W] deliberately |
+| Excitation refused: estimated loudspeaker power exceeds the limit, "Speaker above the limit" | lower the level or the amplifier gain, or raise Test limit [W] deliberately (at most the rated power) |
 | Signal check: LAN-XI flag INVALID on all channels, no TEDS | microphones not connected, or wrong connector (`daq.lanxi.connector` BNC ↔ LEMO; in a file of the older layout, as the lab file: `lanxi.connector`), cable fault |
 | Card "check: nominal sensitivity" | no certificate value and no TEDS: enter `certificateSensitivity_VperPa` |
 | Card "check: TEDS serial differs from the configuration" | microphone on the wrong channel, or `mics(i).serial` outdated |
 | `tim:lanxi:state` | the module is in an unexpected state: Disconnect returns it to Idle (`s.Daq.shutdown()` in scripts) |
 | HTTP 403 | request not allowed in the current recorder state (another client? BK Connect open?) |
 | `tim:lanxi:streamStalled` | network interruption or module stopped; partial data saved in `data\emergency` |
-| `tim:gen:amplitude` | requested amplitude above `generator.maxVpp`, or changed at the front panel |
+| `tim:gen:amplitude` | requested amplitude above `generator.maxVpp` (open circuit) or outside the generator's range at the load, or changed at the front panel |
+| `tim:gen:load` | the generator load is not `INF` or a resistance of 1-10000 Ω written as a number |
 | `tim:gen:scpiError` | the 33220A reported an error (message included); output switched off |
 | "Excitation not detected" | amplifier off or muted, loudspeaker disconnected, level too low |
 | Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed, other mode, another acquisition module or input settings, another microphone on a channel, or calibration sweeps with data integrity problems: check the set-up and recalibrate |

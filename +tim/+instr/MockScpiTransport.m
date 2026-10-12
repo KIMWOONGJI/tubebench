@@ -126,15 +126,16 @@ classdef MockScpiTransport < handle
                 case 'FUNC',  obj.State.FUNC = upper(arg(1:min(3,end)));
                 case 'FREQ',  obj.setNum('FREQ', num, 1e-6, 20e6);
                 case 'VOLT'
-                    vmax = 10; if obj.State.OUTP_LOAD > 1e30, vmax = 20; end
+                    % 20 Vpp open circuit; at a load setting R the voltage across R
+                    R = obj.State.OUTP_LOAD; vmax = 20; if R < 1e30, vmax = 20 * R / (R + 50); end
                     obj.setNum('VOLT', num, vmax/1000, vmax);
                 case 'VOLT:UNIT', obj.State.VOLT_UNIT = upper(arg);
                 case 'VOLT:OFFS', obj.setNum('VOLT_OFFS', num, -10, 10);
                 case 'OUTP'
                     obj.State.OUTP = double(any(strcmpi(arg, {'ON', '1'})));
                     obj.pushRig();
-                case 'OUTP:LOAD'
-                    if strncmpi(arg, 'INF', 3), obj.State.OUTP_LOAD = 9.9e37; else, obj.State.OUTP_LOAD = num; end
+                case 'OUTP:LOAD'          % INF or 1 .. 10000 ohm (manual p.189)
+                    if strncmpi(arg, 'INF', 3), obj.State.OUTP_LOAD = 9.9e37; else, obj.setNum('OUTP_LOAD', num, 1, 1e4); end
                 case 'OUTP:TRIG', obj.State.OUTP_TRIG = double(any(strcmpi(arg, {'ON', '1'})));
                 case 'OUTP:TRIG:SLOP' % accepted
                 case 'FREQ:STAR', obj.setNum('FREQ_STAR', num, 1e-6, 20e6);

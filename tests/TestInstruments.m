@@ -48,6 +48,38 @@ classdef TestInstruments < matlab.unittest.TestCase
             tc.verifyFalse(g.isOutputOn());
         end
 
+        function generatorAtTheAmplifierInput(tc)
+            % WO-004: the load setting is the amplifier input (1 .. 10000 ohm,
+            % manual p.189), sent and read back; MaxVpp limits the OPEN-CIRCUIT
+            % voltage: at 600 ohm a level of 0.95 Vpp is 1.03 Vpp open circuit
+            tr = tim.instr.MockScpiTransport();
+            g = tim.instr.Keysight33220A(tr, 'MaxVpp', 1, 'Load', '600');
+            L = tr.Log;
+            tc.verifyTrue(any(strcmp(L, '> OUTP:LOAD 600')), 'load sent');
+            tc.verifyTrue(any(strcmp(L, '> OUTP:LOAD?')), 'a numeric load is read back');
+            tc.verifyEqual(g.metadata().load, '600');
+            g.configureSine(1000, 0.9);                                % 0.975 Vpp open circuit
+            tc.verifyError(@() g.configureSine(1000, 0.95), 'tim:gen:amplitude', 'open circuit above MaxVpp');
+            g.configureSine(1000, 0.9); g.armOutput(true); tr.write('VOLT 0.95');
+            tc.verifyError(@() g.outputOn(), 'tim:gen:amplitude', 'the re-check before OUTP ON too');
+            tc.verifyFalse(g.isOutputOn());
+            % the smallest level scales with the load: 20 mVpp x 600 / 650
+            tc.verifyError(@() g.configureSine(1000, 0.018), 'tim:gen:amplitude');
+            g.configureSine(1000, 0.019);
+            % '600.0' is stored as '600'; 'INF' is unchanged (no read-back query: same bus traffic as 1.2.1)
+            tr2 = tim.instr.MockScpiTransport();
+            g2 = tim.instr.Keysight33220A(tr2, 'MaxVpp', 1, 'Load', '600.0');
+            tc.verifyEqual(g2.Load, '600');
+            tr3 = tim.instr.MockScpiTransport();
+            tim.instr.Keysight33220A(tr3, 'MaxVpp', 1, 'Load', 'INF');
+            tc.verifyFalse(any(strcmp(tr3.Log, '> OUTP:LOAD?')));
+            % outside the range or another spelling of INF: refused before any I/O
+            for bad = {'0.5', '20000', 'inf', '600 ohm'}
+                tr4 = tim.instr.MockScpiTransport();
+                tc.verifyError(@() tim.instr.Keysight33220A(tr4, 'MaxVpp', 1, 'Load', bad{1}), 'tim:gen:load', bad{1});
+            end
+        end
+
         function scpiErrorsSurface(tc)
             tr = tim.instr.MockScpiTransport();
             g = tim.instr.Keysight33220A(tr, 'MaxVpp', 1);
