@@ -103,6 +103,10 @@ classdef Tubebench < handle
         ShownTime double = NaN     % s after the start of the constructor: main window shown
         ReadyTime double = NaN     % s after the start of the constructor: every view prepared
         TimerTag char = ''         % Tag of every timer of this window (tests count only their own window's)
+        % ---- connection check while idle (the 33220A drops an idle connection unnoticed, 2026-10-12)
+        LinkTimer = []             % checks the instruments' connections while idle (hardware, visible window)
+        LinkCheckPeriod double = 60   % s between two idle checks
+        LinkChecking logical = false  % a check is running: an action clicked meanwhile is not started
     end
     properties (Constant)
         % views prepared after the main window is shown, in this order (the
@@ -193,6 +197,7 @@ classdef Tubebench < handle
         function disconnect(app, quiet)
             % close the session (instruments to a safe state); quiet: no log line
             if nargin < 2, quiet = false; end
+            app.stopLinkCheck();
             if ~isempty(app.Session)
                 try, app.Session.close(); catch, end
                 app.Session = [];
@@ -219,6 +224,33 @@ classdef Tubebench < handle
         function unlockUi(app)
             %UNLOCKUI Restore the controls after a busy action (used by the run wrapper).
             app.setBusy(false);
+        end
+
+        function r = checkConnectionNow(app)
+            %CHECKCONNECTIONNOW Check the instruments' connections now: called by
+            %   the idle timer every LinkCheckPeriod s in hardware mode (visible
+            %   window), and by tests. Skipped (r = []) while an action, a
+            %   session operation or a stream runs, while a view is being
+            %   created, or while the window closes. A dropped connection is
+            %   re-opened by its driver and the session logs it; a lost one
+            %   turns the lamp red, the status line asks for Disconnect and
+            %   Connect, and the idle check stops until the next Connect.
+            r = [];
+            if ~isvalid(app) || app.Busy || app.Closing || app.LinkChecking || ~isempty(app.Constructing) ...
+                    || app.sessionActive()
+                return
+            end
+            s = app.Session;
+            if isempty(s) || ~isvalid(s) || ~s.Connected, return; end
+            app.LinkChecking = true;
+            done = onCleanup(@() endLinkCheck(app));
+            try
+                r = s.checkConnection();
+            catch err
+                app.stopLinkCheck();
+                app.connectionLost(err);
+                r = struct('role', s.LostRole, 'state', 'lost', 'detail', err.message);
+            end
         end
 
         function closeRequest(app)
@@ -508,6 +540,11 @@ classdef Tubebench < handle
         function setBuildingFlag(app, p)
             % (restoreBuilding: end of an on-demand preparation, also on an error)
             app.Building = p;
+        end
+
+        function setLinkChecking(app, tf)
+            % (endLinkCheck: end of a connection check, also on an error)
+            app.LinkChecking = tf;
         end
 
         function onBuildTick(app)
@@ -1119,6 +1156,39 @@ classdef Tubebench < handle
                 app.ReadyTime = toc(app.T0);
                 app.log('All views ready (%.0f s after the start).', app.ReadyTime);
             end
+        end
+
+        function startLinkCheck(app)
+            % hardware mode, visible window: check the connections every
+            % LinkCheckPeriod s while idle (checkConnectionNow); a hidden window
+            % (scripts, tests) has no idle timer
+            app.stopLinkCheck();
+            s = app.Session;
+            if isempty(s) || ~strcmp(s.Cfg.mode, 'hardware') || ~strcmp(app.Fig.Visible, 'on'), return; end
+            app.LinkTimer = timer('Name', 'tubebench-linkcheck', 'ExecutionMode', 'fixedSpacing', ...
+                'Period', app.LinkCheckPeriod, 'StartDelay', app.LinkCheckPeriod, 'BusyMode', 'drop', ...
+                'TimerFcn', @(~, ~) linkTimerFcn(app), 'Tag', app.TimerTag);
+            start(app.LinkTimer);
+        end
+
+        function stopLinkCheck(app)
+            t = app.LinkTimer; app.LinkTimer = [];
+            if ~isempty(t) && isvalid(t)
+                try, stop(t); delete(t); catch, end
+            end
+        end
+
+        function connectionLost(app, err)
+            % a connection the driver could not re-open: lamp red, status line
+            P = tim.gui.palette();
+            app.log('Connection check: %s', err.message);
+            k = 1;
+            if ~isempty(app.Session) && strcmp(app.Session.LostRole, 'acquisition'), k = 2; end
+            if isfield(app.H, 'lamp') && isvalid(app.H.lamp(k))
+                app.H.lamp(k).Color = P.fail;
+                app.H.lamp(k).Tooltip = 'Connection lost - Disconnect and Connect.';
+            end
+            app.setStatus('Connection lost - Disconnect and Connect', 'warn');
         end
 
         function tf = sessionActive(app)
@@ -1789,6 +1859,13 @@ classdef Tubebench < handle
             if app.Busy || app.Closing
                 return      % an action is already running / the window closes (no re-entrance)
             end
+            if app.LinkChecking
+                % (only from a click that interrupted the idle connection check: never
+                % send instrument commands between its query and its answer)
+                what = busyWhat; if isempty(what), what = 'action'; end
+                app.log('Checking the instrument connections - the %s was not started; try again in a moment.', what);
+                return
+            end
             if ~isempty(app.Constructing)
                 % (only from a timer that interrupted the creation of a view: never
                 % start an action on half-created controls)
@@ -1834,6 +1911,9 @@ classdef Tubebench < handle
                     msg = err.message; icon = 'warning'; ttl = 'Open measurement';
                 else
                     app.log('Error (%s): %s', what, err.message);
+                    if any(strcmp(err.identifier, {'tim:instr:connectionLost', 'tim:scpi:connectionLost'}))
+                        app.stopLinkCheck();         % no idle re-open attempts until the next Connect
+                    end
                     msg = err.message; icon = 'error'; ttl = 'Error';
                     if hasGen
                         off = app.outputOffText(); app.log('%s', off);
@@ -1890,8 +1970,13 @@ classdef Tubebench < handle
                 else
                     txt = 'Generator output off (confirmed).';
                 end
-            catch
-                txt = 'The generator output could not be confirmed off. Check the output at the generator.';
+            catch err
+                if any(strcmp(err.identifier, {'tim:scpi:connectionLost', 'tim:instr:connectionLost', 'tim:scpi:closed'}))
+                    txt = ['The connection to the generator is lost, so its output state cannot be read back. ' ...
+                        'Check the output at the generator, then Disconnect and Connect.'];
+                else
+                    txt = 'The generator output could not be confirmed off. Check the output at the generator.';
+                end
                 unconfirmed = true;
             end
             app.OutputUnconfirmed = unconfirmed;
@@ -2317,6 +2402,7 @@ classdef Tubebench < handle
             if ~isempty(s.Calibration), app.showCal(s.Calibration); else, app.refreshCalLabel(); end
             app.CalDirty = true;                 % calibration labels pick up the TEDS serials
             app.buildCalSteps();
+            app.startLinkCheck();                % hardware: the connections checked every minute while idle
         end
 
         function onProgress(app, key, state, detail)
@@ -3270,6 +3356,7 @@ classdef Tubebench < handle
             if app.Closing, return; end
             app.Closing = true;
             app.stopPulse();
+            app.stopLinkCheck();
             s = app.Session;
             done = {};
             if ~isempty(s) && ~isempty(s.Gen)
@@ -3404,6 +3491,19 @@ end
 function endOp(s)
 % end of an operation on a session that may have been closed / deleted meanwhile
 if ~isempty(s) && isvalid(s), s.endOperation(); end
+end
+
+function linkTimerFcn(app)
+% idle connection check of the window (Tubebench.startLinkCheck); never throws
+try
+    if isvalid(app), app.checkConnectionNow(); end
+catch
+end
+end
+
+function endLinkCheck(app)
+% end of a connection check (Tubebench.checkConnectionNow), also on an error
+if isvalid(app), app.setLinkChecking(false); end
 end
 
 function buildTimerFcn(t, app)

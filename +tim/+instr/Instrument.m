@@ -40,6 +40,13 @@ classdef (Abstract) Instrument < handle
     %     md = metadata()   JSON-encodable: driver, displayName, roles,
     %                       identity, sharedClock, settings + driver state
     %     setTimeout(t)     shorten the I/O time-out (closing the window)
+    %     r = checkConnection()  the connection still works: called before
+    %                       every excitation and every 60 s while the window
+    %                       is idle (hardware). r.state 'ok' | 'reconnected',
+    %                       r.detail; tim:instr:connectionLost when it is lost
+    %                       for good. Default: nothing to check. A driver whose
+    %                       instrument can drop an idle connection unnoticed
+    %                       queries it and re-opens it (same identity, safe state)
     %     close()           safe state and release; never throws; idempotent:
     %                       a second close() sends nothing; afterwards other
     %                       methods raise '...:closed' and send nothing
@@ -74,6 +81,11 @@ classdef (Abstract) Instrument < handle
     methods
         function setTimeout(~, ~)
             %SETTIMEOUT Shorten the I/O time-out [s]. Default: nothing to shorten.
+        end
+
+        function r = checkConnection(~)
+            %CHECKCONNECTION Default: nothing to check (no I/O, no bus traffic).
+            r = struct('state', 'ok', 'detail', '');
         end
 
         function r = rolesInUse(obj)

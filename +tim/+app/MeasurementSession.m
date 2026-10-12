@@ -45,6 +45,7 @@ classdef MeasurementSession < handle
         LastPartial = []
         LogLines cell = {}
         ConfirmedExcitation char = ''    % signature of the last operator-confirmed excitation
+        LostRole char = ''       % role whose connection checkConnection found lost ('source' | 'acquisition')
         Connected logical = false
         Prepared logical = false
     end
@@ -290,6 +291,7 @@ classdef MeasurementSession < handle
 
         function meas = measureSweep(obj)
             obj.requirePrepared();
+            obj.checkConnection();                 % a dropped connection re-opened before anything is sent
             sw = obj.Cfg.excitation.sweep;
             fs = obj.Cfg.acquisition.sampleRate;
             obj.Gen.configureSweep(sw);
@@ -336,6 +338,7 @@ classdef MeasurementSession < handle
 
         function meas = measureStepped(obj)
             obj.requirePrepared();
+            obj.checkConnection();
             st = obj.Cfg.excitation.stepped;
             fs = obj.Cfg.acquisition.sampleRate;
             if strcmpi(st.spacing, 'log')
@@ -392,6 +395,7 @@ classdef MeasurementSession < handle
 
         function meas = measureNoise(obj)
             obj.requirePrepared();
+            obj.checkConnection();
             nz = obj.Cfg.excitation.noise;
             fs = obj.Cfg.acquisition.sampleRate;
             obj.Gen.configureNoise(nz.amplitudeVpp);
@@ -570,6 +574,37 @@ classdef MeasurementSession < handle
         function throwIfStopped(obj)
             %THROWIFSTOPPED Public check used between operator steps.
             obj.checkStop();
+        end
+
+        function r = checkConnection(obj)
+            %CHECKCONNECTION The instruments' connections still work (the
+            %   drivers' checkConnection): before every excitation (measure*)
+            %   and from the window every 60 s while it is idle (hardware). An
+            %   instrument that dropped its connection unnoticed - the 33220A
+            %   does now and then (hardware check 2026-10-12) - is re-opened
+            %   by its driver and the session logs it; one that cannot be
+            %   re-opened stops here with tim:instr:connectionLost, before
+            %   anything is configured or armed. r: struct array role,
+            %   state ('ok' | 'reconnected'), detail.
+            obj.requireConnected();
+            devs = {obj.Gen, 'source'};
+            if ~obj.isCombined(), devs(end+1, :) = {obj.Daq, 'acquisition'}; end
+            r = struct('role', {}, 'state', {}, 'detail', {});
+            for i = 1:size(devs, 1)
+                if isempty(devs{i, 1}), continue; end
+                try
+                    c = devs{i, 1}.checkConnection();
+                catch err
+                    obj.LostRole = devs{i, 2};
+                    rethrow(err);
+                end
+                if strcmp(c.state, 'reconnected')
+                    noun = devs{i, 2};
+                    try, noun = obj.driverInfo(devs{i, 2}).texts.noun; catch, end
+                    obj.log('%s: %s.', [upper(noun(1)) noun(2:end)], c.detail);
+                end
+                r(end+1) = struct('role', devs{i, 2}, 'state', c.state, 'detail', c.detail); %#ok<AGROW>
+            end
         end
 
         function close(obj, fast)

@@ -260,6 +260,50 @@ classdef Keysight33220A < tim.instr.SignalSource
             try, obj.close(); catch, end
         end
 
+        function r = checkConnection(obj)
+            %CHECKCONNECTION OUTP? with a 2 s time-out (contract: before every
+            %   excitation, every 60 s while the window is idle). The 33220A
+            %   drops an idle socket connection now and then without telling
+            %   the PC (hardware check 2026-10-12); then the connection is
+            %   re-opened: *IDN? must name the same serial number, the output
+            %   is switched off, the error queue cleared and OUTP:LOAD /
+            %   VOLT:UNIT set again; the next measurement configures the
+            %   waveform as always. r.state 'ok' | 'reconnected', r.detail;
+            %   tim:instr:connectionLost when it cannot be re-opened (nothing
+            %   is armed: the output stays disarmed).
+            r = struct('state', 'ok', 'detail', '');
+            if isempty(obj.Transport) || ~ismethod(obj.Transport, 'reopen'), return; end
+            try
+                obj.isOutputOn(2);
+                return
+            catch first
+            end
+            obj.OutputArmed = false;
+            before = obj.Identity;
+            try
+                obj.Transport.reopen();
+                obj.identify();
+                if ~strcmp(obj.Identity.serial, before.serial)
+                    other = obj.Identity.raw; obj.Identity = before;
+                    try, obj.Transport.write('OUTP OFF'); catch, end
+                    error('tim:gen:identity', 'another instrument answered (%s), not s/n %s', other, before.serial);
+                end
+                obj.Transport.write('OUTP OFF');
+                obj.Transport.write('*CLS');
+                obj.Transport.write(['OUTP:LOAD ' obj.Load]);
+                obj.Transport.write('VOLT:UNIT VPP');
+                obj.checkErrors('the reconnection');
+            catch err
+                error('tim:instr:connectionLost', ['The connection to the generator was lost and could not be ' ...
+                    're-opened (%s). Check the LAN cable and the generator, then Disconnect and Connect.'], err.message);
+            end
+            obj.Mode = 'none';                        % configured again by the next measurement
+            why = 'no answer';
+            if strcmp(first.identifier, 'tim:scpi:connectionLost'), why = 'the instrument had closed it'; end
+            r = struct('state', 'reconnected', 'detail', sprintf(['connection re-opened (%s): %s s/n %s, ' ...
+                'output off'], why, obj.Identity.model, obj.Identity.serial));
+        end
+
         %% ---- contract: identity, metadata, time-out ----------------------
         function id = identity(obj)
             %IDENTITY vendor, model, serial, firmware, raw (*IDN? reply); no I/O.
@@ -374,6 +418,7 @@ classdef Keysight33220A < tim.instr.SignalSource
             h.forceOutputOn = @() tr.write('OUTP ON');          % front panel / another program
             h.forceLevel = @(vpp) tr.write(sprintf('VOLT %.4f', vpp));
             h.injectError = @() setProperty(tr, 'InjectError', '-222,"Data out of range"');
+            h.dropConnection = @() setProperty(tr, 'Dropped', true);   % the 33220A drops it unnoticed
         end
     end
 
