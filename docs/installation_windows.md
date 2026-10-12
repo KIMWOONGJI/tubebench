@@ -64,11 +64,17 @@ Both instruments use **link-local (169.254.x.x) addresses** and answered from th
 
 | Instrument | IP | Port(s) | Verified |
 |---|---|---|---|
-| 33220A | 169.254.2.20 | TCP 5025 (SCPI socket) | ping, `*IDN?` |
+| 33220A | 169.254.2.20, **static** since 2026-10-12 (DHCP off, Auto IP off, mask 255.255.0.0) | TCP 5025 (SCPI socket) | ping, `*IDN?` |
 | LAN-XI 3676 | 169.254.64.156 | TCP 80 (REST), TCP data port reported by `/rest/rec/destination/socket` (typically 1536) | ping, REST, streaming |
 
-Nothing was changed on the network, firewall, IP configuration or instrument firmware, and no such
-change is needed for the present set-up.
+Nothing was changed on the PC (network adapters, firewall) or in the instrument firmware. The
+connection runs PC (USB Ethernet adapter, automatic 169.254.x.x address) → switching hub → 33220A
+and LAN-XI. On 2026-10-12 the owner set the 33220A from DHCP + Auto IP to a static IP with the
+same address (Utility → I/O → LAN → Modify Settings): with DHCP on and no DHCP server, the
+instrument had dropped idle SCPI connections now and then (docs/hardware_status.md, hardware check
+of 2026-10-12, observation 1). The static IP did not stop it (an idle probe on one socket dropped
+after 5 min, 15:21-15:26); it is kept, as the address can no longer change by itself. Since 1.2.1
+the program replaces idle connections and re-opens dropped ones by itself.
 
 Possible issues and remedies (each requires **your** decision; the software never changes them):
 

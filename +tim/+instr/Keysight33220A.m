@@ -31,6 +31,9 @@ classdef Keysight33220A < tim.instr.SignalSource
         SweepSettings struct = struct()
         Settings struct = struct()   % driver settings (host, port, timeout) from fromConfig
     end
+    properties
+        ReopenAfterIdle_s double = 30   % checkConnection replaces a connection idle longer than this
+    end
 
     methods
         function obj = Keysight33220A(transport, opts)
@@ -261,22 +264,36 @@ classdef Keysight33220A < tim.instr.SignalSource
         end
 
         function r = checkConnection(obj)
-            %CHECKCONNECTION OUTP? with a 2 s time-out (contract: before every
-            %   excitation, every 60 s while the window is idle). The 33220A
-            %   drops an idle socket connection now and then without telling
-            %   the PC (hardware check 2026-10-12); then the connection is
-            %   re-opened: *IDN? must name the same serial number, the output
+            %CHECKCONNECTION Contract: before every excitation, and every 60 s
+            %   while the window is idle. The 33220A drops an idle socket
+            %   connection now and then without telling the PC (hardware check
+            %   2026-10-12: also with a static IP, also without MATLAB); the
+            %   next command then gets a reset, which MATLAB's tcpclient prints
+            %   as a stack trace in the command window. So a connection idle for
+            %   more than ReopenAfterIdle_s (30 s) is not used again but
+            %   replaced by a new one (owner decision 2026-10-12): nothing is
+            %   sent on the old one. A connection used more recently is checked
+            %   with OUTP? (2 s time-out) and replaced when that fails. A new
+            %   connection: *IDN? must name the same serial number, the output
             %   is switched off, the error queue cleared and OUTP:LOAD /
             %   VOLT:UNIT set again; the next measurement configures the
-            %   waveform as always. r.state 'ok' | 'reconnected', r.detail;
-            %   tim:instr:connectionLost when it cannot be re-opened (nothing
-            %   is armed: the output stays disarmed).
+            %   waveform as always. r.state 'ok' | 'reopened' (an idle
+            %   connection replaced as a precaution, not logged by the session)
+            %   | 'reconnected' (a dropped connection found and replaced);
+            %   r.detail; tim:instr:connectionLost when no new connection can be
+            %   opened (nothing is armed: the output stays disarmed). On the
+            %   protocol mock (no idleSeconds) only the OUTP? check runs.
             r = struct('state', 'ok', 'detail', '');
             if isempty(obj.Transport) || ~ismethod(obj.Transport, 'reopen'), return; end
-            try
-                obj.isOutputOn(2);
-                return
-            catch first
+            idle = 0;
+            if ismethod(obj.Transport, 'idleSeconds'), idle = obj.Transport.idleSeconds(); end
+            first = [];
+            if idle <= obj.ReopenAfterIdle_s
+                try
+                    obj.isOutputOn(2);
+                    return
+                catch first
+                end
             end
             obj.OutputArmed = false;
             before = obj.Identity;
@@ -298,6 +315,11 @@ classdef Keysight33220A < tim.instr.SignalSource
                     're-opened (%s). Check the LAN cable and the generator, then Disconnect and Connect.'], err.message);
             end
             obj.Mode = 'none';                        % configured again by the next measurement
+            if isempty(first)
+                r = struct('state', 'reopened', 'detail', sprintf(['connection idle for %.0f s replaced by a new ' ...
+                    'one: %s s/n %s, output off'], idle, obj.Identity.model, obj.Identity.serial));
+                return
+            end
             why = 'no answer';
             if strcmp(first.identifier, 'tim:scpi:connectionLost'), why = 'the instrument had closed it'; end
             r = struct('state', 'reconnected', 'detail', sprintf(['connection re-opened (%s): %s s/n %s, ' ...

@@ -288,6 +288,52 @@ classdef TestInstruments < matlab.unittest.TestCase
             clear restore
         end
 
+        function generatorReplacesAnIdleConnection(tc)
+            % owner decision 2026-10-12 (WO-003): a connection idle for more
+            % than ReopenAfterIdle_s is replaced before use - nothing is sent on
+            % it (the 33220A may have dropped it: a reset, and MATLAB's stack
+            % trace in the command window); a connection used recently is only
+            % checked with OUTP?; a local fake instrument (127.0.0.1 only)
+            port = 0; srv = [];
+            for p = 50700 + randperm(200, 20)
+                try
+                    srv = tcpserver("127.0.0.1", p); port = p; break
+                catch
+                end
+            end
+            tc.assumeNotEmpty(srv, 'no free local port for the fake instrument');
+            tc.addTeardown(@() delete(srv));
+            configureTerminator(srv, "LF");
+            configureCallback(srv, "terminator", @(s, ~) answerFake(s));
+            ws = warning('off', 'all'); restore = onCleanup(@() warning(ws));
+            tr = tim.instr.ScpiTcpTransport('127.0.0.1', port, 2);
+            g = tim.instr.Keysight33220A(tr, 'MaxVpp', 1);
+            tc.addTeardown(@() g.close());
+            tc.verifyEqual(g.ReopenAfterIdle_s, 30, 'default');
+            nQueries = @() nnz(strcmp(tr.Log(:, 3), 'OUTP?'));
+            n = nQueries();
+            r = g.checkConnection();
+            tc.verifyEqual(r.state, 'ok', 'used just now: checked');
+            tc.verifyEqual(nQueries(), n + 1, 'with OUTP?');
+            g.ReopenAfterIdle_s = 0.2;
+            pause(0.5);
+            tc.verifyGreaterThan(tr.idleSeconds(), 0.2);
+            n = nQueries();
+            r = g.checkConnection();
+            tc.verifyEqual(r.state, 'reopened', 'idle: replaced');
+            tc.verifySubstring(r.detail, 'output off');
+            tc.verifyEqual(nQueries(), n, 'nothing sent on the idle connection');
+            L = tr.Log(:, 3);
+            k = find(startsWith(L, 're-opening the connection'), 1, 'last');
+            tc.verifyNotEmpty(k);
+            tc.verifyEqual(L(k + 1:k + 2), {'*IDN?'; 'Agilent Technologies,33220A,FAKE0001,2.02-2.02-22-2'}, ...
+                'the same instrument asked first');
+            tc.verifyTrue(any(strcmp(L(k:end), 'OUTP OFF')) && any(strcmp(L(k:end), 'OUTP:LOAD INF')), 'safe state again');
+            tc.verifyLessThan(tr.idleSeconds(), 0.2, 'the new connection was just used');
+            tc.verifyFalse(g.isOutputOn(), 'answered on the new connection');
+            clear restore
+        end
+
         function overloadDetected(tc)
             cfg = tim.app.defaultConfig();
             cfg.geometry = cfg.simulation.Geometry;

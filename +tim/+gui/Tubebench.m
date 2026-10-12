@@ -635,10 +635,10 @@ classdef Tubebench < handle
             bar = 26; rw = 24; sp = 4;
             rowH = {bar, 26, 22, 22, 45, ...                %  1- 5 INSTRUMENTS: bar, mode + connect, status, lamps, in use (3 lines)
                 sp, bar, rw, 16, rw, 30, ...                %  6-11 IMPEDANCE TUBE: spacer, bar, D/T/p, names, distances, info
-                sp, bar, rw, rw, rw, rw, rw, rw, rw, rw, 30, ...% 12-22 EXCITATION: spacer, bar, 8 field rows, drive
-                sp, bar, 22, 28, ...                        % 23-26 CALIBRATION: spacer, bar, status, buttons
-                sp, bar, rw, 36, 26, ...                    % 27-31 MEASUREMENT: spacer, bar, specimen, start / stop, background
-                sp, bar, 22, 28};                           % 32-35 RESULTS: spacer, bar, status, buttons
+                sp, bar, rw, rw, rw, rw, rw, rw, rw, 30, ...% 12-21 EXCITATION: spacer, bar, 7 field rows, drive
+                sp, bar, 22, 28, ...                        % 22-25 CALIBRATION: spacer, bar, status, buttons
+                sp, bar, rw, 36, 26, ...                    % 26-30 MEASUREMENT: spacer, bar, specimen, start / stop, background
+                sp, bar, 22, 28};                           % 31-34 RESULTS: spacer, bar, status, buttons
             left = uigridlayout(g, [numel(rowH) 1], 'RowHeight', rowH, 'ColumnWidth', {'1x'}, ...
                 'Scrollable', 'on', 'RowSpacing', 4, 'Padding', [10 8 10 8], 'BackgroundColor', P.ui.panel);
             left.Layout.Row = 1; left.Layout.Column = 1;
@@ -767,12 +767,10 @@ classdef Tubebench < handle
             h.spkP = uieditfield(rg, 'numeric', 'Limits', [1e-4 1000], 'ValueChangedFcn', @(~, ~) app.updateDrive(), ...
                 'Tooltip', 'Power limit of the loudspeaker [W]: an excitation above this estimated loudspeaker power is refused.');
             r = r + 1; rg = app.rowGrid(left, r, ex);
-            app.label(rg, 'Amplitude of', 'Which voltage the amplitude field gives.');
-            h.ampAt = uidropdown(rg, 'Items', {'generator', 'loudspeaker (direct drive)'}, ...
+            % the label of the amplitude is a list: what the field gives - the
+            % generator's amplitude or, in direct drive, the loudspeaker's
+            h.ampAt = uidropdown(rg, 'Items', {'Generator [Vpk]', 'Speaker [Vpk]'}, ...
                 'ItemsData', {'generator', 'loudspeaker'}, 'ValueChangedFcn', @(~, ev) app.onAmpAt(ev.PreviousValue));
-            h.ampAt.Layout.Column = [2 4];
-            r = r + 1; rg = app.rowGrid(left, r, ex);
-            h.ampLabel = app.label(rg, 'Amplitude [Vpk]', 'Amplitude in Vpk (details: tooltip of the field).');
             h.amp = uieditfield(rg, 'numeric', 'Limits', [0.005 10], 'ValueChangedFcn', @(~, ~) app.updateDrive());
             app.label(rg, 'Duration', 'Expected duration of one measurement.');
             h.durEst = uilabel(rg, 'Text', '', 'FontColor', P.ui.muted);
@@ -1519,7 +1517,7 @@ classdef Tubebench < handle
             if isfield(c, 'ui') && isfield(c.ui, 'amplitudeAt'), at = char(c.ui.amplitudeAt); end
             if ~startsWith(lower(h.ampModel.Value), 'none') || ~any(strcmp(at, h.ampAt.ItemsData)), at = 'generator'; end
             h.ampAt.Value = at;
-            app.ampToUi(c.excitation.sweep.amplitudeVpp / 2);  % in the unit of 'Amplitude of', with its limits
+            app.ampToUi(c.excitation.sweep.amplitudeVpp / 2);  % in the unit of the amplitude label, with its limits
             app.excitationToUi(h.exMode.Value);
             app.onAmpModel(false);
             app.onTubeChanged();
@@ -1561,7 +1559,7 @@ classdef Tubebench < handle
 
         function ampToUi(app, genVpk)
             % generator amplitude [Vpk] -> the amplitude field, in the unit that
-            % 'Amplitude of' selects (the generator, or the loudspeaker in direct
+            % the amplitude label selects (the generator, or the loudspeaker in direct
             % drive: WO-003), with the generator's limits in that unit
             h = app.H; c = app.Cfg;
             [lo, lim] = app.generatorLimits();
@@ -1600,7 +1598,7 @@ classdef Tubebench < handle
         end
 
         function onAmpAt(app, previous)
-            % 'Amplitude of' changed: the same physical level, in the other unit
+            % the amplitude label changed: the same physical level, in the other unit
             h = app.H; v = h.amp.Value;
             if strcmp(previous, 'loudspeaker'), v = v / app.speakerFactor(); end
             app.Cfg.ui.amplitudeAt = h.ampAt.Value;
@@ -2792,7 +2790,7 @@ classdef Tubebench < handle
         end
 
         function chainEnable(app)
-            % amplifier gain, generator load and 'Amplitude of' follow the
+            % amplifier gain, generator load and the amplitude label follow the
             % amplifier and the connection (all locked while an action runs)
             h = app.H;
             onoff = @(tf) matlab.lang.OnOffSwitchState(tf);
@@ -2813,8 +2811,8 @@ classdef Tubebench < handle
                     'across a 50 Ω load (amplifier with a 50 Ω input). The source impedance of the generator does not change.'];
             end
             if direct
-                h.ampAt.Tooltip = sprintf(['generator: the programmed amplitude (open-circuit voltage). loudspeaker: the ' ...
-                    'voltage at the loudspeaker; the generator is set to it through its %g Ω source impedance and the ' ...
+                h.ampAt.Tooltip = sprintf(['Generator [Vpk]: the programmed amplitude (open-circuit voltage). Speaker [Vpk]: ' ...
+                    'the voltage at the loudspeaker; the generator is set to it through its %g Ω source impedance and the ' ...
                     'nominal loudspeaker impedance (the real impedance varies with frequency).'], app.sourceImpedance());
             else
                 h.ampAt.Tooltip = 'With an amplifier the amplitude is the generator''s (the loudspeaker voltage is given only in direct drive).';

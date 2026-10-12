@@ -38,6 +38,9 @@ Tasks:
 3. An idle check every 60 s (owner: yes), never while `Busy`, a session operation or a stream is
    active. It reconnects a dropped connection and shows a lost connection on the lamp at once. If
    the 33220A drops only idle connections, it may also prevent the drop.
+   Decided later the same day (owner, after the static IP did not stop the drops): a connection
+   idle for more than 30 s is replaced before use without sending anything on it, so the reset
+   and MATLAB's stack trace do not occur; a connection used more recently is checked with OUTP?.
 4. Tests:
    - the local fake instrument (as in `TestInstruments`) closes or resets the socket while the
      session is idle;

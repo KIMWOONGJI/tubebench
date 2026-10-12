@@ -233,15 +233,25 @@ stops with the alert "Check the settings" and does not connect: correct the fiel
 the step that failed. Remove the cause and press **Connect** again.
 
 **Connection check.** The lab's 33220A drops an idle network connection now and then without
-telling the PC (hardware check of 2026-10-12): before 1.2.1 the next Start then failed with a MATLAB
-message. Now the program asks the generator for its output state **before every measurement and
-calibration**, and in hardware mode **every minute while the window is idle** (never during an
-action). A dropped connection is opened again at once - the generator must report the same serial
-number, its output is switched off and its load setting sent again - and the message pane says
-"Generator: connection re-opened (the instrument had closed it): …"; the measurement then runs as
-usual. If the generator does not answer at all, nothing is switched on: the lamp turns red, the
-status reads "Connection lost - Disconnect and Connect" and the minute check stops until the next
-Connect. A Start pressed during the (short) check is not started; press it again.
+telling the PC (hardware check of 2026-10-12; also with a static IP address and without MATLAB):
+before 1.2.1 the next Start then failed with a MATLAB message. Now the program checks the generator
+connection **before every measurement and calibration step**, and in hardware mode **every minute
+while the window is idle** (never during an action):
+
+* a connection that has been idle for more than 30 s is not used again: the program closes it and
+  opens a new one (the generator must report the same serial number, its output is switched off
+  and its load setting sent again). Nothing is written in the message pane; it takes a fraction of
+  a second. Because nothing is sent on an old connection, the dropped connection no longer causes
+  an error;
+* a connection used within the last 30 s is asked for the output state; if it has been dropped
+  anyway, it is replaced the same way and the message pane says "Generator: connection re-opened
+  (the instrument had closed it): …" (the MATLAB command window may then show a red stack trace,
+  harmless, section 13); the measurement runs as usual;
+* if the generator does not answer at all, nothing is switched on: the lamp turns red, the status
+  reads "Connection lost - Disconnect and Connect" and the minute check stops until the next
+  Connect.
+
+A Start pressed during the (short) check is not started; press it again.
 
 ### IMPEDANCE TUBE (lengths in mm)
 
@@ -288,8 +298,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Generator load | the output load setting of the generator, from the values its driver accepts (33220A: **High Z** or **50 Ω**), sent to the generator at Connect; fixed while connected. Direct drive always uses High Z. See "Generator output load" below |
 | Loudspeaker [Ω] | nominal impedance of the loudspeaker |
 | Speaker limit [W] | power limit of the loudspeaker: an excitation above this estimated power is refused |
-| Amplitude of | what the amplitude field gives: **generator** (the programmed amplitude) or, in direct drive only, **loudspeaker** (the voltage at the loudspeaker; see below) |
-| Amplitude [Vpk] | peak voltage; for the generator from its smallest level at the configured load (33220A: 0.01 Vpk at High Z, 0.005 Vpk at 50 Ω) up to the amplitude limit (`generator.maxVpp`/2); at the loudspeaker the same range converted (33220A at High Z, 8 Ω: 0.00138–0.138 Vpk for a 1 Vpk limit) |
+| Generator [Vpk] ▾ / Speaker [Vpk] ▾ | the label of the amplitude field is a list: **Generator [Vpk]** (the programmed amplitude) or, in direct drive only, **Speaker [Vpk]** (the voltage at the loudspeaker; see below). The field: peak voltage; for the generator from its smallest level at the configured load (33220A: 0.01 Vpk at High Z, 0.005 Vpk at 50 Ω) up to the amplitude limit (`generator.maxVpp`/2); at the loudspeaker the same range converted (33220A at High Z, 8 Ω: 0.00138–0.138 Vpk for a 1 Vpk limit) |
 | Duration | expected duration of one measurement with these settings, e.g. "about 29 s" |
 
 * Each signal keeps its own frequency range, duration or number of steps and repetitions:
@@ -310,7 +319,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   an amplifier, the field turns yellow and the message pane asks for the gain: **Start measurement
   and Run switching calibration… are refused until a gain has been entered** (typed into the
   field), also in simulation.
-* **Amplitude at the loudspeaker (direct drive)**: with "Amplitude of: loudspeaker" the field is the
+* **Amplitude at the loudspeaker (direct drive)**: with the label set to **Speaker [Vpk]** the field is the
   voltage at the loudspeaker. The program sets the generator to the matching level through the
   generator's source impedance (33220A: 50 Ω) and the nominal loudspeaker impedance:
   generator = loudspeaker × (Z + 50 Ω) / Z, e.g. 10 mVpk at 8 Ω needs 72.5 mVpk programmed at High
@@ -412,7 +421,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Reprocess | a measurement exists (not for background noise) |
 | Amplifier gain [×] | an amplifier other than "none (direct drive)" is chosen |
 | Generator load | an amplifier is chosen and the window is not connected (the driver offers more than one load) |
-| Amplitude of | "none (direct drive)" is chosen |
+| Generator [Vpk] / Speaker [Vpk] (the list) | "none (direct drive)" is chosen |
 | everything else, menus | no action running |
 
 ## 5. Workflow step by step
@@ -850,7 +859,7 @@ open-circuit voltage divided by 50 Ω and its impedance: V_spk = V_oc · Z / (Z 
 8 Ω, and at most about 2.8 Vpp (0.12 W) with the 33220A's 20 Vpp - a higher level needs an
 amplifier.
 
-The amplitude field (with "Amplitude of: generator") and the amplitude limit refer to the
+The amplitude field (with the label Generator [Vpk]) and the amplitude limit refer to the
 programmed value. With `"50"` the
 excitation confirmation shows the programmed value ("programmed into 50 Ω") and the open-circuit
 voltage. The drive estimate uses `V_in = V_oc·Z_in/(Z_in + 50 Ω)` at the amplifier input, with

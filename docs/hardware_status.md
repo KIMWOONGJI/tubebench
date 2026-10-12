@@ -308,7 +308,14 @@ of `wo-001` into `main` followed on 2026-10-12.
    the same before. Fix planned for 1.2.1: a check of the connection before every measurement or
    calibration with an automatic reconnect (same serial number, output off, `OUTP:LOAD`), an English
    message and the lamp (built in 1.2.1, branch `wo-003`; the stack trace MATLAB's tcpclient prints
-   in the command window on the reset cannot be suppressed - harmless).
+   in the command window on the reset cannot be suppressed - harmless). At 15:1x the owner set the 33220A
+   from DHCP + Auto IP (no DHCP server on this network) to a static IP with the same address
+   (169.254.2.20 / 255.255.0.0); an idle probe on one socket (`*IDN?` after 1, 2, 5, 10, 15 and 30 min
+   of idle) showed that it does not: the connection dropped between 15:21 and 15:26 (5 min idle,
+   "An existing connection was forcibly closed by the remote host" from a plain .NET socket, i.e.
+   without MATLAB); 1, 2, 10 and 15 min idle passed (the 30 min step was not run). So the 33220A
+   itself drops idle connections now and then; 1.2.1 therefore replaces a connection idle for more
+   than 30 s before use instead of sending on it (owner decision 2026-10-12).
 2. **ch3** has worked normally in every measurement (integrity and signal check OK); the fault of
    2026-10-08 has not recurred.
 3. **Signal check levels** (1 s without excitation, after the 3 s settle wait) were 66–72 dB SPL at
@@ -327,10 +334,11 @@ EXCITATION controls (generator load, the amplitude at the loudspeaker in direct 
 check, at the approved level 0.025 Vpk (0.05 Vpp), empty specimen section:
 
 1. **Idle drop**: Connect and leave the window idle for at least 30 min, then a short measurement
-   (1 repetition). Expected: no error; the message pane shows any re-opening ("Generator: connection
-   re-opened (the instrument had closed it): 33220A s/n MY44032054, output off.") - from the
-   minute check or before the measurement - and the measurement runs; the output LED is on only
-   during the sweep.
+   (1 repetition), then another one after 2 min idle. Expected: no error and no red stack trace in
+   the MATLAB command window (idle connections are replaced before use, silently); the measurement
+   runs; the output LED is on only during the sweep. A "Generator: connection re-opened (the
+   instrument had closed it) …" line may appear only if a drop fell into the last 30 s before a
+   use.
 2. **Lost connection**: connected and idle, pull the generator's LAN cable for about 2 min. Expected:
    within a minute the Generator lamp turns red and the status reads "Connection lost - Disconnect
    and Connect"; nothing is switched on. Plug the cable back, Disconnect → Connect, one short
@@ -338,7 +346,7 @@ check, at the approved level 0.025 Vpk (0.05 Vpp), empty specimen section:
 3. **Generator load**: not connected, choose "power amplifier" (no excitation), Generator load 50 Ω,
    Connect: Setup > Connection shows "load 50"; Disconnect, back to "none (direct drive)": the list
    returns to High Z; Connect shows "load INF".
-4. **Amplitude at the loudspeaker**: direct drive, "Amplitude of: loudspeaker", 0.00345 Vpk (= 0.025
+4. **Amplitude at the loudspeaker**: direct drive, the amplitude label set to "Speaker [Vpk]", 0.00345 Vpk (= 0.025
    Vpk programmed at 8 Ω). Expected: the excitation confirmation and the log line "Excitation
    confirmed" show generator 0.025 Vpk and loudspeaker about 0.00345 Vpk; the saved measurement has
    `metadata.drive` with both.

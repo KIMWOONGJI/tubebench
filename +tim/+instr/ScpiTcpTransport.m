@@ -33,6 +33,7 @@ classdef ScpiTcpTransport < handle
         Client = []
         Desynchronised logical = false   % a query timed out: its answer may still arrive
         Lost logical = false             % a write failed: the connection is gone (until reopen)
+        LastIO = []                      % tic of the last successful write / answer (idleSeconds)
     end
 
     methods
@@ -54,6 +55,7 @@ classdef ScpiTcpTransport < handle
             catch err
                 obj.connectionLost(err, cmd);
             end
+            obj.LastIO = tic;
         end
 
         function resp = query(obj, cmd, timeout)
@@ -84,6 +86,13 @@ classdef ScpiTcpTransport < handle
             end
             resp = strtrim(char(resp));
             obj.addLog('<', resp);
+            obj.LastIO = tic;
+        end
+
+        function s = idleSeconds(obj)
+            %IDLESECONDS Seconds since the last successful write or answer on
+            %   this connection (since it was opened when nothing yet).
+            s = toc(obj.LastIO);
         end
 
         function tf = isOpen(obj)
@@ -96,7 +105,12 @@ classdef ScpiTcpTransport < handle
             %   address (tim:scpi:connect when the instrument does not answer).
             obj.Client = [];
             obj.addLog('*', sprintf('re-opening the connection to %s:%d', obj.Host, obj.Port));
-            obj.open();
+            try
+                obj.open();
+            catch
+                pause(0.3);                      % (the instrument may still be closing the old one)
+                obj.open();
+            end
             obj.Lost = false; obj.Desynchronised = false;
         end
 
@@ -125,6 +139,7 @@ classdef ScpiTcpTransport < handle
                     obj.Host, obj.Port, err.message);
             end
             configureTerminator(obj.Client, "LF");
+            obj.LastIO = tic;
         end
         function connectionLost(obj, err, cmd)
             % a write failed: mark the connection lost, raise the English error

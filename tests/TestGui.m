@@ -1053,10 +1053,11 @@ classdef TestGui < matlab.unittest.TestCase
             app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
             texts = get(findall(app.Fig, 'Type', 'uilabel'), 'Text');
-            for t = {'Amplifier gain [×]', 'Generator load', 'Loudspeaker [Ω]', 'Speaker limit [W]', 'Amplitude of'}
+            for t = {'Amplifier gain [×]', 'Generator load', 'Loudspeaker [Ω]', 'Speaker limit [W]'}
                 tc.verifyTrue(any(strcmp(texts, t{1})), ['label ' t{1}]);
             end
             tc.verifyFalse(any(strcmp(texts, 'Power limit [W]')), 'old label');
+            tc.verifyEqual(h.ampAt.Items, {'Generator [Vpk]', 'Speaker [Vpk]'}, 'the amplitude label is a list');
             tc.verifyEqual(h.ampGain.ValueDisplayFormat, '%.4g', 'a plain number, no "×" in the field');
             tc.verifySameHandle(h.spkZ.Parent, h.spkP.Parent, 'impedance and power limit on one row');
             tc.verifyTrue(all(ismember({'none (direct drive)', 'power amplifier'}, h.ampModel.Items)), ...
