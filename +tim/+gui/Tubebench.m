@@ -46,6 +46,8 @@ classdef Tubebench < handle
     %   action is also available from scripts (see start_here.m). It is
     %   built programmatically with App Designer components (uifigure,
     %   uigridlayout, uiaxes ...) so the source is plain text.
+    %
+    %   Copyright (c) 2026 Woongji Kim. MIT License (LICENSE in the project folder).
 
     properties (SetAccess = private)
         Fig

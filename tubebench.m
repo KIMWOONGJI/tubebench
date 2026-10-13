@@ -10,6 +10,8 @@ function app = tubebench(what)
 %   Can be called from any current folder once the project folder is on
 %   the MATLAB path; it adds the project to the path itself. Windows users
 %   can also double-click start_tubebench.bat in the project folder.
+%
+%   Copyright (c) 2026 Woongji Kim. MIT License (LICENSE in the project folder).
 
 root = fileparts(mfilename('fullpath'));
 addpath(root);

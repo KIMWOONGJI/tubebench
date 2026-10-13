@@ -89,7 +89,7 @@ of tubebench, which kept its name when the program was renamed). The main window
 
 ```
 start_here.m            entry point (sections)        run_tests.m   automated tests
-tubebench.m, start_tubebench.bat   start the window
+tubebench.m, start_tubebench.bat   start the window          LICENSE   MIT
 config/                 user_config.json (lab settings), example_config.json (template),
                         sim_thin_screen.json (virtual tube)
 +tim/+instr             instrument contract: Instrument, SignalSource, Acquisition; registry:
@@ -165,3 +165,10 @@ example) and `open-api-time-data-recorder` (MATLAB reference, MIT licence; used 
 reference, not copied); Agilent 33220A User's Guide 33220-90002; ISO 10534-2; ASTM E1050; ASTM E2611.
 The sources of the formulas (standards and literature) are listed in `docs/theory.md` (References)
 and in the Formula tab of the window.
+
+## License
+
+MIT License - Copyright (c) 2026 Woongji Kim (<https://kimwoongji.github.io>). See `LICENSE`.
+The software is provided "as is", without warranty of any kind: it drives a loudspeaker through
+real instruments, so keep the level limits of the configuration and check every new set-up in
+simulation first (`docs/user_guide.md`, section 3).

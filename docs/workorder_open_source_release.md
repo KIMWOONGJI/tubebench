@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | first public release (1.2.0 or later; independent of WO-001) |
-| Status | planned - written 2026-10-10, decisions of the owner recorded 2026-10-10, not started |
+| Status | started 2026-10-13: licence **MIT confirmed by the owner** (after comparing MIT, BSD-3-Clause, Apache-2.0, GPL-3.0 and PolyForm Noncommercial); task 1 done (`LICENSE`, README "License", help headers). Open: tasks 2-10; the owner checks the university / lab rules on software written there (they may change the copyright line) |
 | Requested by | the owner (Woongji Kim) |
 | Purpose | make the author and the portfolio site known (<https://kimwoongji.github.io>); let other labs use the software |
 | Not included | creating the GitHub repository and pushing - the owner does that (push is on hold until then) |
@@ -17,7 +17,8 @@
   geometry) may be public and stays in the repository as the lab's working example.
 - **Distribution:** GitHub repository `kimwoongji/tubebench`, linked to MATLAB File Exchange (the
   File Exchange entry follows the GitHub releases).
-- **Licence: MIT** (recommended 2026-10-10 for the purpose above - confirm when starting):
+- **Licence: MIT** (recommended 2026-10-10 for the purpose above; **confirmed by the owner
+  2026-10-13**):
   - the most widely known and shortest permissive licence on GitHub and File Exchange, so the
     lowest barrier for others to use, fork and mention the project - more use means more
     visibility of the author;
@@ -52,7 +53,8 @@
 
 1. **LICENSE** (MIT, `Copyright (c) 2026 Woongji Kim`); a "License" section in README; the
    copyright/licence line in the help header of the entry files only (`tubebench.m`,
-   `+tim/+gui/Tubebench.m`).
+   `+tim/+gui/Tubebench.m`). **Done 2026-10-13** (the README section also says "as is, without
+   warranty" next to the safety rules of the user guide, section 3).
 2. **Author visibility:**
    - README header: name, logo (`resources/logo`), one-line description, links to
      <https://kimwoongji.github.io> and the File Exchange page, badges (licence, MATLAB version,
