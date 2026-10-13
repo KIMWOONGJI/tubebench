@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 372" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif">
+  <title>tubebench measurement chain</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 z" fill="#8C9BAB"/>
+    </marker>
+    <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="7" stroke="#334A63" stroke-width="2.5" stroke-opacity="0.45"/>
+    </pattern>
+  </defs>
+
+  <!-- connectors -->
+  <g fill="none" stroke="#8C9BAB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M330 52 H122 Q110 52 110 64 V104" marker-end="url(#arrow)"/>
+    <path d="M110 162 V198" marker-end="url(#arrow)"/>
+    <path d="M110 250 V290 Q110 302 122 302 H214" marker-end="url(#arrow)"/>
+    <path d="M760 112 V64 Q760 52 748 52 H596" marker-end="url(#arrow)"/>
+  </g>
+  <g font-size="12" fill="#5B6B7D" text-anchor="middle">
+    <text x="220" y="43">SCPI · TCP</text>
+    <text x="678" y="43">REST + binary TCP stream</text>
+  </g>
+
+  <!-- boxes -->
+  <g fill="#F6F8FA" stroke="#D0D7DE" stroke-width="1.5">
+    <rect x="330" y="20" width="262" height="64" rx="12"/>
+    <rect x="20" y="108" width="180" height="54" rx="12"/>
+    <rect x="20" y="202" width="180" height="48" rx="12"/>
+    <rect x="640" y="112" width="240" height="58" rx="12"/>
+  </g>
+
+  <!-- tubebench mark in the program box -->
+  <g transform="translate(342 25) scale(0.84)">
+    <rect x="4" y="34" width="56" height="14" rx="7" fill="none" stroke="#334A63" stroke-width="3"/>
+    <rect x="26" y="34" width="12" height="14" fill="#334A63"/>
+    <g stroke-width="4" stroke-linecap="round">
+      <line x1="10" y1="33" x2="10" y2="18" stroke="#0072B2"/>
+      <line x1="18" y1="33" x2="18" y2="18" stroke="#C2185B"/>
+      <line x1="46" y1="33" x2="46" y2="18" stroke="#009E73"/>
+      <line x1="54" y1="33" x2="54" y2="18" stroke="#BF9900"/>
+    </g>
+    <circle cx="10" cy="14" r="3.5" fill="#0072B2"/>
+    <circle cx="18" cy="14" r="3.5" fill="#C2185B"/>
+    <circle cx="46" cy="14" r="3.5" fill="#009E73"/>
+    <circle cx="54" cy="14" r="3.5" fill="#BF9900"/>
+  </g>
+
+  <g fill="#334A63">
+    <text x="406" y="48" font-size="17" font-weight="600">tubebench</text>
+    <text x="36" y="132" font-size="14" font-weight="600">Signal generator</text>
+    <text x="36" y="224" font-size="14" font-weight="600">Amplifier</text>
+    <text x="656" y="136" font-size="14" font-weight="600">Acquisition</text>
+  </g>
+  <g fill="#5B6B7D" font-size="12">
+    <text x="406" y="68">MATLAB · analysis · window</text>
+    <text x="36" y="150">Keysight 33220A</text>
+    <text x="36" y="240">optional</text>
+    <text x="656" y="155">HBK LAN-XI 3676</text>
+  </g>
+
+  <!-- microphone cables -->
+  <g fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M330 241 V207 Q330 195 342 195 H658 Q670 195 670 183 V174" stroke="#0072B2"/>
+    <path d="M380 241 V227 Q380 215 392 215 H688 Q700 215 700 203 V174" stroke="#C2185B"/>
+    <path d="M740 241 V174" stroke="#009E73"/>
+    <path d="M790 241 V174" stroke="#BF9900"/>
+  </g>
+  <g stroke="#F6F8FA" stroke-width="1.5">
+    <circle cx="670" cy="170" r="5" fill="#0072B2"/>
+    <circle cx="700" cy="170" r="5" fill="#C2185B"/>
+    <circle cx="740" cy="170" r="5" fill="#009E73"/>
+    <circle cx="790" cy="170" r="5" fill="#BF9900"/>
+  </g>
+  <text x="560" y="244" font-size="12" fill="#5B6B7D" text-anchor="middle">4 × B&amp;K 4957 microphones</text>
+
+  <!-- tube -->
+  <rect x="860" y="282" width="32" height="40" fill="url(#hatch)"/>
+  <rect x="244" y="281" width="650" height="42" rx="9" fill="none" stroke="#334A63" stroke-width="3"/>
+  <rect x="548" y="281" width="24" height="42" fill="#334A63"/>
+  <g fill="#334A63">
+    <rect x="218" y="291" width="10" height="22" rx="2"/>
+    <path d="M228 291 L244 281 V323 L228 313 z"/>
+  </g>
+
+  <!-- microphones -->
+  <g stroke-width="6" stroke-linecap="round">
+    <line x1="330" y1="279" x2="330" y2="256" stroke="#0072B2"/>
+    <line x1="380" y1="279" x2="380" y2="256" stroke="#C2185B"/>
+    <line x1="740" y1="279" x2="740" y2="256" stroke="#009E73"/>
+    <line x1="790" y1="279" x2="790" y2="256" stroke="#BF9900"/>
+  </g>
+  <circle cx="330" cy="248" r="7.5" fill="#0072B2"/>
+  <circle cx="380" cy="248" r="7.5" fill="#C2185B"/>
+  <circle cx="740" cy="248" r="7.5" fill="#009E73"/>
+  <circle cx="790" cy="248" r="7.5" fill="#BF9900"/>
+  <g font-size="12" font-weight="600">
+    <text x="341" y="268" fill="#0072B2">M1</text>
+    <text x="391" y="268" fill="#C2185B">M2</text>
+    <text x="751" y="268" fill="#009E73">M3</text>
+    <text x="801" y="268" fill="#BF9900">M4</text>
+  </g>
+
+  <g font-size="12" fill="#5B6B7D">
+    <text x="218" y="346">loudspeaker</text>
+    <text x="560" y="346" text-anchor="middle">specimen</text>
+    <text x="894" y="346" text-anchor="end">termination</text>
+  </g>
+</svg>

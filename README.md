@@ -37,6 +37,12 @@ microphones around a specimen in an impedance tube and computes the specimen's a
 properties after ASTM E2611, with a validity verdict for every frequency line. It includes a
 complete virtual tube, so every feature, the window included, also runs without hardware.
 
+<p align="center">
+  <img src="docs/images/tube_setup.png" alt="The tubebench window: Setup > Tube setup with the 3D model of the lab tube" width="100%">
+  <br><sub>Setup › Tube setup: the 3D model follows the geometry entered in the window, and the analysis band
+  follows the ASTM E1050 / E2611 limits of the tube (simulation mode).</sub>
+</p>
+
 ## Features
 
 - **One window for the whole workflow.** Connect → tube geometry → excitation → switching
@@ -64,6 +70,12 @@ complete virtual tube, so every feature, the window included, also runs without 
 - **Pluggable instruments.** Drivers implement a small contract; templates and a Claude Code skill
   add a new instrument without changes to the session or the window.
 - **Operator prompts in English and Korean.**
+
+<p align="center">
+  <img src="docs/images/calibration.gif" alt="Switching calibration on the virtual tube" width="100%">
+  <br><sub>Switching calibration on the virtual tube (1.5× speed): the microphones swap ports step by step,
+  every measurement is checked, and the empty-tube check (Test E) closes the sequence.</sub>
+</p>
 
 ## Quick start
 
@@ -99,15 +111,12 @@ before measuring: the commit stored with a measurement does not see uncommitted 
 
 ## How it works
 
-```mermaid
-flowchart LR
-    APP["tubebench<br/>(MATLAB)"] -- "SCPI over TCP" --> GEN["Signal generator<br/>Keysight 33220A"]
-    GEN --> AMP["Amplifier"] --> SPK["Loudspeaker"]
-    SPK --> TUBE["Impedance tube<br/>M1 M2 · specimen · M3 M4"]
-    TUBE --> TERM["Termination"]
-    TUBE -- "4 × B&K 4957" --> DAQ["Acquisition<br/>HBK LAN-XI 3676"]
-    DAQ -- "REST + binary TCP stream" --> APP
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/measurement_chain-dark.svg">
+    <img src="docs/images/measurement_chain.svg" alt="Measurement chain: tubebench drives the signal generator over SCPI, the amplifier drives the loudspeaker of the tube, four microphones M1-M4 around the specimen feed the LAN-XI module, which streams to tubebench" width="100%">
+  </picture>
+</p>
 
 `meas = session.measure()` records raw volts; `res = tim.app.processMeasurement(meas, cfg, cal)`
 then
@@ -231,7 +240,8 @@ templates/instrument    starting files for a new driver (source, acquisition, co
 .claude/skills          add-instrument: the Claude Code skill that runs the driver guide
 examples/               demo_simulation.m, hardware_commissioning.m, bench_test_no_tube.m,
                         output/ (example plots)
-docs/                   documentation (see above); workorder_*.md: planned work
+docs/                   documentation (see above); workorder_*.md: planned work; images/: the
+                        figures of this README
 data/, calibration/     measurement and calibration output (never overwritten; not in git)
 ```
 
