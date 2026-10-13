@@ -601,21 +601,25 @@ classdef TestGui < matlab.unittest.TestCase
             g = tim.instr.driverInfo('keysight33220a'); d = tim.instr.driverInfo('lanxi');
             names = [g.displayName newline d.displayName];      % one line per instrument
             % before connecting: the configured drivers
-            tc.verifyEqual({h.lampLabel.Text}, {'Generator', 'LAN-XI', 'ch1', 'ch2', 'ch3', 'ch4'});
+            tc.verifyEqual({h.lampLabel.Text}, {'Generator', 'DAQ', 'ch1', 'ch2', 'ch3', 'ch4'});
+            % the checklist: each driver step after the lamp label of its role (owner, 2026-10-13)
+            tc.verifyEqual({app.ConnList.Labels(1:6).Text}, {'Generator: connect (33220A, SCPI)', ...
+                'DAQ: connect (LAN-XI, REST)', 'DAQ: recorder state Idle', 'DAQ: open recorder', ...
+                'DAQ: TEDS detection', 'DAQ: channel setup → streaming'});
             tc.verifyEqual(h.instr.Text, names);
             tc.verifySubstring(h.lamp(1).Tooltip, g.displayName);
             tc.verifySubstring(h.lamp(2).Tooltip, d.displayName);
             T = h.instrTable.Data;
             tc.verifyEqual(T(:, 1:3), {'Generator (signal source)', g.displayName, 'keysight33220a'; ...
-                'LAN-XI (acquisition)', d.displayName, 'lanxi'});
+                'DAQ (acquisition)', d.displayName, 'lanxi'});
             tc.verifyEqual(T(:, 4:7), repmat({'–'}, 2, 4), 'no identity before connecting');
             tc.verifyEqual(T{2, 8}, '16384 S/s, 10 Vpeak, high-pass 0.7 Hz, CCLD on');
             tc.verifySubstring(h.instrTable.Tooltip, '4096, 8192, 16384, 32768, 65536', 'rates the driver allows');
             % the texts of before for the lab drivers, composed from describe().texts
-            tc.verifyEqual(h.connect.Tooltip, ['Connect the generator and the LAN-XI module (generator output off), ' ...
+            tc.verifyEqual(h.connect.Tooltip, ['Connect the generator and the DAQ (generator output off), ' ...
                 'read TEDS and check every channel (Setup > Connection).']);
-            tc.verifyEqual(h.disconnect.Tooltip, 'Generator output off, LAN-XI module back to Idle, connections closed.');
-            tc.verifyEqual(h.modeLabel.Tooltip, 'Simulation: virtual tube for practice. Hardware: generator and LAN-XI module.');
+            tc.verifyEqual(h.disconnect.Tooltip, 'Generator output off, DAQ back to Idle, connections closed.');
+            tc.verifyEqual(h.modeLabel.Tooltip, 'Simulation: virtual tube for practice. Hardware: generator and DAQ.');
             % EXCITATION limits from the capabilities
             tc.verifyEqual(h.fStop.Limits, [1, 0.45 * c.acquisition.sampleRate]);
             tc.verifyEqual(h.amp.Limits(1), 0.01, 'AbsTol', 1e-12, '33220A: 20 mVpp at load INF');
@@ -630,7 +634,7 @@ classdef TestGui < matlab.unittest.TestCase
             T = h.instrTable.Data;
             tc.verifyEqual(T(1, 4:7), {ig.vendor, ig.model, ig.serial, ig.firmware});
             tc.verifyEqual(T(2, 4:7), {id.vendor, id.model, id.serial, id.firmware});
-            tc.verifyEqual(h.instr.Text, sprintf('Generator: 33220A s/n MOCK0001 (simulated)\nLAN-XI: 3676-B-040 s/n 110283 (simulated)'));
+            tc.verifyEqual(h.instr.Text, sprintf('Generator: 33220A s/n MOCK0001 (simulated)\nDAQ: 3676-B-040 s/n 110283 (simulated)'));
             tc.verifySubstring(h.lamp(1).Tooltip, sprintf('%s 33220A, s/n MOCK0001, firmware %s', ig.vendor, ig.firmware));
             tc.verifySubstring(h.lamp(2).Tooltip, sprintf('s/n 110283, firmware %s', id.firmware));
             tc.verifyEqual(h.lamp(1).Tooltip, app.LampTips{1}, 'kept after the action');
@@ -639,7 +643,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(h.instr.Text, names);
             tc.verifyEqual(h.instrTable.Data(:, 5), {'–'; '–'});
             tc.verifyTrue(any(endsWith(h.log.Value, ...
-                'Instruments disconnected by the operator (generator output off, LAN-XI module back to Idle).')));
+                'Instruments disconnected by the operator (generator output off, DAQ back to Idle).')));
             clear cleanup
         end
 
@@ -659,6 +663,8 @@ classdef TestGui < matlab.unittest.TestCase
             d = tim.instr.driverInfo('simcombined');
             tc.verifyEqual({h.lampLabel(1:2).Text}, {'Output', 'Inputs'});
             tc.verifyEqual(app.ConnList.Keys, {'device', 'setup', 'sens', 'settle', 'signal'}, 'checklist before connecting');
+            tc.verifyEqual({app.ConnList.Labels(1:2).Text}, {'Output + Inputs: connect (simulated device)', ...
+                'Inputs: channel setup'}, 'a step of both roles after both lamp labels');
             tc.verifyEqual(h.instr.Text, d.displayName);
             T = h.instrTable.Data;
             tc.verifySize(T, [1 8], 'one device');

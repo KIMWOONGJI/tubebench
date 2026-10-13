@@ -388,7 +388,7 @@ classdef Keysight33220A < tim.instr.SignalSource
         end
 
         function s = connectionSteps()
-            s = struct('key', 'gen', 'label', 'Function generator 33220A (SCPI)', 'role', 'source', 'phase', 'connect');
+            s = struct('key', 'gen', 'label', 'connect (33220A, SCPI)', 'role', 'source', 'phase', 'connect');
         end
 
         function report = checkConfig(cfg)

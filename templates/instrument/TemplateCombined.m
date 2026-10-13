@@ -491,7 +491,7 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
 
         function s = connectionSteps()
             s = struct('key', {'templatecombined', 'setup'}, ...
-                'label', {'Template device (output + 4 inputs)', 'Channel setup'}, ...   % TODO checklist texts
+                'label', {'connect (Template device)', 'channel setup'}, ...   % TODO checklist texts, shown after the lamp label(s)
                 'role', {'both', 'acquisition'}, 'phase', {'connect', 'prepare'});
         end
 

@@ -34,7 +34,8 @@ classdef TemplateSource < tim.instr.SignalSource
     %     measurement) and configured; the programmed level is read back and
     %     checked again right before the output is switched on.
     %   * Every level is checked BEFORE any level command (checkLevel):
-    %     positive, at most generator.maxVpp, within the instrument's range for
+    %     positive, its open-circuit voltage at most generator.maxVpp (an
+    %     open-circuit limit, contract 3.4), within the instrument's range for
     %     the configured load. No level is programmed at connect.
     %   * Never a command that switches the output on by itself (33220A: APPLy).
     %   * After close() nothing is sent any more (tim:instr:closed).
@@ -59,9 +60,9 @@ classdef TemplateSource < tim.instr.SignalSource
             obj.MaxVpp = maxVpp;
             obj.Load = char(load);
             c = tim.instr.TemplateSource.capabilities().source;
-            if ~any(strcmp(obj.Load, c.loads))
+            if ~tim.instr.SignalSource.supportsLoad(c, obj.Load)
                 error('tim:templatesource:load', 'Output load "%s" not supported (supported: %s).', ...
-                    obj.Load, strjoin(c.loads, ', '));
+                    obj.Load, tim.instr.SignalSource.loadsText(c));
             end
             obj.identify();                                   % the right instrument? (read-only)
             obj.Transport.write('OUTP OFF');                  % TODO output off - FIRST: it may have been left on
@@ -336,7 +337,7 @@ classdef TemplateSource < tim.instr.SignalSource
         function d = describe()
             d = struct('name', 'templatesource', ...                       % registry name = generator.driver
                 'displayName', 'Template signal generator (SCPI)', ...      % TODO vendor, model and kind, as shown in the window
-                'labels', struct('source', 'Generator'), ...                % short lamp label
+                'labels', struct('source', 'Generator'), ...                % lamp label: the role, not the product
                 'defaults', struct('settings', struct( ...                  % generator.templatesource
                     'host', '192.0.2.10', ...                               % TODO the instrument's address (192.0.2.x: documentation address, no device)
                     'port', 5025, ...                                       % TODO SCPI socket port (manual)
@@ -351,7 +352,7 @@ classdef TemplateSource < tim.instr.SignalSource
                 'sweepSpacing', {{'LOG', 'LIN'}}, ...                       % TODO
                 'frequencyRange', [1e-3 1e6], ...                           % TODO [Hz] sine and sweep
                 'bandFraction', NaN, ...                                    % own clock (NaN)
-                'loads', {{'INF', '50'}}, ...                               % TODO load settings ('INF' = open-circuit volts)
+                'loads', {{'INF', '50'}}, ...                               % TODO load settings ('INF' = open-circuit volts; any resistance: also 'loadRange', [Rmin Rmax], contract 3.4)
                 'maxVpp', [20 10], ...                                      % TODO largest level per load [Vpp]
                 'minVpp', [0.02 0.01], ...                                  % TODO smallest level per load [Vpp]
                 'sweepTime', [1e-3 500], ...                                % TODO [s]
@@ -367,7 +368,7 @@ classdef TemplateSource < tim.instr.SignalSource
 
         function s = connectionSteps()
             s = struct('key', 'templatesource', ...                        % unique: the registry name
-                'label', 'Template generator (SCPI)', ...                   % TODO checklist text: model and interface
+                'label', 'connect (Template generator, SCPI)', ...          % TODO checklist text 'connect (<model>, <interface>)', shown after the lamp label
                 'role', 'source', 'phase', 'connect');
         end
 
@@ -445,19 +446,22 @@ classdef TemplateSource < tim.instr.SignalSource
         end
 
         function checkLevel(obj, vpp)
-            % level limit BEFORE any level command (contract section 3.4)
+            % level limit BEFORE any level command (contract section 3.4): vpp is
+            % the programmed level at the load setting, generator.maxVpp an
+            % open-circuit voltage (at a load of R ohm: vpp x (R + Rs) / R)
             c = tim.instr.TemplateSource.capabilities().source;
-            k = find(strcmp(obj.Load, c.loads), 1);
             if ~(isscalar(vpp) && isnumeric(vpp) && isfinite(vpp) && vpp > 0)
                 error('tim:gen:amplitude', 'Amplitude must be a positive scalar [Vpp].');
             end
-            if vpp > obj.MaxVpp * (1 + 1e-9)
-                error('tim:gen:amplitude', 'Requested %.4g Vpp exceeds the configured safety limit MaxVpp = %.4g Vpp.', ...
-                    vpp, obj.MaxVpp);
+            oc = vpp * tim.instr.SignalSource.openCircuitFactor(c, obj.Load);
+            if oc > obj.MaxVpp * (1 + 1e-9)
+                error('tim:gen:amplitude', ['Requested %.4g Vpp at load %s (open circuit %.4g Vpp) exceeds the ' ...
+                    'configured safety limit MaxVpp = %.4g Vpp (open circuit).'], vpp, obj.Load, oc, obj.MaxVpp);
             end
-            if vpp < c.minVpp(k) || vpp > c.maxVpp(k)
+            [lo, hi] = tim.instr.SignalSource.levelRange(c, obj.Load);
+            if vpp < lo * (1 - 1e-9) || vpp > hi * (1 + 1e-9)
                 error('tim:gen:amplitude', 'Requested %.4g Vpp outside the output range %.3g .. %.3g Vpp (load %s).', ...
-                    vpp, c.minVpp(k), c.maxVpp(k), obj.Load);
+                    vpp, lo, hi, obj.Load);
             end
         end
 

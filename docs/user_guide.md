@@ -174,8 +174,8 @@ The same style is used in the window and in the saved figures:
   window), a dialog asks
   "… anyway? The measurement is then lost." with the action and Cancel.
 * **Closing the window** (the window's X or File > Exit): a "Closing" dialog appears at once and
-  lists the steps: generator output off, the connections closed ("generator output off, LAN-XI
-  module back to Idle" with the lab instruments; 2 s time-outs, so a switched-off instrument
+  lists the steps: generator output off, the connections closed ("generator output off, DAQ back
+  to Idle" with the lab instruments; 2 s time-outs, so a switched-off instrument
   cannot delay it), window closed. If an action is running it is stopped first (output off at
   once) and the window closes as soon as it has stopped; if the last measurement is not saved,
   the unsaved-measurement question is asked first (Cancel keeps the window open). A second close
@@ -229,8 +229,8 @@ source forms a voltage divider, `V_spk = V_oc·Z/(Z + 50 Ω)`:
 | Connect | Connects the generator (output off) and the acquisition module (lab: the LAN-XI), reads TEDS where the module can, sets up the channels and makes a 1 s signal check without excitation. Opens Setup > Connection, where every step is shown. |
 | Disconnect | Generator output off, acquisition stopped (LAN-XI: back to Idle), connections closed. |
 | Status | "Not connected" (grey); "Connecting (hardware)…", "Busy: …" or "Measurement – loudspeaker driven" (blue) while an action runs; "Ready (simulation)" (green); "Ready (hardware) – with warnings" or "Connected (hardware) – a check failed" (orange); "Generator output not confirmed off" (orange, section 3); "Connection lost - Disconnect and Connect" (orange: an instrument connection could not be re-opened, see "Connection check" below). The verdict of the connection checks stays in the status line after every later action. |
-| Lamps | generator and acquisition module (labels from their drivers: Generator and LAN-XI in the lab; Output and Inputs for the simulated combined device), ch1–ch4: grey = not connected, blue = running, green = OK, orange = check, red = fault. The tooltip of the first two names the instrument and, once connected, its vendor, model, serial number and firmware. Details in Setup > Connection. |
-| In use | the instruments in use, one line each: before Connect the instruments the configuration selects (e.g. "Keysight/Agilent 33220A function generator", "HBK LAN-XI module (Open API)"); after Connect what each instrument reported about itself, e.g. "Generator: 33220A s/n …" and "LAN-XI: 3676-B-040 s/n 110283". In simulation mode the lines end with "(simulated)": the simulated instruments report realistic identities. |
+| Lamps | generator and acquisition module, labelled by their role (from their drivers: Generator and DAQ in the lab; Output and Inputs for the simulated combined device; the model is in the "In use" line and the tooltip), ch1–ch4: grey = not connected, blue = running, green = OK, orange = check, red = fault. The tooltip of the first two names the instrument and, once connected, its vendor, model, serial number and firmware. Details in Setup > Connection. |
+| In use | the instruments in use, one line each: before Connect the instruments the configuration selects (e.g. "Keysight/Agilent 33220A function generator", "HBK LAN-XI module (Open API)"); after Connect what each instrument reported about itself, e.g. "Generator: 33220A s/n …" and "DAQ: 3676-B-040 s/n 110283". In simulation mode the lines end with "(simulated)": the simulated instruments report realistic identities. |
 
 The instruments are **chosen in the configuration file**, not in the window (section 9, "Choosing
 the instruments"); the window only shows them. The texts of Connect and Disconnect, the lamp
@@ -507,13 +507,14 @@ virtual microphones are moved by the program; everything else is the same.
   sweep times, sample rates, ranges, filters, CCLD, TEDS). Sample rate and range have no control
   in the window: set them in the configuration (section 9).
 * The **Connection checklist**, one row per step with a status icon (turning icon = running), the
-  result and the duration. The steps come from the drivers in use; with the lab instruments:
-  function generator 33220A (SCPI, output off); LAN-XI module (REST); recorder state Idle
-  (returned to Idle if needed); open recorder; TEDS transducer detection; channel setup →
-  streaming; then always microphone sensitivities (order certificate → TEDS → nominal); settling
-  of the inputs (lab: the CCLD supply and the high-pass filter; hardware only); **signal check**
-  (1 s without excitation). The simulated combined device has the steps "Simulated device
-  (output + 4 inputs)" and "Channel setup". A failing step is marked red with the error message,
+  result and the duration. The steps come from the drivers in use, each after the lamp label of
+  its role; with the lab instruments: "Generator: connect (33220A, SCPI)" (output off); "DAQ:
+  connect (LAN-XI, REST)"; "DAQ: recorder state Idle" (returned to Idle if needed); "DAQ: open
+  recorder"; "DAQ: TEDS detection"; "DAQ: channel setup → streaming"; then always microphone
+  sensitivities (order certificate → TEDS → nominal); settling of the inputs (lab: the CCLD
+  supply and the high-pass filter; hardware only); **signal check** (1 s without excitation). The
+  simulated combined device has the steps "Output + Inputs: connect (simulated device)" and
+  "Inputs: channel setup". A failing step is marked red with the error message,
   and the line above the list names it. Before Connect the list shows the steps of the
   instruments the configuration selects; after Disconnect it shows the last connection.
 * One **card per channel**: "ch1 → port M1", status, TEDS type and serial number, sensitivity and

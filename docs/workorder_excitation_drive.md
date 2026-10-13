@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.3.0 |
-| Status | **software done** on branch `wo-004` (worktree `tubebench-wo004`), 2026-10-12: sections 2-4 built, tests pass (section 6). **Pending:** the owner's hardware check (section 5), then version 1.3.0 and the merge into `main` |
+| Status | **done**, version 1.3.0 (2026-10-13), branch `wo-004` (worktree `tubebench-wo004`): sections 2-4 built, the hardware check of the load setting passed with the owner on 2026-10-13 (section 5, steps 1-2), the role names of the window added the same day (decision 9); the full suite in section 6. **Next:** the merge into `main` |
 | Requested by | the owner (Woongji Kim), 2026-10-12, after a review of the voltage conditions of the EXCITATION section |
 | Mock-up | https://claude.ai/artifact/REcrLazJgT7HGAaHJvNivP (version 3; the owner's decisions and the safety criteria) |
 | Rules | as in CLAUDE.md; a change of the instrument communication needs a short hardware check with the owner present; the bus-traffic fixtures are regenerated only for an owner-approved change |
@@ -38,6 +38,17 @@
 8. **Driver change approved**: the 33220A driver accepts a numeric load (1 Ω - 10 kΩ, manual
    p.189). The bus traffic of a High Z session does not change. A numeric load is checked on the
    instrument when an amplifier is connected (section 5).
+9. **Role names, not product names** (owner, 2026-10-13, during the hardware check): the
+   INSTRUMENTS lamps read **Generator** and **DAQ** (was "LAN-XI"), and the sentences of the window
+   say "the DAQ" (was "the LAN-XI module"). The connection checklist shows each driver step after
+   the lamp label of its role: "Generator: connect (33220A, SCPI)", "DAQ: connect (LAN-XI, REST)",
+   "DAQ: recorder state Idle", "DAQ: open recorder", "DAQ: TEDS detection", "DAQ: channel setup →
+   streaming". The product stays where it identifies the instrument: the "In use" line and the
+   tooltips (display name, model, serial number), the Instruments table, and the messages about
+   the module's own status flags (LAN-XI INVALID / OVERRUN).
+10. **Instrument guide** (review of the add-instrument skill, same day): the skill itself only runs
+    `docs/adding_an_instrument.md` and needed no change; the guide, the templates and the
+    contract test follow decisions 5 and 9 (section 3).
 
 Not in this work order (proposed the same day, no decision yet): an acoustic pressure equalizer
 (a constant incident sound pressure, stepped sine only with the 33220A), and the display of the
@@ -90,8 +101,19 @@ owner asked for both bars, side by side, 2026-10-12):
   confirmation names what the programmed level means and the loudspeaker check (msg, both
   languages).
 - Window: section 2.
-- Docs: user guide (EXCITATION, configuration keys, troubleshooting), instrument interface,
-  hardware status (the pending check of section 5), README.
+- Role names (decision 9): `describe().labels.acquisition` and `texts.noun` of the LAN-XI driver
+  'DAQ'; the drivers' checklist labels are short lower-case phrases without the role
+  (`'connect (33220A, SCPI)'`, `'open recorder'`), and the window (`connLabels`) puts the lamp
+  label of the step's role in front (both labels joined by " + " for a step of both roles).
+- Instrument guide (decision 10): `templates/instrument/TemplateSource.m` checks the open-circuit
+  voltage against `generator.maxVpp` (`openCircuitFactor`, `levelRange`; it compared the
+  programmed level, so at its load '50' a level of 2 × maxVpp would have reached an open input) and
+  accepts a `loadRange` (`supportsLoad`); the templates' checklist labels and lamp-label comments
+  follow decision 9; `docs/adding_an_instrument.md` (level check, labels, checklist texts, the
+  demo example); new contract case `TestInstrumentContract/levelLimitIsOpenCircuit` (every
+  source driver and template at each listed load other than INF).
+- Docs: user guide (EXCITATION, configuration keys, troubleshooting, lamps, checklist, closing),
+  instrument interface (labels, nouns, checklist texts), hardware status (section 5), README.
 
 ## 4. Tests (as built)
 
@@ -123,6 +145,21 @@ owner asked for both bars, side by side, 2026-10-12):
 3. With an amplifier connected (if one is available), a short measurement at a level the owner
    approves.
 
+**Result (2026-10-13, owner present, the wo-004 version on the real instruments, output OFF
+throughout):**
+
+1. **Passed.** Amplifier "power amplifier", Amp input 600 Ω, Connect: the Connect completed, so the
+   driver's read-back `OUTP:LOAD?` was 600 (`setLoad` stops the Connect with `tim:gen:verify`
+   otherwise); the generator's display showed the 600 Ω load.
+2. **Passed.** Disconnect, direct drive, Connect, Disconnect; then a read-only query of the
+   generator: `OUTP:LOAD?` 9.9E37 (INF), `OUTP?` 0, `SYST:ERR?` +0,"No error".
+3. Not done (optional).
+
+Before the check, the first two Connects of the day (1.2.1, about 11:51) failed with
+`tim:scpi:connect` while ping, the generator's MAC address and the ports 5025 and 80 answered; a
+third Connect a few minutes later worked. The cause is not known (the MATLAB text of the failure
+is only in the connection log).
+
 ## 6. Verification (2026-10-12, software only)
 
 - Batch MATLAB R2022b on the branch, split because the owner's MATLAB was open (0.4-2.9 GB
@@ -133,7 +170,8 @@ owner asked for both bars, side by side, 2026-10-12):
   trimmed spaces, so `' 50'` passed the configuration check (review analysis-6: exact text only;
   `TestEndToEnd/driveEstimateGeneratorLoad`). Re-run of the affected classes and tests: 153 / 153;
   then the three window tests of the drive after the last change (an HTML escape): 3 / 3.
-- 361 tests in 23 classes.
+- 361 tests in 23 classes (2026-10-12); 364 with the new contract case (decision 10, three
+  source drivers).
 - Screen captures of a visible simulation window (separate MATLAB, no clicks or typing): direct
   drive, an amplifier without a gain, 600 Ω ×10 at 0.707 Vpk, near the limit (3.79 Vpk) and above
   it (4.1 Vpk). The three lines fit; the control panel needs no scrolling (930 px, the limit).
@@ -142,3 +180,9 @@ owner asked for both bars, side by side, 2026-10-12):
   is four panels: filled part, track, the 80 % tick, track), so the box stays 45 px. Window tests
   of the drive and the panel height 4 / 4; the five set-ups captured again: the meters, their
   states and the three lines fit.
+- **Full suite in one run** (2026-10-13, after decisions 9-10 and version 1.3.0; `run_tests()` in
+  the owner's idle MATLAB R2022b, hidden windows only): 364 tests, 363 passed, 1 failed:
+  `TestGui/measurementBeforeViewsAreReady`, a timing test (a 1.5 s timer opens a tab during a
+  measurement and the background queue must wait), which touches none of the changed code; run
+  again alone right after: passed. Code Analyzer: the same message counts as before in the
+  changed files.

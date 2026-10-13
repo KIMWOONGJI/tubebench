@@ -250,7 +250,7 @@ classdef TemplateAcquisition < tim.instr.Acquisition
         function d = describe()
             d = struct('name', 'templateacquisition', ...                  % registry name = daq.driver
                 'displayName', 'Template DAQ (4 IEPE inputs)', ...          % TODO vendor, model and kind
-                'labels', struct('acquisition', 'DAQ'), ...                 % short lamp label
+                'labels', struct('acquisition', 'DAQ'), ...                 % lamp label: the role, not the product
                 'defaults', struct( ...
                     'settings', struct( ...                                 % daq.templateacquisition
                         'address', '', ...                                  % TODO what selects the device (NI name, IP address, ...); no default
@@ -284,7 +284,7 @@ classdef TemplateAcquisition < tim.instr.Acquisition
 
         function s = connectionSteps()
             s = struct('key', {'templateacquisition', 'setup'}, ...
-                'label', {'Template DAQ', 'Channel setup'}, ...             % TODO checklist texts
+                'label', {'connect (Template DAQ)', 'channel setup'}, ...   % TODO checklist texts, shown after the lamp label
                 'role', 'acquisition', 'phase', {'connect', 'prepare'});
         end
 

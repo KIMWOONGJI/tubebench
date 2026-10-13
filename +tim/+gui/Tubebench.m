@@ -1295,8 +1295,17 @@ classdef Tubebench < handle
             k = [{s.key}, {'sens', 'settle', 'signal'}];
         end
         function l = connLabels(app)
+            % a driver step after the lamp label of its role ("DAQ: open recorder";
+            % owner, 2026-10-13: the roles, not the product names), then the session's
             [s, settle] = app.driverSteps();
-            l = [{s.label}, {'Microphone sensitivities', settle, 'Signal check (no excitation)'}];
+            r = app.instruments();
+            role = struct('source', r(1).label, 'acquisition', r(2).label, 'both', strjoin({r.label}, ' + '));
+            l = cell(1, numel(s));
+            for i = 1:numel(s)
+                l{i} = s(i).label;
+                if isfield(role, s(i).role), l{i} = sprintf('%s: %s', role.(s(i).role), s(i).label); end
+            end
+            l = [l, {'Microphone sensitivities', settle, 'Signal check (no excitation)'}];
         end
         function [s, settle] = driverSteps(app)
             % connection steps of the drivers configured in app.Cfg (a combined

@@ -342,7 +342,7 @@ classdef DemoSource < tim.instr.SignalSource
 
         function s = connectionSteps()
             s = struct('key', 'demo', ...                                  % unique: the registry name
-                'label', 'Demo generator DEMO-SG1 (SCPI, simulated)', ...
+                'label', 'connect (DEMO-SG1, SCPI, simulated)', ...           % after the lamp label: "Generator: connect (...)"
                 'role', 'source', 'phase', 'connect');
         end
 
