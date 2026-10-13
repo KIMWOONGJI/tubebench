@@ -72,7 +72,7 @@ complete virtual tube, so every feature, the window included, also runs without 
 - **Operator prompts in English and Korean.**
 
 <p align="center">
-  <img src="docs/images/calibration.gif" alt="Switching calibration on the virtual tube" width="100%">
+  <img src="docs/images/calibration.png" alt="Switching calibration on the virtual tube" width="100%">
   <br><sub>Switching calibration on the virtual tube (1.5× speed): the microphones swap ports step by step,
   every measurement is checked, and the empty-tube check (Test E) closes the sequence.</sub>
 </p>
