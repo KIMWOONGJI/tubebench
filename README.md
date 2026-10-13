@@ -54,9 +54,9 @@ template (simulation mode, no geometry) - never copy it over `user_config.json`.
 software commit does not see uncommitted local changes - commit before measuring with edited code
 or configuration.
 
-## Status (2026-10-13, version 1.3.0)
+## Status (2026-10-13, version 1.3.1)
 
-* **Software**: complete. 364 automated tests in 23 test classes (simulation and recorded hardware
+* **Software**: complete. 365 automated tests in 23 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,

@@ -2665,13 +2665,25 @@ classdef Tubebench < handle
             % the difference.
             how = '';
             [rec, mp] = recordedMapping(app.Cfg, m, saved);
+            % the mapping the saved results were computed with (config.json of the
+            % folder; owner decision 2026-10-13, WO-003 4.3): a folder saved after a
+            % deliberate correction holds the corrected one there
+            sv = savedMapping(app.Cfg, saved, res);
             if ~strcmp(m.kind, 'background') && ~isempty(rec) && mp.differs
+                svText = '';
+                if ~isempty(sv)
+                    whose = '';
+                    if strcmp(sv, mp.recordedText), whose = ' (the recorded one)';
+                    elseif strcmp(sv, mp.configuredText), whose = ' (the configuration''s)'; end
+                    svText = sprintf('\n\nThe saved results were computed with:\n%s%s', sv, whose);
+                    app.log('The saved results were computed with the microphone mapping %s%s.', sv, whose);
+                end
                 use = useRecordedMapping;
                 if ~islogical(use)
                     sel = app.ask(sprintf(['This measurement was recorded with this microphone mapping (DAQ ' ...
-                        'channel → port):\n%s\n\nThe configuration has another one:\n%s\n\nReprocess with the ' ...
+                        'channel → port):\n%s\n\nThe configuration has another one:\n%s%s\n\nReprocess with the ' ...
                         'recorded mapping? Keep the configuration''s mapping only to correct a mapping that was ' ...
-                        'recorded wrongly.'], mp.recordedText, mp.configuredText), 'Open measurement', ...
+                        'recorded wrongly.'], mp.recordedText, mp.configuredText, svText), 'Open measurement', ...
                         {'Use the recorded mapping', 'Keep the configuration''s mapping'}, 1, 1, 'question');
                     use = strcmp(sel, 'Use the recorded mapping');
                 end
@@ -2685,6 +2697,10 @@ classdef Tubebench < handle
                     app.log('Microphone mapping of the configuration kept for Reprocess (%s); the measurement was recorded with %s.', ...
                         mp.configuredText, mp.recordedText);
                 end
+            elseif ~strcmp(m.kind, 'background') && ~isempty(rec) && ~isempty(sv) && ~strcmp(sv, mp.configuredText)
+                % no question (recorded = configured), but the saved results used another
+                app.log(['The saved results were computed with another microphone mapping (%s) than Reprocess will ' ...
+                    'use (%s, as recorded and configured).'], sv, mp.configuredText);
             end
             [cal, ~] = app.currentCalibration();
             cv = 'none - results not valid'; if ~isempty(cal), cv = cal.version; end
@@ -3931,6 +3947,19 @@ for i = 1:numel(src)
         return
     catch
     end
+end
+end
+
+function t = savedMapping(cfg, saved, res)
+% the mapping (DAQ channel -> port) the saved results were computed with, as
+% text: the mics of the folder's config.json, which Save writes with the
+% results ('' without saved results or a complete mapping)
+t = '';
+if isempty(res) || ~isstruct(saved) || ~isfield(saved, 'mics'), return; end
+try
+    [~, info] = tim.app.useRecordedMapping(cfg, saved.mics);
+    t = info.recordedText;
+catch
 end
 end
 

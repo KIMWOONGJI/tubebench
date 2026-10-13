@@ -127,13 +127,17 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             c = tc.cfg; c.analysis.fMin = 100; c.analysis.fMax = 5000;
             r = tim.app.processMeasurement(tc.mSweep, c, []);
             [g2, e2] = tim.plots.analysisGate(r);
-            tc.assertEqual(e2, {'detected start', 'ring-down margin'});
+            tc.assertEqual(e2, {'ramp before start', 'ring-down margin'});
             ex = r.spectra.excitation(1);
-            tc.verifyLessThan(g2(1), ex.sweepStart_s, 'the output-on transient and the start tone are analysed');
+            tc.verifyLessThan(g2(1), ex.sweepStart_s, 'the ramp lies on the start tone before the sweep');
             tc.verifyGreaterThan(g2(4), ex.sweepStart_s + ex.sweepDuration_s, 'analysed past the sweep end');
             info2 = tim.plots.timeSignals(tc.axesFor(4), tc.mSweep, struct('gate', g2, 'gateEnds', {e2}));
             tc.verifyFalse(contains(info2.note, 'generator output on/off'), info2.note);
-            tc.verifySubstring(info2.note, sprintf(['Before %.2f s: the pre-roll only - the sweep starts too close ' ...
+            tc.verifySubstring(info2.note, sprintf(['Before %.2f s: generator output on - the sweep starts too close ' ...
+                'to the band, so the analysed part begins on the start-frequency tone before the sweep'], g2(1)));
+            % a result of 2026-10-11 to 2026-10-13 (window from the detected start) keeps its note
+            infoOld = tim.plots.timeSignals(tc.axesFor(4), tc.mSweep, struct('gate', g2, 'gateEnds', {{'detected start', 'gate'}}));
+            tc.verifySubstring(infoOld.note, sprintf(['Before %.2f s: the pre-roll only - the sweep starts too close ' ...
                 'to the band, so the analysed part includes the output-on transient and the start-frequency tone.'], g2(1)));
             tc.verifySubstring(info2.note, sprintf(['After %.2f s: the rest of the record - the sweep stops too ' ...
                 'close to the band, so the analysed part continues past the sweep end by the ring-down margin'], g2(4)));

@@ -341,16 +341,21 @@ gate, the frequency lines and the SNR are this program's:
    2026-10-11), with exactly the thresholds of the warning (`f_start > f_lo/1.3`,
    `f_stop < 1.1 f_hi`, with `f_lo`, `f_hi` the outer edges of the first and last line):
 
-   * **start**: as without the gate (step 2'), from the detected start of the excitation minus
-     10 ms with a 10 ms raised cosine - the output-on transient and the start-frequency tone are
-     inside the window, the tone is not cut;
+   * **start** (owner decision 2026-10-13, 1.3.1): the gate's ramp on the sweep law continued
+     before the sweep start, 0 before `t(f_lo/1.5)` and a raised cosine up to `t(f_lo/1.1)` (at
+     least 10 ms, not before the record start), with `t(f)` not clamped to `f_start`. Before `t0`
+     the generator plays its start-frequency tone, so the ramp lies on that tone, which is not cut
+     inside the band; an output-on transient earlier than `t(f_lo/1.5)` stays out, a later one is
+     weighted by the ramp. From 2026-10-11 to 2026-10-13 this end was step 2' (from the detected
+     start minus 10 ms, the output-on transient always inside); such results keep the name
+     `'detected start'`;
    * **end**: the window is extended past the end of the sweep `t0 + T` by the gate's ring-down
      margin, the sweep law continued beyond `f_stop`: 1 up to `t(1.1 f_hi)`, a raised cosine down
      to `t(1.5 f_hi)` (at least 10 ms, at most to the end of the record). An output-off transient
      later than that stays out.
 
    `res.diagnostics.excitation(r).gateEnds` records the edge used at each end of every repetition
-   (`'gate'`, `'detected start'`, `'ring-down margin'`), and `tim.dsp.sweepResponse` adds a warning
+   (`'gate'`, `'ramp before start'`, `'ring-down margin'`), and `tim.dsp.sweepResponse` adds a warning
    ("Sweep … too close to the analysis band for the sweep gate: …", in `res.diagnostics.warnings`
    and the calibration log) that names the edge and the margin; `tim.app.validateConfig` reports
    the configured range with the same limits (`tim.dsp.sweepGateLimits`, one definition for both:
@@ -370,9 +375,25 @@ gate, the frequency lines and the SNR are this program's:
    (independent per channel, three times the signal RMS, as in `TestDsp`) step 2' always contains
    it, while the ring-down margin past `t0 + T` leaves a click 0.19 s after the sweep at the edge of
    the window (80–4600 Hz, |R_term| = 0.9: 92 % vs 13 %; with the click 0.05 s after the sweep both
-   contain it). The extension is therefore used at the end. At the start only step 2'
-   applies (there is no ring-down before the sweep); 109–5500 Hz: 12 % → 0.63 % (|R_term| = 0.9).
-   A start without margin always contains the output-on click, so the advice stays: let the sweep
+   contain it). The extension is therefore used at the end. At the start step 2' was used first
+   (there is no ring-down before the sweep); 109–5500 Hz: 12 % → 0.63 % (|R_term| = 0.9), but it
+   always contains the output-on click.
+
+   *The start, again (simulation, 2026-10-13; band 120–4500 Hz, output-on and output-off clicks
+   as above, start tone = trigger latency, max |H/H_true − 1|, step 2' / ramp before the start).*
+   With clicks the ramp before the start is better wherever the start tone is longer than the
+   part of the ramp before `t0`: 5 s sweep (the lab's), latency 0.13 s, |R_term| = 0.9: 109 Hz
+   16.5 % → 9.0 %, 100 Hz 17.4 % → 2.3 %, 92 Hz 18.0 % → 0.62 %; latency 0.28 s: 109 Hz
+   17.3 % → 1.2 %, 100 Hz 17.8 % → 0.62 %; 3 s sweep, latency 0.13 s: 109 Hz 64 % → 13 %, 100 Hz
+   60 % → 1.1 %, 92 Hz 57 % → 0.63 %; with the rig's 5–30 ms latency the click stays inside
+   (109 Hz 16 % → 16 %, 92 Hz 18 % → 2.3 %). Without clicks both give the same within 0.4 % (one
+   case 0.75 %: 3 s, 120 Hz, 0.28 s, 1.7 % → 2.5 %). An end without margin at the stop as well
+   (120–4500 Hz) is dominated by the output-off click past the sweep (52–71 % with every start).
+   A start never earlier than 50 ms after the detected output-on was also simulated: it keeps
+   the click out in every case (0.6 %), but without a click it biases the edge lines when the
+   start tone is short (109 Hz, 5–30 ms: 0.62 % → 5.4 %; 120 Hz, 3 s: 1.2 % → 15 %), so it was
+   not taken. A start without margin may still contain the output-on click, so the advice
+   stays: let the sweep
    reach `f_lo/1.3` and `1.1 f_hi`.
 
    *Measured with the gate before 2026-10-11 (audit; noise-free rig, 3 s log sweep, band

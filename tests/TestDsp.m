@@ -217,17 +217,18 @@ classdef TestDsp < matlab.unittest.TestCase
             % analysis band has no room for a gate ramp at that end; since the
             % owner's decision of 2026-10-11 that end gets another window edge,
             % recorded in excitation.gateEnds, and a warning names it and the
-            % margin (lower end: from the detected start; upper end: the gate's
-            % ring-down margin past the sweep end)
+            % margin (lower end: the gate's ramp on the sweep law continued before
+            % the start, owner decision 2026-10-13 - until then from the detected
+            % start; upper end: the gate's ring-down margin past the sweep end)
             rig = tc.makeRig(2e-3);
             fs = rig.Fs;
             % the limits are 91.5 and 4951.1 Hz (outer line edges 119 / 4501 Hz,
             % tim.dsp.sweepGateLimits); the configuration check uses the same
             % limits (review 2026-10-11: it used 92 / 4950 Hz, so a sweep set to
             % the advised 92 Hz or 4950 Hz passed it and lost the gate there)
-            cases = {80 5500 {'gate', 'gate'}; 120 4500 {'detected start', 'ring-down margin'}; ...
-                109 5500 {'detected start', 'gate'}; 80 4600 {'gate', 'ring-down margin'}; ...
-                92 5500 {'detected start', 'gate'}; 80 4950 {'gate', 'ring-down margin'}; ...
+            cases = {80 5500 {'gate', 'gate'}; 120 4500 {'ramp before start', 'ring-down margin'}; ...
+                109 5500 {'ramp before start', 'gate'}; 80 4600 {'gate', 'ring-down margin'}; ...
+                92 5500 {'ramp before start', 'gate'}; 80 4950 {'gate', 'ring-down margin'}; ...
                 91 5500 {'gate', 'gate'}; 80 4952 {'gate', 'gate'}};
             c = tim.app.defaultConfig();
             tc.assertEqual([c.analysis.fMin c.analysis.fMax c.analysis.df], [120 4500 2], 'the band analysed below');
@@ -253,16 +254,19 @@ classdef TestDsp < matlab.unittest.TestCase
                 tc.verifyEqual(any(contains(tim.app.validateConfig(b), 'the sweep gate has no room at that end')), ...
                     ~isempty(w), [what ': validateConfig agrees with the analysis']);
                 if isempty(w), continue; end
-                tc.verifyEqual(contains(w{1}, 'starts at the detected excitation'), strcmp(ends{1}, 'detected start'), what);
+                tc.verifyEqual(contains(w{1}, 'ramp lies before the sweep start'), strcmp(ends{1}, 'ramp before start'), what);
                 tc.verifyEqual(contains(w{1}, 'extended past the end of the sweep by the gate''s ring-down margin'), ...
                     strcmp(ends{2}, 'ring-down margin'), what);
                 t0 = sp.excitation.sweepStart_s; T = sp.excitation.sweepDuration_s; gt = sp.excitation.gate_s;
-                if strcmp(ends{1}, 'detected start')
-                    tc.verifyEqual(gt(2), min(sp.excitation.start_s, t0), 'AbsTol', 1e-9, [what ': window from the detected start']);
+                tl = @(f) t0 + T * log(f / f1) / log(f2 / f1);             % the sweep law, continued beyond its ends
+                if strcmp(ends{1}, 'ramp before start')
+                    % 0 before t(f_lo/1.5), 1 from t(f_lo/1.1) on the continued sweep law
+                    a = max(0, tl(119 / 1.5));
+                    tc.verifyEqual(gt(1:2), [a, max(a + 0.01, tl(119 / 1.1))], 'AbsTol', 1e-9, [what ': ramp before the start']);
+                    tc.verifyLessThan(gt(1), t0, [what ': the ramp begins before the sweep']);
                 end
                 if strcmp(ends{2}, 'ring-down margin')
                     % 1 up to t(1.1 f_hi), 0 at t(1.5 f_hi) on the continued sweep law
-                    tl = @(f) t0 + T * log(f / f1) / log(f2 / f1);
                     tc.verifyEqual(gt(3:4), [tl(1.1 * 4501) tl(1.5 * 4501)], 'AbsTol', 1e-9, [what ': ring-down margin']);
                 end
             end
@@ -271,10 +275,11 @@ classdef TestDsp < matlab.unittest.TestCase
         function sweepGateWithoutMarginKeepsTheEdgeLines(tc)
             % owner decision 2026-10-11 (audit: up to 58 % H error at |R_term|
             % 0.9 with the 10 ms gate ramps inside the band): a sweep without the
-            % margin at an end is analysed from the detected start / with the
-            % ring-down margin past the sweep end there, so the lines near the
-            % band edges keep their accuracy. Session-like records: the output
-            % is switched off just after the sweep.
+            % margin at an end is analysed with the ramp before the sweep start
+            % (owner decision 2026-10-13; until then from the detected start) /
+            % with the ring-down margin past the sweep end there, so the lines
+            % near the band edges keep their accuracy. Session-like records: the
+            % output is switched off just after the sweep.
             c = tc.cfg;
             c.simulation.Termination = struct('R', 0.9, 'x', 0.6);
             rig = tim.sim.SimulatedRig(c); rig.NoisePa = 2e-5; rig.NoiseV = 2e-8;
@@ -298,6 +303,42 @@ classdef TestDsp < matlab.unittest.TestCase
                 % measured 0.6-0.9 % (as without the gate); the gate gave 58 / 12 / 7.9 %
                 tc.verifyLessThan(max(e(:)), 0.03, sprintf('sweep %g-%g Hz: max |H/H_true - 1|', r));
             end
+        end
+
+        function sweepStartWithoutMarginKeepsTheOutputOnClickOut(tc)
+            % owner decision 2026-10-13 (WO-003 4.2): a sweep that starts above
+            % f_lo/1.3 keeps the gate's ramp, on the sweep law continued before
+            % its start, i.e. on the start tone the generator plays before the
+            % sweep. With the lab's trigger latency (start tone 0.13-0.28 s) an
+            % output-on click before the ramp stays out; from the detected start
+            % (2026-10-11 to 2026-10-13) it was always inside: 3 s sweep 92-5500 Hz,
+            % latency 0.13 s, |R_term| 0.9 - 57 % then, 0.63 % now (simulation)
+            c = tc.cfg;
+            c.simulation.Termination = struct('R', 0.9, 'x', 0.6);
+            rig = tim.sim.SimulatedRig(c); rig.NoisePa = 2e-5; rig.NoiseV = 2e-8;
+            rig.TriggerLatency = [0.13 0.13];
+            fs = rig.Fs;
+            g = tc.genState('SWE_STAT', 1, 'OUTP', 0, 'FREQ_STAR', 92, 'FREQ_STOP', 5500);
+            rig.setGeneratorState(g);
+            pre = rig.generate(fs);                                       % 1 s silence
+            g.OUTP = 1;
+            x = [pre; tc.record(rig, g, round(4.6 * fs), 0)];             % output on at 1 s, then the tone and the sweep
+            tOn = 1 + rig.BulkDelay;
+            rng(7);
+            n = size(x, 1); t = (0:n - 1).' / fs;
+            a = 3 * rms(x(round((tOn + 1) * fs):round((tOn + 2) * fs), 1));
+            k = t >= tOn;                                                 % output-on click, independent per channel
+            x(k, :) = x(k, :) + a * [1 0.5 2 1.5] .* exp(-(t(k) - tOn) / 0.004) .* randn(nnz(k), 4);
+            sw = struct('fStart', 92, 'fStop', 5500, 'duration', 3, 'spacing', 'LOG');
+            sp = tim.dsp.sweepResponse({x}, fs, struct('fRange', [120 4500], 'df', 2, 'preRoll', 1, ...
+                'excitationBand', [92 5500], 'sweep', sw));
+            tc.assertTrue(sp.excitation.gated, 'sweep found');
+            tc.verifyEqual(sp.excitation.gateEnds{1}, 'ramp before start');
+            tc.verifyGreaterThan(sp.excitation.gate_s(1), tOn + 0.02, 'the window opens after the output-on click');
+            tc.verifyLessThan(sp.excitation.gate_s(1), sp.excitation.sweepStart_s, '... and before the sweep');
+            tr = rig.trueResponse(sp.f); Ht = tr.G ./ tr.G(:, 1);
+            e = abs(sp.H(:, 2:4) ./ Ht(:, 2:4) - 1);
+            tc.verifyLessThan(max(e(:)), 0.015, 'the click does not bias H');
         end
 
         function sweepIndependentOfExcitationWaveform(tc)

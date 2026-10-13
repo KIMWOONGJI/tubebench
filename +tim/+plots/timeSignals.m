@@ -163,7 +163,11 @@ if all(strcmp(ends, 'gate'))
         'start-frequency tone).'], gate(1), gate(4));
     return
 end
-if strcmp(ends{1}, 'detected start')
+if strcmp(ends{1}, 'ramp before start')
+    lo = sprintf(['Before %.2f s: generator output on - the sweep starts too close to the band, so the analysed ' ...
+        'part begins on the start-frequency tone before the sweep (an output-on transient after %.2f s is ' ...
+        'included).'], gate(1), gate(1));
+elseif strcmp(ends{1}, 'detected start')          % results of 2026-10-11 to 2026-10-13
     lo = sprintf(['Before %.2f s: the pre-roll only - the sweep starts too close to the band, so the analysed ' ...
         'part includes the output-on transient and the start-frequency tone.'], gate(1));
 else
