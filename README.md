@@ -1,92 +1,192 @@
-# tubebench
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="resources/logo/tubebench-mark-reverse.svg">
+    <img src="resources/logo/tubebench-mark.svg" alt="tubebench logo" width="112">
+  </picture>
+</p>
 
-Four-microphone transfer-impedance tube measurement (MATLAB)
+<h1 align="center">tubebench</h1>
 
-Repository: <https://github.com/kimwoongji/tubebench> (private; access by invitation of the owner;
-not created yet - the code has not been pushed). Until 2026-10-10 the program was called
-`transfer-impedance-tube-measurement`; measurements saved before then carry that name.
+<p align="center">
+  <strong>Four-microphone impedance-tube measurements in MATLAB</strong><br>
+  transmission loss · reflection · transfer impedance · transfer matrix
+</p>
 
-MATLAB R2022b program "tubebench" for broadband four-microphone impedance-tube
-measurements: Keysight/Agilent **33220A** generator → amplifier → loudspeaker → M1 M2 | specimen |
-M3 M4 → termination, with four **B&K 4957** microphones on an **HBK LAN-XI Light 3676** (Open API).
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/MATLAB-R2022b-e16737" alt="MATLAB R2022b">
+  <img src="https://img.shields.io/badge/toolbox-Signal%20Processing-lightgrey" alt="Signal Processing Toolbox">
+  <img src="https://img.shields.io/badge/version-1.3.2-informational" alt="Version 1.3.2">
+  <img src="https://img.shields.io/badge/tests-367-brightgreen" alt="367 automated tests">
+  <img src="https://img.shields.io/badge/method-ASTM%20E2611-555555" alt="ASTM E2611">
+</p>
 
-It computes the reflection and transmission coefficients, the transmission loss, the thin-element
-transfer impedance and the two-port transfer matrix (two-load / symmetric one-load, scripts only),
-with explicit validity diagnostics. Measurements run without hardware synchronisation between the
-generator and the LAN-XI module.
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="docs/user_guide.md">User guide</a> ·
+  <a href="docs/theory.md">Theory</a> ·
+  <a href="#project-status">Status</a> ·
+  <a href="#citing">Cite</a>
+</p>
 
-Supported instruments: the generator and the acquisition module are **drivers chosen in the
-configuration** (`generator.driver`, `daq.driver`): today the 33220A (`keysight33220a`) and the
-LAN-XI 3676 (`lanxi`), plus a simulated combined device with one output and four inputs on one
-clock (`simcombined`) and the demo signal generator of the driver guide (`demo`), both
-simulation only. Another instrument needs a driver that follows the contract in
-`docs/instrument_interface.md`; `docs/adding_an_instrument.md` is the step-by-step procedure (with
-templates in `templates/instrument/`; in Claude Code the skill `add-instrument`). The window has no
-instrument selector; it shows the instruments in use and the model, serial number and firmware
-they report.
+---
+
+**tubebench** drives a signal generator and a multichannel acquisition module, records four
+microphones around a specimen in an impedance tube and computes the specimen's acoustic
+properties after ASTM E2611, with a validity verdict for every frequency line. It includes a
+complete virtual tube, so every feature, the window included, also runs without hardware.
+
+<p align="center">
+  <img src="docs/images/tube_setup.png" alt="The tubebench window: Setup > Tube setup with the 3D model of the lab tube" width="100%">
+  <br><sub>Setup › Tube setup: the 3D model follows the geometry entered in the window, and the analysis band
+  follows the ASTM E1050 / E2611 limits of the tube (simulation mode).</sub>
+</p>
+
+## Features
+
+- **One window for the whole workflow.** Connect → tube geometry → excitation → switching
+  calibration → measurement → save. Every step has its own view (header, graphs, summary table),
+  and the Formula tab shows every equation with its source.
+- **Four-microphone analysis.** Wave decomposition; reflection and transmission coefficients,
+  transmission loss, thin-element transfer impedance and the two-port transfer matrix (two-load /
+  symmetric one-load, scripts). Visco-thermal tube losses (Kirchhoff) by default, ISO 10534-2
+  attenuation as an option.
+- **Validity per frequency line.** Lines that the tube geometry, the calibration, the signal
+  quality or the termination do not support are masked, and the program says why. The analysis
+  band can follow the ASTM E1050 / E2611 limits of the tube geometry.
+- **Three excitations.** Swept sine (log or linear), stepped sine and random noise.
+- **No shared clock needed.** Generator and acquisition are not synchronised; every action is
+  scheduled on the samples received, and a matched-filter sweep gate keeps the generator's
+  switching clicks out of the analysis.
+- **Guided switching calibration.** Twelve operator steps that swap the microphones, ending with
+  an automatic empty-tube check.
+- **Traceable data.** Raw volts are never modified or overwritten; every measurement stores its
+  configuration, calibration, software version and git commit. Results export to CSV, figures to
+  PNG, PDF, SVG or FIG.
+- **Runs without hardware.** Protocol-level mocks of the instruments on an analytic tube model.
+  The automated tests exercise the whole workflow, including the window, and replay recorded
+  responses of a real LAN-XI module.
+- **Pluggable instruments.** Drivers implement a small contract; templates and a Claude Code skill
+  add a new instrument without changes to the session or the window.
+- **Operator prompts in English and Korean.**
+
+<p align="center">
+  <img src="docs/images/calibration.gif" alt="Switching calibration on the virtual tube" width="100%">
+  <br><sub>Switching calibration on the virtual tube (1.5× speed): the microphones swap ports step by step,
+  every measurement is checked, and the empty-tube check (Test E) closes the sequence.</sub>
+</p>
 
 ## Quick start
 
-Get the code by cloning `https://github.com/kimwoongji/tubebench.git` (folder `tubebench`;
-private repository: your GitHub account needs access) or by copying the project folder.
-Double-click **`start_tubebench.bat`**, which starts MATLAB (without its desktop) and opens the
-window with `config/user_config.json`; `start_tubebench.bat sim` opens it on a virtual tube. A
-small MATLAB command window stays open behind the program. In it, or in the MATLAB command window:
+**Requirements:** MATLAB R2022b with the Signal Processing Toolbox (nothing else; tested on
+Windows). Instrument communication uses base MATLAB (TCP, HTTP).
 
-```matlab
-tubebench                   % window, real instruments (config/user_config.json)
-tubebench sim               % window, virtual tube for practice
-results = run_tests();      % self-test in simulation (no hardware needed)
-edit start_here.m           % step-by-step script entry point (no window)
-run examples/demo_simulation.m   % full simulated workflow + example plots
+```bash
+git clone https://github.com/kimwoongji/tubebench.git
 ```
 
-The window guides through Connect → tube geometry → excitation → switching calibration → Start
-measurement → Save measurement; `docs/user_guide.md` describes every control and view (also in
-the window under Help > User guide).
+Try it without hardware, in MATLAB from the `tubebench` folder:
 
-Configuration: `config/user_config.json` holds the lab settings (instrument addresses, limits,
-microphones, lab-tube geometry) and is **tracked in Git**, so a clone has them; commit it after
-changing it (File > Save configuration… in the window). The instruments are chosen there by driver
-name (`generator.driver`, `daq.driver`; user guide section 9); a file of the older layout loads
-unchanged. `config/example_config.json` is a neutral
-template (simulation mode, no geometry) - never copy it over `user_config.json`. The stored
-software commit does not see uncommitted local changes - commit before measuring with edited code
-or configuration.
+```matlab
+tubebench sim                    % the window on a virtual tube
+```
 
-## Status (2026-10-13, version 1.3.2)
+| Command | What it does |
+|---|---|
+| `tubebench` | the window on the real instruments (`config/user_config.json`) |
+| `results = run_tests();` | self-test in simulation, report in `tests/last_test_report.txt` |
+| `edit start_here.m` | the workflow as a script, step by step, without the window |
+| `run examples/demo_simulation.m` | full simulated workflow with example plots |
 
-* **Software**: complete. 367 automated tests in 23 test classes (simulation and recorded hardware
-  fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
-* **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
-  EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
-  Results, Formula) and a message pane. Every view has a header, the graphs and a summary table;
-  the saved figures are drawn by the same views, with the same titles and descriptions. The
-  window appears after the control panel and Setup > Connection are built (about 16 s after the
-  double-click); the other views are prepared in the background, never during an action.
-* **Analysis**: tube losses by default with the visco-thermal (Kirchhoff) model, the ISO 10534-2
-  attenuation as an option; air density from the ideal-gas law; R and its validity from the
-  upstream microphone pair alone; the analysis band can follow the ASTM E1050 / E2611 limits of the
-  tube (`analysis.bandMode` "geometry", the lab file, since 1.3.2). See `docs/theory.md`.
-* **Hardware**: network, identification, the LAN-XI recorder state machine and binary streaming
-  are verified on the real instruments. The generator output, the microphone chain, TEDS,
-  calibration and the acoustic validation (Tests A–G) are **pending**; see
-  `docs/hardware_status.md`. The 1.2.0 instrument interface (WO-001) passed the owner's hardware
-  check on 2026-10-12. The 33220A drops an idle socket connection now and then; since 1.2.1 the
-  program replaces an idle connection before use and checks it every minute (hardware check of
-  1.2.1 passed on 2026-10-12). Since 1.3.0 (WO-004) the EXCITATION section shows the drive chain
-  (generator load = amplifier input, loudspeaker check at the nominal impedance); the load
-  setting passed the owner's hardware check on 2026-10-13 (output off).
-* **Geometry**: CAD design values of the lab tube (s1 29, L1 41, d 75, L2 41, s2 29 mm; the
-  specimen fills the 75 mm specimen section) are in `config/user_config.json`; verify them with
-  calipers. The switching calibration is done with the empty specimen section mounted and ends
-  with an automatic empty-tube check (Test E).
+On Windows, **`start_tubebench.bat`** starts MATLAB without its desktop and opens the window
+(`start_tubebench.bat sim` for the virtual tube). The [user guide](docs/user_guide.md), also in the
+window under Help > User guide, describes every control and view.
 
-## Structure
+**Configuration.** [`config/user_config.json`](config/user_config.json) holds the settings of the
+author's lab (instrument addresses, limits, microphones, tube geometry); it is tracked in git as a
+working example. [`config/example_config.json`](config/example_config.json) is a neutral template.
+The window saves the configuration under File > Save configuration…. Commit code and configuration
+before measuring: the commit stored with a measurement does not see uncommitted changes.
 
-The code is the MATLAB package `+tim` (tim = transfer-impedance measurement, the internal package
-of tubebench, which kept its name when the program was renamed). The main window is the class
-`tim.gui.Tubebench`.
+## How it works
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/measurement_chain-dark.svg">
+    <img src="docs/images/measurement_chain.svg" alt="Measurement chain: tubebench drives the signal generator over SCPI, the amplifier drives the loudspeaker of the tube, four microphones M1-M4 around the specimen feed the LAN-XI module, which streams to tubebench" width="100%">
+  </picture>
+</p>
+
+`meas = session.measure()` records raw volts; `res = tim.app.processMeasurement(meas, cfg, cal)`
+then
+
+1. computes the relative responses between the channels for the excitation used (sweep
+   deconvolution, stepped-sine estimates or Welch averaging);
+2. applies the complex switching calibration;
+3. maps the acquisition channels to the tube positions M1..M4;
+4. decomposes the waves and computes R, τ, TL, the transfer impedance and the validity masks.
+
+The derivations, estimators, frequency limits and validity levels are in
+[docs/theory.md](docs/theory.md).
+
+## Supported instruments
+
+The configuration names a driver for each role (`generator.driver`, `daq.driver`). The window
+has no instrument selector; it shows the instruments in use with the model, serial number and
+firmware they report.
+
+| Driver | Role | Instrument | Mode |
+|---|---|---|---|
+| `keysight33220a` | signal source | Keysight/Agilent 33220A (SCPI over TCP) | hardware and simulation |
+| `lanxi` | acquisition | HBK LAN-XI Light 3676 (Open API) | hardware and simulation |
+| `simcombined` | both | simulated device: one output and four inputs on one clock | simulation |
+| `demo` | signal source | the worked example of the driver guide | simulation |
+
+**Adding an instrument:** write a driver that follows the contract in
+[docs/instrument_interface.md](docs/instrument_interface.md). The step-by-step procedure is
+[docs/adding_an_instrument.md](docs/adding_an_instrument.md), with starting files in
+[`templates/instrument/`](templates/instrument); in [Claude Code](https://claude.com/claude-code)
+the skill `/add-instrument` runs the procedure.
+
+## Project status
+
+Version **1.3.2** (2026-10-13). The automated tests verify the software's behaviour, not physical
+accuracy; [docs/hardware_status.md](docs/hardware_status.md) lists what has been verified on the
+real instruments.
+
+| Area | Status |
+|---|---|
+| Software | ✅ complete; 367 automated tests in 23 classes (simulation and recorded hardware fixtures) |
+| Instrument communication: 33220A SCPI, LAN-XI REST, recorder cycle, binary stream, TEDS | ✅ verified on the instruments |
+| Swept-sine measurements in the tube, sine excitation on the bench, microphone chain, switching calibration with its empty-tube check, measurement workflow in the window | ✅ done on the instruments (2026-10-08 to 2026-10-12) |
+| Instrument interface (1.2.0), connection check (1.2.1), generator load at the amplifier input (1.3.0) | ✅ owner's hardware checks passed (2026-10-12 / 2026-10-13) |
+| Noise excitation on the instrument, channel-to-port identification, formal validation (Tests A–G) | ⏳ pending |
+| Tube geometry of the lab configuration | ⏳ CAD design values; caliper check pending |
+
+Until 2026-10-10 the program was called `transfer-impedance-tube-measurement`; measurements saved
+before then carry that name.
+
+## Documentation
+
+| Document | Content |
+|---|---|
+| [User guide](docs/user_guide.md) | the window, workflow, views, menus, safety, configuration, scripts, results, stored data, troubleshooting |
+| [Installation (Windows)](docs/installation_windows.md) | dependencies, network, verification, git |
+| [Calibration procedure](docs/calibration_procedure.md) | sensitivity and switching calibration, empty-tube check |
+| [Validation procedure](docs/validation_procedure.md) | Tests A–G, criteria and tolerance rationale |
+| [Theory](docs/theory.md) | conventions, derivations, estimators, frequency limits, validity levels, references |
+| [Hardware status](docs/hardware_status.md) | verified vs pending, observations from the hardware sessions |
+| [Assumptions and limitations](docs/assumptions_and_limitations.md) | assumptions, limitations, future work |
+| [Instrument interface](docs/instrument_interface.md) | the driver contract, as built |
+| [Adding an instrument](docs/adding_an_instrument.md) | a new driver step by step; worked example [demo source](docs/ref_demo_source.md) |
+| [33220A SCPI](docs/ref_33220A_scpi.md), [LAN-XI Open API](docs/ref_lanxi_openapi.md) | verified instrument protocol references |
+
+<details>
+<summary><strong>Repository layout</strong></summary>
+
+The code is the MATLAB package `+tim` (tim = transfer-impedance measurement; it kept its name when
+the program was renamed). The main window is the class `tim.gui.Tubebench`.
 
 ```
 start_here.m            entry point (sections)        run_tests.m   automated tests
@@ -109,9 +209,9 @@ config/                 user_config.json (lab settings), example_config.json (te
 +tim/+sim               SimulatedRig, tubeModel, lanxiEncode; SimulatedCombined (driver
                         'simcombined': one output + four inputs on one clock, simulation only)
 +tim/+app               MeasurementSession, runCalibration, processMeasurement, useRecordedMapping,
-                        driveEstimate, plotResults (saved figures), plotCalibration, save* / export*,
-                        loadConfig / saveConfig / defaultConfig / validateConfig / migrateConfig,
-                        outputGuard, msg (prompts en / ko), softwareVersion
+                        analysisBand, driveEstimate, plotResults (saved figures), plotCalibration,
+                        save* / export*, loadConfig / saveConfig / defaultConfig / validateConfig /
+                        migrateConfig, outputGuard, msg (prompts en / ko), softwareVersion
 +tim/+plots             the views, shared by the window and the saved figures: timeSignals,
                         spectrum, transferFunctions, reflection, transmissionLoss,
                         transferImpedance, validity, calibration; house style and helpers:
@@ -140,36 +240,44 @@ templates/instrument    starting files for a new driver (source, acquisition, co
 .claude/skills          add-instrument: the Claude Code skill that runs the driver guide
 examples/               demo_simulation.m, hardware_commissioning.m, bench_test_no_tube.m,
                         output/ (example plots)
-docs/                   see below
-data/, calibration/     measurement and calibration output (never overwritten)
+docs/                   documentation (see above); workorder_*.md: planned work; images/: the
+                        figures of this README
+data/, calibration/     measurement and calibration output (never overwritten; not in git)
 ```
 
-## Documentation
+</details>
 
-| Document | Content |
-|---|---|
-| `docs/installation_windows.md` | dependencies (none beyond MATLAB + toolboxes; what each instrument driver needs), network, verification, Git |
-| `docs/user_guide.md` | the window, workflow, views, menus, safety, configuration, scripts, results, stored data, troubleshooting |
-| `docs/calibration_procedure.md` | sensitivity and switching calibration (12 operator steps, empty-tube check) |
-| `docs/validation_procedure.md` | Tests A–G, criteria and tolerance rationale |
-| `docs/theory.md` | conventions, derivations, estimators, frequency limits, validity levels |
-| `docs/hardware_status.md` | verified vs pending, observations from the hardware sessions |
-| `docs/assumptions_and_limitations.md` | assumptions, limitations, future work |
-| `docs/ref_33220A_scpi.md`, `docs/ref_lanxi_openapi.md` | verified instrument protocol references |
-| `docs/instrument_interface.md` | contract for instrument drivers, as built (WO-001 for 1.2.0, stages A–C: contract classes, drivers, registry, contract tests, configuration by driver name, session through the registry, simulated combined device, the window from the drivers; Part 2: guide, templates, skill, demo); hardware check passed 2026-10-12 |
-| `docs/adding_an_instrument.md` | how to add a driver for another instrument, step by step (facts, suitability, templates, mock, tests, hardware verification with the owner, safety rules); worked example: the demo source, `docs/ref_demo_source.md` |
+## Citing
+
+If tubebench helps your work, please cite it:
+
+```bibtex
+@software{kim_tubebench,
+  author  = {Kim, Woongji},
+  title   = {tubebench: four-microphone impedance-tube measurements in MATLAB},
+  year    = {2026},
+  version = {1.3.2},
+  url     = {https://github.com/kimwoongji/tubebench},
+  license = {MIT}
+}
+```
 
 ## References
 
-LAN-XI Open API user guide BE 1872; HBK `open-api-tutorials` (stream format, single-module
-example) and `open-api-time-data-recorder` (MATLAB reference, MIT licence; used as a behavioural
-reference, not copied); Agilent 33220A User's Guide 33220-90002; ISO 10534-2; ASTM E1050; ASTM E2611.
-The sources of the formulas (standards and literature) are listed in `docs/theory.md` (References)
-and in the Formula tab of the window.
+ASTM E2611; ASTM E1050; ISO 10534-2; LAN-XI Open API user guide BE 1872; HBK
+`open-api-tutorials` (stream format, single-module example) and `open-api-time-data-recorder`
+(MATLAB reference, MIT licence; used as a behavioural reference, not copied); Agilent 33220A User's
+Guide 33220-90002. The sources of every formula are listed in [docs/theory.md](docs/theory.md)
+(References) and in the Formula tab of the window.
 
 ## License
 
-MIT License - Copyright (c) 2026 Woongji Kim (<https://kimwoongji.github.io>). See `LICENSE`.
-The software is provided "as is", without warranty of any kind: it drives a loudspeaker through
-real instruments, so keep the level limits of the configuration and check every new set-up in
-simulation first (`docs/user_guide.md`, section 3).
+[MIT](LICENSE) © 2026 Woongji Kim.
+
+The software is provided "as is", without warranty of any kind. It drives a loudspeaker through
+real instruments: keep the level limits of the configuration and check every new set-up in
+simulation first ([user guide](docs/user_guide.md), section 3).
+
+## Author
+
+**Woongji Kim** · <https://kimwoongji.github.io>
