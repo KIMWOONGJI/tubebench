@@ -54,9 +54,9 @@ template (simulation mode, no geometry) - never copy it over `user_config.json`.
 software commit does not see uncommitted local changes - commit before measuring with edited code
 or configuration.
 
-## Status (2026-10-13, version 1.3.1)
+## Status (2026-10-13, version 1.3.2)
 
-* **Software**: complete. 365 automated tests in 23 test classes (simulation and recorded hardware
+* **Software**: complete. 367 automated tests in 23 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -66,7 +66,8 @@ or configuration.
   double-click); the other views are prepared in the background, never during an action.
 * **Analysis**: tube losses by default with the visco-thermal (Kirchhoff) model, the ISO 10534-2
   attenuation as an option; air density from the ideal-gas law; R and its validity from the
-  upstream microphone pair alone. See `docs/theory.md`.
+  upstream microphone pair alone; the analysis band can follow the ASTM E1050 / E2611 limits of the
+  tube (`analysis.bandMode` "geometry", the lab file, since 1.3.2). See `docs/theory.md`.
 * **Hardware**: network, identification, the LAN-XI recorder state machine and binary streaming
   are verified on the real instruments. The generator output, the microphone chain, TEDS,
   calibration and the acoustic validation (Tests A–G) are **pending**; see

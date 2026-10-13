@@ -1967,9 +1967,21 @@ classdef Tubebench < handle
                 air = tim.acoustics.airProperties(env);
                 lim = tim.acoustics.frequencyLimits(geom.diameter, [geom.spacingUp geom.spacingDown], air);
                 known = all(isfinite(geom.micPositions)) && isfinite(geom.xFront) && isfinite(geom.xRear);
-                a = app.Cfg.analysis;
-                txt = sprintf('c = %.1f m/s%sgeometry %.0f–%.0f Hz%sanalysis band %g–%g Hz', air.c, dot, ...
-                    lim.fLower, lim.fUpper, dot, a.fMin, a.fMax);
+                % the analysis band and the standard it follows (owner decision
+                % 2026-10-13): analysis.bandMode 'geometry' moves it with the fields
+                b = app.bandOfFields();
+                if strcmp(b.mode, 'geometry') && isempty(msgs)
+                    app.Cfg.analysis.fMin = b.fMin; app.Cfg.analysis.fMax = b.fMax;
+                end
+                if all(isfinite(b.limits)), lims = b.limits; else, lims = [lim.fLower lim.fUpper]; end
+                txt = sprintf('c = %.1f m/s%sASTM E1050/E2611 limits %.0f–%.0f Hz%sanalysis band %g–%g Hz (%s)', ...
+                    air.c, dot, lims(1), lims(2), dot, b.fMin, b.fMax, bandSource(b));
+                app.H.fLimits.Tooltip = sprintf(['Analysis band: %s. ASTM E1050 / E2611 limits of the tube: microphone ' ...
+                    'spacing s from %g to %g of c/s (s at least %g %% of the wavelength, k·s at most %.1fπ) and plane ' ...
+                    'waves (0.58·c/D); lines outside them are computed but not valid. analysis.bandMode in the ' ...
+                    'configuration: ''geometry'' (the band follows the tube) or ''fixed''.'], b.text, ...
+                    app.Cfg.analysis.lowerFraction, app.Cfg.analysis.upperFraction, 100 * app.Cfg.analysis.lowerFraction, ...
+                    2 * app.Cfg.analysis.upperFraction);
                 if ~known
                     txt = [txt '. L1, d, L2 not entered: specimen results (R, τ, Z_t, TL) disabled.'];
                 end
@@ -2002,6 +2014,15 @@ classdef Tubebench < handle
                 struct('section', app.H.secChk.Value, 'dimensions', app.H.dimChk.Value));
         end
 
+        function b = bandOfFields(app)
+            % the analysis band for the IMPEDANCE TUBE fields (tim.app.analysisBand;
+            % the configuration's geometry while a field is invalid)
+            c = app.Cfg;
+            [geom, env, msgs] = app.readTube();
+            if isempty(msgs), c.geometry = geom; c.environment = env; end
+            [~, b] = tim.app.analysisBand(c);
+        end
+
         function s = geometrySummary(app, g, air, lim, known)
             % table of the Tube setup view
             mm = @(x) app.fmt(1e3 * x, '%.6g');
@@ -2019,7 +2040,8 @@ classdef Tubebench < handle
             rows = [rows; {'Speed of sound', sprintf('%.1f m/s', air.c); ...
                 'Geometric range', sprintf('%.0f–%.0f Hz', lim.fLower, lim.fUpper); ...
                 '(1,1) mode cut-on', sprintf('%.0f Hz', lim.cutOn11); ...
-                'Analysis band', sprintf('%g–%g Hz', app.Cfg.analysis.fMin, app.Cfg.analysis.fMax)}];
+                'Analysis band', sprintf('%g–%g Hz (%s)', app.Cfg.analysis.fMin, app.Cfg.analysis.fMax, ...
+                    bandSource(app.bandOfFields()))}];
             s = struct('title', 'Geometry', 'columns', {{'Quantity', 'Value'}}, 'data', {rows}, ...
                 'note', 'x = 0 at the specimen front face, x increasing towards the termination.');
         end
@@ -2191,6 +2213,7 @@ classdef Tubebench < handle
                 error('tim:gui:geometry', 'IMPEDANCE TUBE: %s.', strjoin(msgs, '; '));
             end
             app.Cfg.geometry = geom; app.Cfg.environment = env;
+            app.Cfg = tim.app.analysisBand(app.Cfg);      % bandMode 'geometry': the band of these fields
             % connected: the limits of the drivers are errors (the fields stay as
             % they were); otherwise warnings, so that an older file can be saved again
             scope = '';
@@ -3717,13 +3740,14 @@ classdef Tubebench < handle
 
         function fig = showAbout(app)
             % Help > About: the mark, program, version, release date, Git commit,
-            % MATLAB release and the author's portfolio (selectable text: can be
-            % copied; the repository is in Help > Source code on GitHub)
+            % MATLAB release, the licence (MIT, owner 2026-10-13) and the author's
+            % portfolio (selectable text: can be copied; the repository is in
+            % Help > Source code on GitHub)
             if ~isempty(app.AboutFig) && isvalid(app.AboutFig)
                 figure(app.AboutFig); fig = app.AboutFig; return
             end
             [~, info] = tim.app.softwareVersion();
-            p = app.Fig.Position; w = 500; hgt = 248;
+            p = app.Fig.Position; w = 500; hgt = 266;
             fig = uifigure('Name', 'About tubebench', 'Resize', 'off', 'Visible', app.Fig.Visible, ...
                 'Position', [p(1) + (p(3) - w) / 2, p(2) + (p(4) - hgt) / 2, w, hgt], 'Icon', tim.gui.logo('icon'));
             app.AboutFig = fig;
@@ -3743,6 +3767,7 @@ classdef Tubebench < handle
                 sprintf('Version:      %s (released %s)', info.version, info.released), ...
                 sprintf('Git commit:   %s (branch %s)', info.commit, info.branch), ...
                 sprintf('MATLAB:       %s', version()), ...
+                'License:      MIT License - Copyright (c) 2026 Woongji Kim (file LICENSE)', ...
                 'The version and the commit are stored with every measurement and calibration.'};
             ta = uitextarea(gl, 'Value', lines, 'Editable', 'off', 'FontName', 'Consolas', 'FontSize', 11);
             ta.Layout.Row = 2; ta.Layout.Column = [1 2];
@@ -3949,6 +3974,17 @@ for i = 1:numel(src)
         return
     catch
     end
+end
+end
+
+function t = bandSource(b)
+% where the analysis band comes from, in a few words (tim.app.analysisBand)
+if strcmp(b.mode, 'geometry') && all(isfinite(b.limits))
+    t = 'from the tube';
+elseif b.outside
+    t = 'fixed, beyond the ASTM limits';
+else
+    t = 'fixed';
 end
 end
 
