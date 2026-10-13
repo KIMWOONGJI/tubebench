@@ -71,11 +71,11 @@ complete virtual tube, so every feature, the window included, also runs without 
   add a new instrument without changes to the session or the window.
 - **Operator prompts in English and Korean.**
 
-<p align="center">
-  <img src="docs/images/calibration.png" alt="Switching calibration on the virtual tube" width="100%">
-  <br><sub>Switching calibration on the virtual tube (1.5× speed): the microphones swap ports step by step,
-  every measurement is checked, and the empty-tube check (Test E) closes the sequence.</sub>
-</p>
+https://github.com/user-attachments/assets/815febda-de94-4d78-855e-cb60f887468e
+
+<p align="center"><sub>Switching calibration on the virtual tube (pauses for the measurements shortened): the
+microphones swap between the calibration ports M1 (a) and M2 (b), each one staying on its own cable and
+input channel; the empty-tube check (Test E) closes the sequence.</sub></p>
 
 ## Quick start
 
