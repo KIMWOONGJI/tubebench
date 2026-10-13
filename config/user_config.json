@@ -172,7 +172,7 @@
   "analysis": {
     "refChannel": 1,
     "fMin": 120,
-    "fMax": 4500,
+    "fMax": 4700,
     "df": 2,
     "lossModel": "kirchhoff",
     "velocityRef": "mean",
