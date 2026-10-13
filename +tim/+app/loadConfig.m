@@ -40,6 +40,7 @@ if ~isempty(unknown)
     warning('tim:config:unknownField', 'Unknown configuration field(s): %s', strjoin(unknown, ', '));
 end
 cfg = tim.app.migrateConfig(cfg);
+cfg = tim.app.analysisBand(cfg);                      % analysis.bandMode 'geometry': the ASTM band of the tube
 cfg.configFile = file;
 for m = tim.instr.Instrument.misplacedSettings(cfg)       % e.g. generator.<d> of a combined driver
     warning('tim:config:misplacedSettings', '%s', m{1});

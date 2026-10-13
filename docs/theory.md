@@ -559,6 +559,28 @@ rule would bind only for `s < 0.40/0.58·D = 20 mm`. The defaults `lowerFraction
 better accuracy, which would give 592 Hz here. These are rules of thumb, **not** uncertainty
 statements.
 
+**The analysis band and these limits** (owner decision 2026-10-13, 1.3.2). The four-microphone
+transmission measurement follows ASTM E2611 [3], whose frequency limits are those of ASTM E1050
+[2] above (ISO 10534-2 [1] is the two-microphone reflection method; its `0.45·c/s` is not used).
+The analysis band `analysis.fMin`–`fMax` is set in one of two ways (`analysis.bandMode`,
+`tim.app.analysisBand`):
+
+* `'geometry'` (the lab file): the band **is** the geometric validity range of the tube in the
+  configuration or the IMPEDANCE TUBE fields, rounded inward to the line spacing `df` - for the lab
+  tube at 20 °C 120–4734 Hz. It follows the microphone spacings, the diameter and the temperature
+  (the speed of sound: 4695 Hz at 15 °C, 4779 Hz at 25 °C), at once in the window. A calibration
+  covers the band it was made with and is not extended (`tim.cal.interpolateCalibration`): lines of
+  a later, wider band (warmer air, another geometry - which needs a new calibration anyway) are not
+  valid there.
+* `'fixed'` (the default, as before): the band is the configured one. Lines outside the limits are
+  computed but rejected by the masks of section 8 (`belowSpacingLimit`, `aboveSpacingLimit`,
+  `aboveModeCutOn`); `tim.app.validateConfig` reports a band that extends beyond the limits of the
+  configured tube.
+
+The window states the limits and the source of the band below the IMPEDANCE TUBE fields ("ASTM
+E1050/E2611 limits 118–4735 Hz · analysis band 120–4734 Hz (from the tube)") and in the geometry
+table of Setup > Tube setup.
+
 The limits use `c`. With `'kirchhoff'` the phase speed is `c/(1 + k″/k0)`, 1 % lower at 120 Hz and
 0.15 % lower near `c/(2s)`, which moves `ks = π` down by 0.15 % (9 Hz for s = 29 mm). The
 near-singularity, condition and phase-sensitivity masks use `Re k` and follow it exactly.

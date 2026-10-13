@@ -172,7 +172,8 @@
   "analysis": {
     "refChannel": 1,
     "fMin": 120,
-    "fMax": 4700,
+    "fMax": 4734,
+    "bandMode": "geometry",
     "df": 2,
     "lossModel": "kirchhoff",
     "velocityRef": "mean",

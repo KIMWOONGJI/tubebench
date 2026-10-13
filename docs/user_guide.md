@@ -281,9 +281,16 @@ A Start pressed during the (short) check is not started; press it again.
 
   L1, d and L2 may be left empty ("?") while they are not measured. Acquisition, spectra and
   transfer functions still work, but the specimen results (R, τ, Z_t, TL) are disabled.
-* The line below shows the speed of sound, the geometric validity range of the spacings and the
-  analysis band ("c = 343.3 m/s · geometry 118–4735 Hz · analysis band 120–4500 Hz"), and in red
-  any input error ("CHECK: …").
+* The line below shows the speed of sound, the geometric validity range of the tube by ASTM
+  E1050 / E2611 (microphone spacing 0.01–0.40 c/s, plane waves 0.58 c/D) and the analysis band
+  with its source ("c = 343.3 m/s · ASTM E1050/E2611 limits 118–4735 Hz · analysis band 120–4734 Hz
+  (from the tube)"), and in red any input error ("CHECK: …"). With `analysis.bandMode` =
+  `"geometry"` (the lab file, since 1.3.2) the band is that range and follows the fields at once:
+  a wider microphone spacing lowers it, a narrower one raises it (up to the plane-wave limit), and
+  the temperature moves it slightly. With `"fixed"` (the default) it stays as configured, the
+  line says "(fixed)", and lines outside the range are computed but not valid. A calibration covers
+  only the band it was made with: after the band grows, calibrate again. The tooltip explains the
+  limits; `docs/theory.md` section 7.
 
 Internally x = 0 is the specimen front face (`xFront = 0`, `xRear = d`, `x_M2 = −L1`,
 `x_M1 = −L1 − s1`, `x_M3 = d + L2`, `x_M4 = d + L2 + s2`). These coordinates are stored in the
@@ -738,7 +745,8 @@ validity threshold). The derivations are in `theory.md`, whose reference list is
   documents of `docs/`, opened in the MATLAB Editor; Source code on GitHub (web browser);
   **About**.
 * **Help > About** shows the logo, the program, the software version and release date, the Git
-  commit and branch, the MATLAB release and the author's site (<https://kimwoongji.github.io>).
+  commit and branch, the MATLAB release, the licence (MIT License, Copyright (c) 2026 Woongji Kim,
+  file `LICENSE`) and the author's site (<https://kimwoongji.github.io>).
   The text can be selected and copied. The repository is opened with Help > Source code on GitHub.
 
 The version, the repository and the commit are stored with every measurement (`metadata.json`,
@@ -866,6 +874,7 @@ still be opened and reprocessed; Connect then reports the error.
 | `excitation` | section 8 | `mode` and the settings of `sweep`, `stepped`, `noise` |
 | `analysis.refChannel` | 1 | reference channel of the transfer functions |
 | `analysis.fMin`, `fMax`, `df` | 120, 4500, 2 Hz | analysis band and frequency-line spacing (`fMax` ≤ the usable band of the DAQ driver, LAN-XI: 0.45 × sample rate) |
+| `analysis.bandMode` | `"fixed"` | `"fixed"`: `fMin`, `fMax` as set; `"geometry"` (lab file): `fMin`, `fMax` = the ASTM E1050 / E2611 limits of the tube (spacings s1, s2: `lowerFraction`–`upperFraction` × c/s; diameter: 0.58 c/D; c from the temperature), rounded inward to `df` and recomputed whenever those values change; L1, d and L2 do not enter. Section 7 of `docs/theory.md` |
 | `analysis.lossModel` | `"kirchhoff"` | tube-loss model: `"kirchhoff"` (visco-thermal wall losses, attenuation and phase-velocity reduction, matching characteristic impedance), `"iso10534"` (ISO 10534-2 attenuation only, for ISO-conformant work) or `"none"`. The same model is used by the analysis, Tests D/E and the virtual tube (`theory.md` section 1). `"iso10534"` and `"none"` bias a thin-element Z_t (up to about 47 % and about two thirds of Z_t at \|Z_t\|/(ρc) = 0.05 in the lab tube) and give a "CHECK: …" warning. A configuration saved before `"kirchhoff"` became the default (2026-10-09), and the `config.json` of an older measurement folder, still name `"iso10534"`. |
 | `analysis.velocityRef` | `"mean"` | velocity in Z_t: `"mean"`, `"upstream"` or `"downstream"` |
 | `analysis.coherenceMin`, `snrMin_dB` | 0.98, 20 dB | quality limits of the validity masks |

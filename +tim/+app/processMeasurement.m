@@ -11,6 +11,7 @@ function res = processMeasurement(meas, cfg, cal)
 %   The raw data in meas are never modified.
 
 if nargin < 3, cal = []; end
+cfg = tim.app.analysisBand(cfg);      % analysis.bandMode 'geometry': the ASTM band of cfg.geometry
 a = cfg.analysis;
 fs = meas.fs;
 ref = a.refChannel;

@@ -765,6 +765,32 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(g.micPositions(3:4), [0.11625 0.14525]);
         end
 
+        function analysisBandShownWithItsStandard(tc)
+            % owner request 2026-10-13: the IMPEDANCE TUBE line says which standard
+            % the analysis band follows; with analysis.bandMode 'geometry' the band
+            % follows the tube fields (tim.app.analysisBand)
+            c = tim.app.defaultConfig();
+            file = fullfile(tc.tmp, 'fixed.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            tc.verifySubstring(app.H.fLimits.Text, 'ASTM E1050/E2611 limits 118–4735 Hz');
+            tc.verifySubstring(app.H.fLimits.Text, 'analysis band 120–4500 Hz (fixed)');
+            tc.verifySubstring(app.H.fLimits.Tooltip, 'ASTM E1050 / E2611 limits of the tube');
+            c.analysis.bandMode = 'geometry';
+            file = fullfile(tc.tmp, 'geometry.json'); tim.app.saveConfig(c, file);
+            app2 = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app2));
+            h = app2.H;
+            tc.verifySubstring(h.fLimits.Text, 'analysis band 120–4734 Hz (from the tube)');
+            % wider microphone spacing in the fields: the band follows at once
+            h.s1.Value = 40; h.s2.Value = 40; feval(h.s2.ValueChangedFcn, h.s2, []);
+            air = tim.acoustics.airProperties(app2.Cfg.environment);
+            f = [2 * ceil(0.01 * air.c / 0.04 / 2), 2 * floor(0.40 * air.c / 0.04 / 2)];
+            tc.verifyEqual([app2.Cfg.analysis.fMin app2.Cfg.analysis.fMax], f);
+            tc.verifySubstring(h.fLimits.Text, sprintf('analysis band %g–%g Hz (from the tube)', f));
+            app2.ensureBuilt('tube');
+            T = app2.Pages.tube.SummaryTable.Data;
+            tc.verifyTrue(any(strcmp(T(:, 2), sprintf('%g–%g Hz (from the tube)', f))), 'Tube setup table');
+        end
+
         function leftPanelFitsWithoutScrolling(tc)
             % user request 2026-10-09: no scrolling in the control panel on the lab screen
             % (window = work area of the 1920 x 1080 lab laptop screen: about 975 px inside the title and menu bars)
@@ -1451,6 +1477,8 @@ classdef TestGui < matlab.unittest.TestCase
             [~, info] = tim.app.softwareVersion();
             tc.verifySubstring(txt, info.version);
             tc.verifySubstring(txt, info.commit);
+            tc.verifySubstring(txt, 'MIT License - Copyright (c) 2026 Woongji Kim', 'the licence (owner 2026-10-13)');
+            tc.verifyTrue(isfile(fullfile(fileparts(fileparts(mfilename('fullpath'))), 'LICENSE')), 'LICENSE in the project folder');
             % user request 2026-10-09: link to the author's portfolio site; 2026-10-10:
             % only the address, and no repository link (it is in Help > Source code on GitHub)
             tc.verifyEqual(app.H.aboutPortfolio.URL, 'https://kimwoongji.github.io');

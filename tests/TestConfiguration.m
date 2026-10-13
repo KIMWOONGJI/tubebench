@@ -76,6 +76,64 @@ classdef TestConfiguration < matlab.unittest.TestCase
             end
         end
 
+        function analysisBandFollowsTheGeometry(tc)
+            % owner decision 2026-10-13: analysis.bandMode 'geometry' sets fMin / fMax
+            % to the ASTM E1050 / E2611 limits of the tube (0.01-0.40 c/s and the
+            % plane-wave limit 0.58 c/D), rounded inward to df; 'fixed' (default)
+            % keeps them, and validateConfig says when they extend beyond the limits
+            c = tim.app.defaultConfig();
+            tc.verifyEqual(c.analysis.bandMode, 'fixed', 'default: as before');
+            [c1, b] = tim.app.analysisBand(c);
+            tc.verifyEqual([c1.analysis.fMin c1.analysis.fMax], [120 4500], 'fixed: unchanged');
+            tc.verifyFalse(b.outside, '120-4500 Hz lies inside the limits of the 29 mm tube');
+            tc.verifySubstring(b.text, 'fixed in the configuration; ASTM E1050 / E2611 limits of this tube 118–4735 Hz');
+            air = tim.acoustics.airProperties(c.environment);
+            c.analysis.bandMode = 'geometry';
+            [c2, b2] = tim.app.analysisBand(c);
+            tc.verifyEqual([c2.analysis.fMin c2.analysis.fMax], [120 4734], 'the lab tube at 20 °C');
+            tc.verifySubstring(b2.text, 'ASTM E1050 / E2611 limits of this tube (0.01–0.4 c/s)');
+            % wider spacing: a lower band; two spacings: the stricter of each limit
+            g = c; g.geometry.spacingUp = 0.04; g.geometry.spacingDown = 0.04;
+            g = tim.app.analysisBand(g);
+            tc.verifyEqual([g.analysis.fMin g.analysis.fMax], [2 * ceil(0.01 * air.c / 0.04 / 2), 2 * floor(0.40 * air.c / 0.04 / 2)]);
+            g = c; g.geometry.spacingUp = 0.02; g.geometry.spacingDown = 0.05;
+            g = tim.app.analysisBand(g);
+            tc.verifyEqual([g.analysis.fMin g.analysis.fMax], [2 * ceil(0.01 * air.c / 0.02 / 2), 2 * floor(0.40 * air.c / 0.05 / 2)]);
+            % narrow spacing: the plane-wave limit of the diameter binds
+            g = c; g.geometry.spacingUp = 0.010; g.geometry.spacingDown = 0.010;
+            g = tim.app.analysisBand(g);
+            tc.verifyEqual(g.analysis.fMax, 2 * floor(0.58 * air.c / 0.029 / 2));
+            % warmer air: a higher speed of sound, a wider band
+            g = c; g.environment.temperature_C = 30;
+            g = tim.app.analysisBand(g);
+            tc.verifyGreaterThan(g.analysis.fMax, 4734);
+            % incomplete geometry: the configured band stays
+            g = c; g.geometry.diameter = NaN;
+            [g, bg] = tim.app.analysisBand(g);
+            tc.verifyEqual([g.analysis.fMin g.analysis.fMax], [120 4500]);
+            tc.verifySubstring(bg.text, 'incomplete');
+            % loadConfig applies it; the file keeps the mode
+            file = tc.writeJson(struct('formatVersion', 2, 'analysis', struct('bandMode', 'geometry', 'fMax', 4700)), 'band.json');
+            cl = tc.verifyWarningFree(@() tim.app.loadConfig(file));
+            tc.verifyEqual([cl.analysis.fMin cl.analysis.fMax], [120 4734], 'loaded: the band of its geometry');
+            % a fixed band beyond the limits is reported; a wrong mode refused
+            f = tim.app.defaultConfig(); f.geometry.spacingUp = 0.04; f.geometry.spacingDown = 0.04;
+            tc.verifyTrue(any(contains(tim.app.validateConfig(f), 'extends beyond the ASTM E1050 / E2611 limits of this tube')));
+            f.analysis.bandMode = 'geometry';
+            tc.verifyFalse(any(contains(tim.app.validateConfig(f), 'extends beyond')));
+            f.analysis.bandMode = 'astm';
+            tc.verifyError(@() tim.app.validateConfig(f), 'tim:config:bandMode');
+            % the analysis uses the band of the configuration it is given
+            c2.mode = 'simulation'; c2.geometry = c2.simulation.Geometry;
+            c2.excitation.sweep.duration = 1; c2.excitation.sweep.repetitions = 1;
+            c2.output.dataDir = fullfile(tc.tmp, 'data'); c2.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            s = tim.app.MeasurementSession(c2); s.connect(); s.prepareAcquisition();
+            tc.addTeardown(@() s.close());
+            m = s.measure('sweep');
+            r = tim.app.processMeasurement(m, c2, []);
+            tc.verifyEqual(r.spectra.f([1 end]).', [120 4734], 'processMeasurement: the band of the geometry');
+        end
+
         function savedMeasurementOfOldVersionLoads(tc)
             % config.json of a measurement folder saved by the e8fb4fb code
             c = tc.verifyWarningFree(@() tim.app.loadConfig(TestConfiguration.fixture(fullfile('saved_e8fb4fb', 'config.json'))));

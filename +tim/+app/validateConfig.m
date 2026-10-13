@@ -129,6 +129,20 @@ if ~(isnumeric(vb) && (isempty(vb) || (ismatrix(vb) && size(vb, 2) == 2 && all(v
     error('tim:config:validatedBands', ['Validated bands (analysis.validatedBands) must be a list of bands ' ...
         '[fLo fHi] with fLo < fHi, e.g. [[200, 3000]] (got %s).'], mat2str(vb));
 end
+% analysis band: fixed, or the ASTM E1050 / E2611 limits of the tube (owner
+% decision 2026-10-13, tim.app.analysisBand); the checks below use that band
+if isfield(cfg.analysis, 'bandMode')
+    bm = cfg.analysis.bandMode;
+    if ~((ischar(bm) || (isstring(bm) && isscalar(bm))) && any(strcmp(char(bm), {'fixed', 'geometry'})))
+        error('tim:config:bandMode', 'Analysis band (analysis.bandMode) must be ''fixed'' or ''geometry''.');
+    end
+end
+[cfg, band] = tim.app.analysisBand(cfg);
+if band.outside
+    report{end+1} = sprintf(['Analysis band %g–%g Hz (analysis.fMin, analysis.fMax) extends beyond the ASTM ' ...
+        'E1050 / E2611 limits of this tube, %.0f–%.0f Hz: the lines outside are computed but not valid. Set ' ...
+        'analysis.bandMode to ''geometry'' to follow the tube.'], band.fMin, band.fMax, band.limits(1), band.limits(2));
+end
 if isfield(cfg, 'calibration')
     cb = cfg.calibration;
     if isfield(cb, 'positions')

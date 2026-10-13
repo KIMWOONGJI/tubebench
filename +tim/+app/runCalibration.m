@@ -44,7 +44,7 @@ function [cal, file, raw] = runCalibration(session, opts)
 %   a cancel, Stop or error from there on keeps the calibration.
 
 if nargin < 2, opts = struct(); end
-cfg = session.Cfg;
+cfg = tim.app.analysisBand(session.Cfg);   % analysis.bandMode 'geometry': the ASTM band of the tube
 ref = cfg.analysis.refChannel;
 ab = cfg.calibration.positions;
 chans = setdiff(1:4, ref);
