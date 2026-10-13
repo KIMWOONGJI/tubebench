@@ -15,19 +15,22 @@ function s = msg(lang, key, varargin)
 
 if isempty(lang), lang = 'en'; end
 switch key
-    case 'confirmExcitation'   % what, Vpp (programmed), maxVpp, amplifier line[, generator.load]
+    case 'confirmExcitation'   % what, Vpp (programmed), maxVpp, amplifier line[, generator.load[, open-circuit Vpp]]
         % Amplitudes in Vpk, Vpp in brackets. generator.load 'INF' (default):
-        % the programmed value is the open-circuit voltage. '50': it is the
-        % voltage across 50 Ω, the open-circuit voltage is twice as high
-        % (Vpk(open circuit) = programmed Vpp; tim.app.driveEstimate).
+        % the programmed value is the open-circuit voltage. A resistance R
+        % (the amplifier input, WO-004): it is the voltage across R; the
+        % open-circuit voltage is higher (tim.app.driveEstimate: Voc_pp; '50'
+        % with the 33220A: twice). The amplitude limit generator.maxVpp is an
+        % open-circuit voltage.
         a = varargin;
         ld = 'INF'; if numel(a) >= 5 && ~isempty(a{5}), ld = char(a{5}); end
-        if strcmp(ld, '50')
-            varargin = {a{1}, a{2} / 2, a{2}, a{2}, a{3} / 2, a{4}};
-            t.ko = ['스피커를 구동합니다 (%s).\n  발생기: %.3g Vpk (%.3g Vpp, 50 Ω 부하 기준 설정값; 개방전압 %.3g Vpk); ' ...
-                '진폭 상한 %.3g Vpk\n  %s\n앰프 게인을 포함한 모든 설정이 위와 같고, 가진을 시작해도 안전합니까?'];
-            t.en = ['The loudspeaker will be driven (%s).\n  Generator: %.3g Vpk (%.3g Vpp, programmed into 50 Ω; ' ...
-                'open circuit %.3g Vpk); amplitude limit %.3g Vpk\n  %s\n' ...
+        if ~strcmp(ld, 'INF')
+            voc = 2 * a{2}; if numel(a) >= 6 && ~isempty(a{6}), voc = a{6}; end   % (without it: the 33220A at 50 Ω)
+            varargin = {a{1}, a{2} / 2, a{2}, ld, voc / 2, a{3} / 2, a{4}};
+            t.ko = ['스피커를 구동합니다 (%s).\n  발생기: %.3g Vpk (%.3g Vpp, %s Ω 부하 기준 설정값 = 앰프 입력 전압; 개방전압 %.3g Vpk); ' ...
+                '진폭 상한 개방전압 %.3g Vpk\n  %s\n앰프 게인을 포함한 모든 설정이 위와 같고, 가진을 시작해도 안전합니까?'];
+            t.en = ['The loudspeaker will be driven (%s).\n  Generator: %.3g Vpk (%.3g Vpp, programmed into %s Ω = at the ' ...
+                'amplifier input; open circuit %.3g Vpk); amplitude limit %.3g Vpk open circuit\n  %s\n' ...
                 'Is everything set as shown, including the amplifier gain, and is it safe to start the excitation?'];
         else
             varargin = {a{1}, a{2} / 2, a{2}, a{3} / 2, a{4}};
@@ -36,12 +39,19 @@ switch key
             t.en = ['The loudspeaker will be driven (%s).\n  Generator: %.3g Vpk (%.3g Vpp, open circuit); amplitude limit %.3g Vpk\n  %s\n' ...
                 'Is everything set as shown, including the amplifier gain, and is it safe to start the excitation?'];
         end
-    case 'ampDirect'           % source impedance Ω (driver), Z, Vpk at loudspeaker, mA peak, mW, limit mW
-        t.ko = '직결 (앰프 없음), 발생기 %g Ω 출력 경유: 스피커 %g Ω, 약 %.3g Vpk, %.3g mA peak, %.3g mW (스피커 전력 상한 %.4g mW)';
-        t.en = 'Direct drive (no amplifier) via the %g Ω generator output: loudspeaker %g Ω, approx. %.3g Vpk, %.3g mA peak, %.3g mW (loudspeaker power limit %.4g mW)';
-    case 'ampGain'             % model, gain factor, gain dB, Z, Vpk at loudspeaker, mW, limit mW, setting note
-        t.ko = '앰프 %s, 게인 ×%.3g (%.1f dB) → 스피커 %g Ω, 약 %.3g Vpk, %.3g mW (스피커 전력 상한 %.4g mW)%s';
-        t.en = 'Amplifier %s, gain ×%.3g (%.1f dB) → loudspeaker %g Ω, approx. %.3g Vpk, %.3g mW (loudspeaker power limit %.4g mW)%s';
+    case 'ampDirect'           % source impedance Ω (driver), Z, Vpk and Vrms at loudspeaker, mA peak, mW, % of limit, limit mW, near text
+        t.ko = ['직결 (앰프 없음), 발생기 %g Ω 출력 경유: 스피커 %g Ω (공칭), 약 %.3g Vpk (%.3g Vrms), %.3g mA peak, ' ...
+            '%.3g mW = 시험 한계의 %.3g %% (스피커 전력 상한 %.4g mW)%s'];
+        t.en = ['Direct drive (no amplifier) via the %g Ω generator output: loudspeaker %g Ω (nominal), approx. %.3g Vpk ' ...
+            '(%.3g Vrms), %.3g mA peak, %.3g mW = %.3g %% of the test limit (loudspeaker power limit %.4g mW)%s'];
+    case 'ampGain'             % model, gain factor, gain dB, Z, Vpk and Vrms at loudspeaker, mW, % of limit, limit mW, near text, setting note
+        t.ko = ['앰프 %s, 게인 ×%.3g (%.1f dB) → 스피커 %g Ω (공칭), 약 %.3g Vpk (%.3g Vrms), %.3g mW = 시험 한계의 %.3g %% ' ...
+            '(스피커 전력 상한 %.4g mW)%s%s'];
+        t.en = ['Amplifier %s, gain ×%.3g (%.1f dB) → loudspeaker %g Ω (nominal), approx. %.3g Vpk (%.3g Vrms), %.3g mW = ' ...
+            '%.3g %% of the test limit (loudspeaker power limit %.4g mW)%s%s'];
+    case 'nearLimit'           % appended to the drive line from 80 % of the test limit
+        t.ko = ' – 한계 근처: 실제 임피던스가 낮은 주파수에서는 한계에 닿을 수 있습니다';
+        t.en = ' – near the limit: at frequencies where the real impedance is lower the limit may be reached';
     case 'speakerPower'        % P mW, limit mW
         t.ko = ['예상 스피커 전력 %.3g mW가 스피커 전력 상한 %.4g mW를 넘습니다 (loudspeaker.maxPower_W). ' ...
             '발생기 진폭 또는 앰프 게인을 낮추세요.'];

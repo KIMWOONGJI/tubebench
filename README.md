@@ -54,9 +54,9 @@ template (simulation mode, no geometry) - never copy it over `user_config.json`.
 software commit does not see uncommitted local changes - commit before measuring with edited code
 or configuration.
 
-## Status (2026-10-12, version 1.2.1)
+## Status (2026-10-13, version 1.3.0)
 
-* **Software**: complete. 358 automated tests in 23 test classes (simulation and recorded hardware
+* **Software**: complete. 364 automated tests in 23 test classes (simulation and recorded hardware
   fixtures); `run_tests` writes the result to `tests/last_test_report.txt`.
 * **Window**: menu bar (File, Help), control panel in workflow order (INSTRUMENTS, IMPEDANCE TUBE,
   EXCITATION, CALIBRATION, MEASUREMENT, RESULTS), two-level tabs (Setup, Calibration, Measurement,
@@ -73,7 +73,9 @@ or configuration.
   `docs/hardware_status.md`. The 1.2.0 instrument interface (WO-001) passed the owner's hardware
   check on 2026-10-12. The 33220A drops an idle socket connection now and then; since 1.2.1 the
   program replaces an idle connection before use and checks it every minute (hardware check of
-  1.2.1 passed on 2026-10-12).
+  1.2.1 passed on 2026-10-12). Since 1.3.0 (WO-004) the EXCITATION section shows the drive chain
+  (generator load = amplifier input, loudspeaker check at the nominal impedance); the load
+  setting passed the owner's hardware check on 2026-10-13 (output off).
 * **Geometry**: CAD design values of the lab tube (s1 29, L1 41, d 75, L2 41, s2 29 mm; the
   specimen fills the 75 mm specimen section) are in `config/user_config.json`; verify them with
   calipers. The switching calibration is done with the empty specimen section mounted and ends

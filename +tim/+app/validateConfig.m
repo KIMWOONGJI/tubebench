@@ -32,31 +32,43 @@ if isfield(cfg.generator, 'allowUnconfirmedOff')
     assert(isscalar(cfg.generator.allowUnconfirmedOff) && islogical(cfg.generator.allowUnconfirmedOff), ...
         'tim:config:allowUnconfirmedOff', 'generator.allowUnconfirmedOff must be true or false.');
 end
-lim = cfg.generator.maxVpp;
-exName = {'sweep', 'swept sine'; 'stepped', 'stepped sine'; 'noise', 'random noise'};
-for i = 1:size(exName, 1)
-    v = cfg.excitation.(exName{i, 1}).amplitudeVpp;
-    if v > lim
-        error('tim:config:amplitude', ['Generator amplitude of the %s, %.3g Vpk (%.3g Vpp), exceeds the amplitude limit ' ...
-            'of %.3g Vpk (%.3g Vpp, generator.maxVpp).'], exName{i, 2}, v / 2, v, lim / 2, lim);
-    end
-end
-% generator output load setting (33220A OUTP:LOAD). The allowed values come
-% from the generator driver (capabilities().source.loads, checked below with
-% EXACT text: Keysight33220A (mustBeMember) and the GUI compare the raw text,
-% so 'inf' or ' 50' must not pass here and fail only at Connect, review analysis-6)
+% generator output load setting (33220A OUTP:LOAD): 'INF' or a resistance
+% written as a number ('600'). The values a driver accepts come from it
+% (capabilities().source.loads / loadRange, checked below with EXACT text:
+% Keysight33220A and the GUI compare the raw text, so 'inf' or ' 50' must
+% not pass here and fail only at Connect, review analysis-6)
 ld = cfg.generator.load;
 if isstring(ld) && isscalar(ld), ld = char(ld); end
 if ~ischar(ld)
-    error('tim:config:load', 'Generator output load (generator.load) must be text such as ''INF'' or ''50'' (got %s).', ...
-        mat2str(ld));
+    error('tim:config:load', ['Generator output load (generator.load) must be text: ''INF'' or a resistance in ohm such ' ...
+        'as ''50'' or ''600'' (got %s).'], mat2str(ld));
+end
+R = tim.instr.SignalSource.loadOhm(ld);           % Inf, a resistance, or NaN (the driver check reports it)
+% the safety limit generator.maxVpp is an OPEN-CIRCUIT voltage (WO-004): a
+% level programmed at a load of R ohm has the open-circuit voltage
+% level x (R + Rs) / R (Rs: source impedance of the generator driver)
+lim = cfg.generator.maxVpp;
+ocf = openCircuitFactor(cfg, ld);
+exName = {'sweep', 'swept sine'; 'stepped', 'stepped sine'; 'noise', 'random noise'};
+for i = 1:size(exName, 1)
+    v = cfg.excitation.(exName{i, 1}).amplitudeVpp;
+    if v * ocf > lim * (1 + 1e-9)
+        if ocf == 1
+            error('tim:config:amplitude', ['Generator amplitude of the %s, %.3g Vpk (%.3g Vpp), exceeds the amplitude limit ' ...
+                'of %.3g Vpk (%.3g Vpp, generator.maxVpp).'], exName{i, 2}, v / 2, v, lim / 2, lim);
+        end
+        error('tim:config:amplitude', ['Generator amplitude of the %s, %.3g Vpk (%.3g Vpp) at load %s Ω, has the open-circuit ' ...
+            'voltage %.3g Vpp, above the amplitude limit of %.3g Vpp open circuit (generator.maxVpp).'], ...
+            exName{i, 2}, v / 2, v, ld, v * ocf, lim);
+    end
 end
 hasAmp = isfield(cfg, 'amplifier');
 direct = hasAmp && startsWith(lower(cfg.amplifier.model), 'none');
-if strcmp(ld, '50') && direct
-    error('tim:config:load', ['Generator output load ''50'' (generator.load) with direct drive: the generator would set ' ...
-        'the voltage across 50 Ω, which is half the open-circuit voltage that drives the loudspeaker. Use ''INF'' for ' ...
-        'direct drive; ''50'' is only for an amplifier with a 50 Ω input.']);
+if isfinite(R) && direct
+    error('tim:config:load', ['Generator output load ''%s'' (generator.load) with direct drive: the generator would set ' ...
+        'the voltage across %s Ω, not the open-circuit voltage that drives the loudspeaker through the generator''s ' ...
+        'source impedance. Use ''INF'' for direct drive (owner decision 2026-10-12); a resistance is the input of an ' ...
+        'amplifier.'], ld, ld);
 end
 zin = NaN;
 if hasAmp && isfield(cfg.amplifier, 'inputImpedance_ohm') && ~isempty(cfg.amplifier.inputImpedance_ohm)
@@ -66,22 +78,31 @@ if ~isnan(zin) && ~(zin > 0)
     error('tim:config:amplifier', ['Amplifier input impedance (amplifier.inputImpedance_ohm) must be greater than 0, ' ...
         'or empty to derive it from the generator output load.']);
 end
-if strcmp(ld, '50') && hasAmp && ~direct && isnan(zin)
-    % driveEstimate then assumes a 50-ohm amplifier input (Vin = programmed
-    % voltage); a high-Z input gets the open-circuit voltage 2x -> power 4x
-    % (review analysis-2)
-    report{end+1} = ['Generator output load ''50'' (generator.load) with an amplifier of unknown input impedance: ' ...
-        'the loudspeaker power check assumes a 50 Ω amplifier input. With a high-impedance input the loudspeaker ' ...
-        'gets up to 4 × the estimated power – enter the amplifier input impedance (amplifier.inputImpedance_ohm).'];
+if hasAmp && ~direct
+    if isfinite(R) && isnan(zin)
+        % driveEstimate then assumes an R-ohm amplifier input (Vin = programmed
+        % voltage); a high-Z input gets the open-circuit voltage ((R+Rs)/R)x ->
+        % power ((R+Rs)/R)^2 x (review analysis-2: 4x at 50 ohm)
+        report{end+1} = sprintf(['Generator output load ''%s'' (generator.load) with an amplifier of unknown input ' ...
+            'impedance: the loudspeaker power check assumes a %s Ω amplifier input. With a high-impedance input the ' ...
+            'loudspeaker gets up to %.3g × the estimated power – enter the amplifier input impedance ' ...
+            '(amplifier.inputImpedance_ohm; the window sets both).'], ld, ld, ocf^2);
+    elseif zin > 0 && isfinite(zin) && zin <= 1e4 && ~(isfinite(R) && abs(R - zin) <= 1e-6 * zin)
+        report{end+1} = sprintf(['Generator output load ''%s'' (generator.load) differs from the amplifier input ' ...
+            'impedance %g Ω (amplifier.inputImpedance_ohm): the programmed level is then not the voltage at the ' ...
+            'amplifier input. Set generator.load to ''%g'' (the window does).'], ld, zin, zin);
+    end
 end
 if isfield(cfg, 'ui') && isfield(cfg.ui, 'amplitudeAt')
     at = cfg.ui.amplitudeAt; if isstring(at), at = char(at); end
     if ~ischar(at) || ~any(strcmp(at, {'generator', 'loudspeaker'}))
         error('tim:config:ui', 'Amplitude field (ui.amplitudeAt) must be ''generator'' or ''loudspeaker''.');
     end
-    if strcmp(at, 'loudspeaker') && hasAmp && ~direct
-        report{end+1} = ['The amplitude is entered as the loudspeaker voltage (ui.amplitudeAt) only with direct drive; ' ...
-            'with an amplifier the window shows the generator amplitude.'];
+    gainKnown = hasAmp && ((isfield(cfg.amplifier, 'gainFactor') && cfg.amplifier.gainFactor > 0) || ...
+        (isfield(cfg.amplifier, 'gain_dB') && isfinite(cfg.amplifier.gain_dB)));
+    if strcmp(at, 'loudspeaker') && hasAmp && ~direct && ~gainKnown
+        report{end+1} = ['The amplitude is entered as the loudspeaker voltage (ui.amplitudeAt) but the amplifier gain ' ...
+            'is not recorded (amplifier.gainFactor): the window shows the level at the amplifier input instead.'];
     end
 end
 if isfield(cfg, 'loudspeaker')
@@ -237,6 +258,17 @@ for k = 1:2
     end
     report = [report, reshape(r, 1, [])]; %#ok<AGROW>
 end
+end
+
+function f = openCircuitFactor(cfg, load)
+% open-circuit voltage per volt programmed at the load, with the source
+% impedance of the generator driver (1 for 'INF' or an unknown driver)
+f = 1;
+name = cfg.generator.driver;
+if isstring(name) && isscalar(name), name = char(name); end
+if ~ischar(name) || ~any(strcmp(name, {tim.instr.drivers().name})), return; end
+c = tim.instr.driverInfo(name).capabilities;
+if isfield(c, 'source'), f = tim.instr.SignalSource.openCircuitFactor(c.source, load); end
 end
 
 function report = notRequired(report, required, id, msg)

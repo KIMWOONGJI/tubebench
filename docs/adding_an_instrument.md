@@ -218,8 +218,12 @@ identification), and closes the transport if the constructor fails. Product func
 class loads and the tests run on a PC without the product.
 
 **Generator methods** (3.2-3.4). Every `configure*` switches the output off first, checks the
-level **before any level command** (`checkLevel`: positive, at most `generator.maxVpp`, within
-the instrument's range for the configured load), sends the settings in the order the manual
+level **before any level command** (`checkLevel`: positive; its **open-circuit** voltage at most
+`generator.maxVpp`, i.e. level × `tim.instr.SignalSource.openCircuitFactor(source, load)`, which is
+(R + R_s) / R at a load of R ohm - `maxVpp` is an open-circuit limit since 1.3.0; within
+`levelRange(source, load)`, the instrument's range for the configured load; a source that accepts
+any resistance as load lists `loadRange`, contract 3.4; contract test `levelLimitIsOpenCircuit`),
+sends the settings in the order the manual
 recommends, reads the instrument's error queue, reads the settings back and compares them
 (`tim:gen:verify`, output off). `outputOn` only when armed (`tim:gen:notArmed`) and configured
 (`tim:gen:mode`), after reading the programmed level back and checking it once more. Never use a
@@ -269,7 +273,9 @@ for inputs `sampleRate`, `range`, `filter`, `ccld`, `teds`); it is stored with e
 
 **`describe()`** (2.1). `name` = registry name; `displayName` (vendor, model and kind, shown in
 the window and the metadata; at most about 50 characters, one line of the window's "In use" row,
-which holds three lines for the two instruments); `labels.<role>` (short lamp label); `defaults.settings` (the driver
+which holds three lines for the two instruments); `labels.<role>` (short lamp label: the role, not
+the product - `'Generator'`, `'DAQ'`; a device in both roles may name its parts, `'Output'` /
+`'Inputs'`); `texts.noun` likewise (`'generator'`, `'DAQ'`); `defaults.settings` (the driver
 settings and their defaults, step 6); `defaults.acquisition` (DAQ: the values of
 `acquisition.sampleRate`, `range`, `filter`, `ccld` when the configuration leaves them empty);
 `texts.settle` (what settles after `prepare`, `sprintf` format with the filter, or `''`);
@@ -294,7 +300,10 @@ or a vendor error at Connect.
 
 **`connectionSteps()`** (6). One `connect` step with the registry name as key; an acquisition
 adds its `prepare` steps (the templates use `setup`). Keys must not repeat within a source /
-acquisition pair and never be `sens`, `settle` or `signal` (the contract test checks it).
+acquisition pair and never be `sens`, `settle` or `signal` (the contract test checks it). Labels
+are short lower-case phrases without the role, because the window puts the lamp label in front:
+`'connect (<model>, <interface>)'` for the connect step ("Generator: connect (33220A, SCPI)"),
+`'channel setup'` ("DAQ: channel setup").
 
 **`checkConfig(cfg)`** (9.2). Read the settings with `tim.instr.Instrument.settingsFrom`, check
 each one (`tim:config:<what>`, the message names the key), then call the generic checks
@@ -630,7 +639,7 @@ stays registered as the worked example, so the contract tests keep checking it.
 | 6 Settings | `generator.demo`: `host` (the documentation address, never used), `port`, `timeout`; a configuration file made from `config/sim_thin_screen.json` with the `generator` section of the snippet (`"driver": "demo"`) |
 | 7 Reference | `docs/ref_demo_source.md` from `ref_template.md` |
 | 8 Registry | `'demo'` / `'tim.instr.DemoSource'` in `+tim/+instr/drivers.m` |
-| 9 Tests | no `TODO` left; Code Analyzer: only the "extra comma" messages of the one-line `try`; `tests/TestDemoSource.m` (6 tests, one added for the refused noise); `tests/TestInstrumentContract.m`: every case for `demo` (and the hardware-mode refusal of a simulation-only driver); full suite green; `git diff --stat`: only the new files and the registry line - no change to the session or the window; in the window (simulation) the lamp "Generator", the display name, the checklist step "Demo generator DEMO-SG1 (SCPI, simulated)", the amplitude limits 0.001-0.25 Vpk (its 2 mVpp minimum, `maxVpp` 0.5) and sweep times 0.01-300 s, after Connect "Generator: DEMO-SG1 s/n DEMO-0001 (simulated)", a calibration with Test E passed and a measurement with the output off afterwards |
+| 9 Tests | no `TODO` left; Code Analyzer: only the "extra comma" messages of the one-line `try`; `tests/TestDemoSource.m` (6 tests, one added for the refused noise); `tests/TestInstrumentContract.m`: every case for `demo` (and the hardware-mode refusal of a simulation-only driver); full suite green; `git diff --stat`: only the new files and the registry line - no change to the session or the window; in the window (simulation) the lamp "Generator", the display name, the checklist step "Generator: connect (DEMO-SG1, SCPI, simulated)" (label wording of 1.3.0), the amplitude limits 0.001-0.25 Vpk (its 2 mVpp minimum, `maxVpp` 0.5) and sweep times 0.01-300 s, after Connect "Generator: DEMO-SG1 s/n DEMO-0001 (simulated)", a calibration with Test E passed and a measurement with the output off afterwards |
 | 10 Hardware | does not apply: there is no instrument (the registry refuses the driver in hardware mode) |
 | 11 Documents | this section; the driver lists of the user guide, the installation guide, the README and `docs/instrument_interface.md` |
 

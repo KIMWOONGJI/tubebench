@@ -465,9 +465,11 @@ classdef MeasurementSession < handle
             end
         end
 
-        function d = driveEstimate(obj, amplitudeVpp)
-            %DRIVEESTIMATE Expected loudspeaker drive (see tim.app.driveEstimate).
-            d = tim.app.driveEstimate(obj.Cfg, amplitudeVpp);
+        function d = driveEstimate(obj, amplitudeVpp, kind)
+            %DRIVEESTIMATE Expected loudspeaker drive (see tim.app.driveEstimate);
+            %   kind 'sweep' (default) | 'stepped' | 'noise'.
+            if nargin < 3, kind = 'sweep'; end
+            d = tim.app.driveEstimate(obj.Cfg, amplitudeVpp, kind);
         end
 
         function setLoudspeaker(obj, impedance_ohm, maxPower_W)
@@ -486,18 +488,24 @@ classdef MeasurementSession < handle
             obj.Cfg = c;
         end
 
-        function line = amplifierLine(obj, amplitudeVpp)
-            %AMPLIFIERLINE Operator-readable description of the drive chain.
+        function line = amplifierLine(obj, amplitudeVpp, kind)
+            %AMPLIFIERLINE Operator-readable description of the drive chain:
+            %   the loudspeaker voltage (Vpk, Vrms) and power at the nominal
+            %   impedance with its share of the test limit (WO-004).
+            if nargin < 3, kind = 'sweep'; end
             a = obj.Cfg.amplifier; lang = obj.lang();
-            d = obj.driveEstimate(amplitudeVpp);
+            d = obj.driveEstimate(amplitudeVpp, kind);
             note = '';
             if ~isempty(a.gainSetting) && ~strcmp(a.gainSetting, '-'), note = sprintf(' (setting "%s")', a.gainSetting); end
             mdl = a.model; if isempty(mdl), mdl = '(model not specified)'; end
+            near = '';
+            if strcmp(d.state, 'near'), near = tim.app.msg(lang, 'nearLimit'); end
             if d.direct
-                line = tim.app.msg(lang, 'ampDirect', d.Rs, d.Z, d.Vspk_pk, 1e3 * d.Ipk, 1e3 * d.P_W, 1e3 * d.limit_W);
+                line = tim.app.msg(lang, 'ampDirect', d.Rs, d.Z, d.Vspk_pk, d.Vspk_rms, 1e3 * d.Ipk, 1e3 * d.P_W, ...
+                    100 * d.fraction, 1e3 * d.limit_W, near);
             elseif isfinite(d.gain)
-                line = tim.app.msg(lang, 'ampGain', mdl, d.gain, 20 * log10(d.gain), d.Z, d.Vspk_pk, ...
-                    1e3 * d.P_W, 1e3 * d.limit_W, note);
+                line = tim.app.msg(lang, 'ampGain', mdl, d.gain, 20 * log10(d.gain), d.Z, d.Vspk_pk, d.Vspk_rms, ...
+                    1e3 * d.P_W, 100 * d.fraction, 1e3 * d.limit_W, near, note);
             else
                 line = tim.app.msg(lang, 'ampUnknownGain', mdl, note);
             end
@@ -798,8 +806,9 @@ classdef MeasurementSession < handle
             if isfield(settings, 'amplitudeVpp')
                 % the drive of this excitation: the programmed generator level
                 % (settings.amplitudeVpp) and the estimated loudspeaker voltage,
-                % current and power (WO-003: both values recorded)
-                meas.metadata.drive = tim.app.driveEstimate(obj.Cfg, settings.amplitudeVpp);
+                % current and power (WO-003: both values recorded; WO-004: the
+                % power of noise with its crest factor, the share of the limit)
+                meas.metadata.drive = tim.app.driveEstimate(obj.Cfg, settings.amplitudeVpp, kind);
             end
             raw = {};
             if obj.Cfg.output.saveRawStream
@@ -819,8 +828,10 @@ classdef MeasurementSession < handle
             % combination (a calibration with 9 sweeps asks once); asked again
             % after setAmplifier() or an amplitude change.
             amp = obj.Cfg.amplifier;
-            % loudspeaker protection (always, also without confirmation)
-            d = obj.driveEstimate(amplitudeVpp);
+            kind = 'sweep'; if startsWith(what, 'random noise'), kind = 'noise'; end
+            % loudspeaker protection (always, also without confirmation): the
+            % power at the nominal impedance against the test limit (WO-004)
+            d = obj.driveEstimate(amplitudeVpp, kind);
             if strcmp(obj.Cfg.mode, 'hardware') && ~d.direct && isnan(d.gain)
                 error('tim:session:gainRequired', '%s', tim.app.msg(obj.lang(), 'gainRequired'));
             end
@@ -834,7 +845,7 @@ classdef MeasurementSession < handle
             if strcmp(sig, obj.ConfirmedExcitation), return; end
             lang = obj.lang();
             msg = tim.app.msg(lang, 'confirmExcitation', what, amplitudeVpp, obj.Cfg.generator.maxVpp, ...
-                obj.amplifierLine(amplitudeVpp), obj.Cfg.generator.load);
+                obj.amplifierLine(amplitudeVpp, kind), obj.Cfg.generator.load, d.Voc_pp);
             fcn = obj.ExcitationConfirm;
             if isempty(fcn), fcn = @(m) tim.app.MeasurementSession.consoleConfirm(m, lang, obj.ConsoleInput); end
             if ~fcn(msg)
@@ -842,7 +853,8 @@ classdef MeasurementSession < handle
                 error('tim:session:notConfirmed', 'Excitation cancelled by the operator – the loudspeaker was not driven.');
             end
             obj.ConfirmedExcitation = sig;
-            obj.log('Excitation confirmed: generator %.3g Vpk (%.3g Vpp). %s', amplitudeVpp / 2, amplitudeVpp, obj.amplifierLine(amplitudeVpp));
+            obj.log('Excitation confirmed: generator %.3g Vpk (%.3g Vpp). %s', amplitudeVpp / 2, amplitudeVpp, ...
+                obj.amplifierLine(amplitudeVpp, kind));
         end
 
         function requireConnected(obj)

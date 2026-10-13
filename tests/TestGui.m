@@ -601,21 +601,25 @@ classdef TestGui < matlab.unittest.TestCase
             g = tim.instr.driverInfo('keysight33220a'); d = tim.instr.driverInfo('lanxi');
             names = [g.displayName newline d.displayName];      % one line per instrument
             % before connecting: the configured drivers
-            tc.verifyEqual({h.lampLabel.Text}, {'Generator', 'LAN-XI', 'ch1', 'ch2', 'ch3', 'ch4'});
+            tc.verifyEqual({h.lampLabel.Text}, {'Generator', 'DAQ', 'ch1', 'ch2', 'ch3', 'ch4'});
+            % the checklist: each driver step after the lamp label of its role (owner, 2026-10-13)
+            tc.verifyEqual({app.ConnList.Labels(1:6).Text}, {'Generator: connect (33220A, SCPI)', ...
+                'DAQ: connect (LAN-XI, REST)', 'DAQ: recorder state Idle', 'DAQ: open recorder', ...
+                'DAQ: TEDS detection', 'DAQ: channel setup → streaming'});
             tc.verifyEqual(h.instr.Text, names);
             tc.verifySubstring(h.lamp(1).Tooltip, g.displayName);
             tc.verifySubstring(h.lamp(2).Tooltip, d.displayName);
             T = h.instrTable.Data;
             tc.verifyEqual(T(:, 1:3), {'Generator (signal source)', g.displayName, 'keysight33220a'; ...
-                'LAN-XI (acquisition)', d.displayName, 'lanxi'});
+                'DAQ (acquisition)', d.displayName, 'lanxi'});
             tc.verifyEqual(T(:, 4:7), repmat({'–'}, 2, 4), 'no identity before connecting');
             tc.verifyEqual(T{2, 8}, '16384 S/s, 10 Vpeak, high-pass 0.7 Hz, CCLD on');
             tc.verifySubstring(h.instrTable.Tooltip, '4096, 8192, 16384, 32768, 65536', 'rates the driver allows');
             % the texts of before for the lab drivers, composed from describe().texts
-            tc.verifyEqual(h.connect.Tooltip, ['Connect the generator and the LAN-XI module (generator output off), ' ...
+            tc.verifyEqual(h.connect.Tooltip, ['Connect the generator and the DAQ (generator output off), ' ...
                 'read TEDS and check every channel (Setup > Connection).']);
-            tc.verifyEqual(h.disconnect.Tooltip, 'Generator output off, LAN-XI module back to Idle, connections closed.');
-            tc.verifyEqual(h.modeLabel.Tooltip, 'Simulation: virtual tube for practice. Hardware: generator and LAN-XI module.');
+            tc.verifyEqual(h.disconnect.Tooltip, 'Generator output off, DAQ back to Idle, connections closed.');
+            tc.verifyEqual(h.modeLabel.Tooltip, 'Simulation: virtual tube for practice. Hardware: generator and DAQ.');
             % EXCITATION limits from the capabilities
             tc.verifyEqual(h.fStop.Limits, [1, 0.45 * c.acquisition.sampleRate]);
             tc.verifyEqual(h.amp.Limits(1), 0.01, 'AbsTol', 1e-12, '33220A: 20 mVpp at load INF');
@@ -630,7 +634,7 @@ classdef TestGui < matlab.unittest.TestCase
             T = h.instrTable.Data;
             tc.verifyEqual(T(1, 4:7), {ig.vendor, ig.model, ig.serial, ig.firmware});
             tc.verifyEqual(T(2, 4:7), {id.vendor, id.model, id.serial, id.firmware});
-            tc.verifyEqual(h.instr.Text, sprintf('Generator: 33220A s/n MOCK0001 (simulated)\nLAN-XI: 3676-B-040 s/n 110283 (simulated)'));
+            tc.verifyEqual(h.instr.Text, sprintf('Generator: 33220A s/n MOCK0001 (simulated)\nDAQ: 3676-B-040 s/n 110283 (simulated)'));
             tc.verifySubstring(h.lamp(1).Tooltip, sprintf('%s 33220A, s/n MOCK0001, firmware %s', ig.vendor, ig.firmware));
             tc.verifySubstring(h.lamp(2).Tooltip, sprintf('s/n 110283, firmware %s', id.firmware));
             tc.verifyEqual(h.lamp(1).Tooltip, app.LampTips{1}, 'kept after the action');
@@ -639,7 +643,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(h.instr.Text, names);
             tc.verifyEqual(h.instrTable.Data(:, 5), {'–'; '–'});
             tc.verifyTrue(any(endsWith(h.log.Value, ...
-                'Instruments disconnected by the operator (generator output off, LAN-XI module back to Idle).')));
+                'Instruments disconnected by the operator (generator output off, DAQ back to Idle).')));
             clear cleanup
         end
 
@@ -659,6 +663,8 @@ classdef TestGui < matlab.unittest.TestCase
             d = tim.instr.driverInfo('simcombined');
             tc.verifyEqual({h.lampLabel(1:2).Text}, {'Output', 'Inputs'});
             tc.verifyEqual(app.ConnList.Keys, {'device', 'setup', 'sens', 'settle', 'signal'}, 'checklist before connecting');
+            tc.verifyEqual({app.ConnList.Labels(1:2).Text}, {'Output + Inputs: connect (simulated device)', ...
+                'Inputs: channel setup'}, 'a step of both roles after both lamp labels');
             tc.verifyEqual(h.instr.Text, d.displayName);
             T = h.instrTable.Data;
             tc.verifySize(T, [1 8], 'one device');
@@ -781,8 +787,8 @@ classdef TestGui < matlab.unittest.TestCase
             end
             for n = {'mode','connect','disconnect','exMode','fStart','fStop','dur','amp','reps', ...
                     'ampModel','ampGain','genLoad','spkZ','spkP','ampAt','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
-                    'temp','pres','loadCal','runCal','save','reprocess','status','drive','fLimits','calLabel', ...
-                    'specimen','resultStatus','durEst','instr'}
+                    'temp','pres','loadCal','runCal','save','reprocess','status','drive','drivePath','driveMax','spkState','genState','fLimits','calLabel', ...
+                    'specimen','resultStatus','durEst','instr','ampRms','genLoadLabel'}
                 tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
             end
         end
@@ -1045,11 +1051,12 @@ classdef TestGui < matlab.unittest.TestCase
             file = fullfile(tc.tmp, 'cfg.json'); tim.app.saveConfig(c, file);
             app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
-            tc.assertSubstring(h.drive.Text, 'Estimated loudspeaker drive');
+            tc.assertEqual(h.spkState.Text, 'OK');
             h.ampModel.Value = 'power amplifier';
             feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));
             tc.verifyFalse(app.GainEntered);
-            tc.verifySubstring(h.drive.Text, 'Amplifier gain not entered: no drive estimate');
+            tc.verifyEqual(h.spkState.Text, 'Gain?');
+            tc.verifyEqual(app.DriveCheck.state, 'unknown');
             feval(h.connect.ButtonPushedFcn, h.connect, []);
             tc.assertTrue(app.Session.Prepared);
             refusal = 'enter the voltage gain set on the amplifier "power amplifier"';
@@ -1065,17 +1072,22 @@ classdef TestGui < matlab.unittest.TestCase
             h.ampGain.Value = 10;
             feval(h.ampGain.ValueChangedFcn, h.ampGain, struct('PreviousValue', 0));
             tc.verifyTrue(app.GainEntered);
-            tc.verifySubstring(h.drive.Text, 'Estimated loudspeaker drive');
+            tc.verifyEqual(h.spkState.Text, 'OK');
+            tc.verifyEqual(app.DriveCheck.state, 'ok');
         end
 
         function excitationChainControls(tc)
             % owner requests 2026-10-12 (WO-003): the amplifier gain is a plain
-            % number; the generator load is chosen in the window from the
-            % driver's loads (High Z in direct drive, fixed while connected); the
-            % loudspeaker impedance and its power limit share one row; in direct
-            % drive the amplitude may be given at the loudspeaker - the generator
-            % level follows from the source impedance (50 ohm) and the nominal
-            % loudspeaker impedance, and is what the configuration stores
+            % number; the loudspeaker impedance and its power limit share one row;
+            % in direct drive the amplitude may be given at the loudspeaker - the
+            % generator level follows from the source impedance (50 ohm) and the
+            % nominal loudspeaker impedance, and is what the configuration stores.
+            % WO-004 (owner decisions 2026-10-12): with an amplifier its input
+            % impedance (typed or chosen) is the generator load, High Z in direct
+            % drive (fixed while connected); the level at the loudspeaker also with
+            % an amplifier of known gain; below the fields the path, the loudspeaker
+            % check at the nominal impedance (OK / near from 80 % / above: Start
+            % refused) and the criterion of the largest level
             c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
             c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
             c.amplifier.model = 'none (direct drive)'; c.amplifier.gainFactor = 1; c.amplifier.gain_dB = 0;
@@ -1086,47 +1098,88 @@ classdef TestGui < matlab.unittest.TestCase
             app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
             h = app.H;
             texts = get(findall(app.Fig, 'Type', 'uilabel'), 'Text');
-            for t = {'Amplifier gain [×]', 'Generator load', 'Loudspeaker [Ω]', 'Speaker limit [W]'}
+            for t = {'Amplifier gain [×]', 'Generator load', 'Loudspeaker [Ω]', 'Test limit [W]'}
                 tc.verifyTrue(any(strcmp(texts, t{1})), ['label ' t{1}]);
             end
-            tc.verifyFalse(any(strcmp(texts, 'Power limit [W]')), 'old label');
-            tc.verifyEqual(h.ampAt.Items, {'Generator [Vpk]', 'Speaker [Vpk]'}, 'the amplitude label is a list');
+            tc.verifyFalse(any(strcmp(texts, 'Power limit [W]')) || any(strcmp(texts, 'Speaker limit [W]')), 'old labels');
+            tc.verifyEqual(h.ampAt.Items, {'Speaker [Vpk]', 'Generator [Vpk]'}, 'the amplitude label is a list');
             tc.verifyEqual(h.ampGain.ValueDisplayFormat, '%.4g', 'a plain number, no "×" in the field');
+            tc.verifySubstring(h.ampGain.Tooltip, '40 dB = ×100', 'the dB conversion of the gain');
             tc.verifySameHandle(h.spkZ.Parent, h.spkP.Parent, 'impedance and power limit on one row');
             tc.verifyTrue(all(ismember({'none (direct drive)', 'power amplifier'}, h.ampModel.Items)), ...
                 'an amplifier can be chosen without typing');
-            % generator load: the 33220A's loads; High Z and locked in direct drive
-            tc.verifyEqual(h.genLoad.ItemsData, {'INF', '50'});
-            tc.verifyEqual(h.genLoad.Items, {'High Z', '50 Ω'});
-            tc.verifyEqual(h.genLoad.Value, 'INF');
+            % direct drive: the generator load High Z, locked
+            tc.verifyEqual(h.genLoad.Value, 'High Z');
             tc.verifyEqual(char(h.genLoad.Enable), 'off', 'direct drive: High Z');
+            tc.verifyEqual(h.genLoadLabel.Text, 'Generator load');
+            % an amplifier: its input impedance sets the load; no gain yet: the level at its input
             h.ampModel.Value = 'power amplifier';
             feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));
             tc.verifyEqual(char(h.genLoad.Enable), 'on', 'with an amplifier');
-            tc.verifyEqual(char(h.ampAt.Enable), 'off', 'the loudspeaker level only in direct drive');
-            h.genLoad.Value = '50';
-            feval(h.genLoad.ValueChangedFcn, h.genLoad, struct('PreviousValue', 'INF'));
-            tc.verifyEqual(app.Cfg.generator.load, '50');
-            tc.verifyEqual(h.amp.Limits(1), 0.005, 'AbsTol', 1e-12, 'smallest level at 50 Ω: 10 mVpp');
-            tc.verifyTrue(any(contains(cellstr(h.log.Value), 'Generator load: 50 Ω, was High Z')));
+            tc.verifyEqual(h.genLoadLabel.Text, 'Amp input [Ω]');
+            tc.verifyTrue(all(ismember({'High Z', '50', '600', '10000'}, h.genLoad.Items)), 'typical inputs');
+            tc.verifyEqual(h.ampAt.Items, {'Speaker [Vpk]', 'Amp input [Vpk]'});
+            tc.verifyEqual(h.ampAt.Value, 'generator');
+            tc.verifyEqual(char(h.ampAt.Enable), 'off', 'the loudspeaker level needs the gain');
+            h.genLoad.Value = '600';
+            feval(h.genLoad.ValueChangedFcn, h.genLoad, struct('PreviousValue', 'High Z'));
+            tc.verifyEqual(app.Cfg.generator.load, '600');
+            tc.verifyEqual(app.Cfg.amplifier.inputImpedance_ohm, 600);
+            tc.verifyEqual(h.amp.Limits(1), 0.01 * 600 / 650, 'RelTol', 1e-9, 'smallest level at 600 Ω');
+            tc.verifyTrue(any(contains(cellstr(h.log.Value), 'Amplifier input: 600 Ω, was High Z')));
+            h.genLoad.Value = '20000';                                 % above the 33220A's 10 kΩ: INF
+            feval(h.genLoad.ValueChangedFcn, h.genLoad, struct('PreviousValue', '600'));
+            tc.verifyEqual(app.Cfg.generator.load, 'INF');
+            tc.verifyEqual(app.Cfg.amplifier.inputImpedance_ohm, 20000);
+            h.genLoad.Value = 'abc';                                   % not a number: refused
+            feval(h.genLoad.ValueChangedFcn, h.genLoad, struct('PreviousValue', '20000'));
+            tc.verifyEqual(h.genLoad.Value, '20000');
+            tc.verifyTrue(any(contains(cellstr(h.log.Value), 'Amplifier input "abc"')));
+            h.genLoad.Value = '600';
+            feval(h.genLoad.ValueChangedFcn, h.genLoad, struct('PreviousValue', '20000'));
+            tc.verifyEqual(h.amp.Value, 0.1, 'AbsTol', 1e-12, '0.1 Vpk at the amplifier input');
+            % the gain entered: the level is shown at the loudspeaker (the default with a known gain)
+            h.ampGain.Value = 10;
+            feval(h.ampGain.ValueChangedFcn, h.ampGain, struct('PreviousValue', 0));
+            tc.verifyEqual(h.ampAt.Value, 'loudspeaker');
+            tc.verifyEqual(h.amp.Value, 1, 'RelTol', 1e-9, '0.1 Vpk x 10');
+            tc.verifyEqual(h.ampRms.Text, sprintf('= %.3g Vrms', 1 / sqrt(2)));
+            tc.verifyEqual(app.DriveCheck.state, 'ok');
+            tc.verifyEqual(app.DriveCheck.binding, 'speaker', 'sqrt(2 x 1 W x 8 ohm) = 4 Vpk');
+            tc.verifySubstring(h.drivePath.Text, 'Generator 0.2 Vpp into 600 Ω → ×10 → speaker 1 Vpk');
+            tc.verifyEqual({h.spkState.Text, h.spkPct.Text, h.genState.Text}, {'OK', '6.25 %', 'OK'});
+            tc.verifySubstring(h.driveMax.Text, 'Max 4 Vpk at the speaker, set by the loudspeaker test limit');
+            for s = {3.79, 'near', 'Near'; 4.1, 'over', 'Above'}.'
+                h.amp.Value = s{1};
+                feval(h.amp.ValueChangedFcn, h.amp, struct('PreviousValue', 1));
+                tc.verifyEqual(app.DriveCheck.state, s{2}, sprintf('%g Vpk', s{1}));
+                tc.verifyEqual(h.spkState.Text, s{3});
+            end
+            % back to direct drive: High Z again, the same programmed level
             h.ampModel.Value = 'none (direct drive)';
             feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'power amplifier'));
-            tc.verifyEqual(h.genLoad.Value, 'INF', 'back to direct drive: High Z');
+            tc.verifyEqual(h.genLoad.Value, 'High Z', 'back to direct drive: High Z');
             tc.verifyEqual(app.Cfg.generator.load, 'INF');
+            tc.verifyEqual(h.ampAt.Items, {'Speaker [Vpk]', 'Generator [Vpk]'});
+            h.ampAt.Value = 'generator';
+            feval(h.ampAt.ValueChangedFcn, h.ampAt, struct('PreviousValue', 'loudspeaker'));
+            tc.verifyEqual(h.amp.Value, 0.41, 'RelTol', 1e-9, 'the programmed level of 4.1 Vpk / ×10');
+            h.amp.Value = 0.1;
+            feval(h.amp.ValueChangedFcn, h.amp, struct('PreviousValue', 0.41));
             % the level at the loudspeaker: 0.1 Vpk programmed = 0.1 * 8/58 Vpk at the loudspeaker
-            tc.verifyEqual(h.amp.Value, 0.1, 'AbsTol', 1e-12);
             h.ampAt.Value = 'loudspeaker';
             feval(h.ampAt.ValueChangedFcn, h.ampAt, struct('PreviousValue', 'generator'));
             tc.verifyEqual(h.amp.Value, 0.1 * 8 / 58, 'RelTol', 1e-9, 'the same level, at the loudspeaker');
             tc.verifyEqual(h.amp.Limits, [0.01 1] * 8 / 58, 'RelTol', 1e-9, 'the generator limits at the loudspeaker');
             h.amp.Value = 0.01;                                       % 10 mVpk at the loudspeaker
             feval(h.amp.ValueChangedFcn, h.amp, struct('PreviousValue', 0.1 * 8 / 58));
-            tc.verifySubstring(h.drive.Text, 'Estimated loudspeaker drive: 0.01 Vpk');
-            tc.verifySubstring(h.drive.Text, 'Generator 0.0725 Vpk');
+            tc.verifySubstring(h.drivePath.Text, 'Generator 0.145 Vpp open circuit → speaker 0.01 Vpk');
+            tc.verifySubstring(h.driveMax.Text, 'set by generator.maxVpp (2 Vpp open circuit)', 'the maximum in direct drive');
+            tc.verifyEqual(app.DriveCheck.maxSpeakerVpk, 8 / 58, 'RelTol', 1e-9);
             h.spkZ.Value = 4;                                         % the loudspeaker voltage is kept
             feval(h.spkZ.ValueChangedFcn, h.spkZ, struct('PreviousValue', 8));
             tc.verifyEqual(h.amp.Value, 0.01, 'AbsTol', 1e-12);
-            tc.verifySubstring(h.drive.Text, 'Generator 0.135 Vpk');   % 0.01 * 54/4
+            tc.verifySubstring(h.drivePath.Text, 'Generator 0.27 Vpp');   % 2 x 0.01 * 54/4
             h.spkZ.Value = 8;
             feval(h.spkZ.ValueChangedFcn, h.spkZ, struct('PreviousValue', 4));
             feval(h.connect.ButtonPushedFcn, h.connect, []);            % reads the fields
@@ -1144,6 +1197,8 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.LastMeas.metadata.config.ui.amplitudeAt, 'generator');
             tc.verifyEqual(app.LastMeas.metadata.drive.Vspk_pk, 0.01, 'RelTol', 1e-9, 'metadata.drive: the loudspeaker level');
             tc.verifyEqual(app.LastMeas.metadata.drive.Voc_pp, 2 * 0.01 * 58 / 8, 'RelTol', 1e-9, 'and the generator level');
+            tc.verifyEqual(app.LastMeas.metadata.drive.state, 'ok', 'and the loudspeaker check');
+            tc.verifyEqual(app.LastMeas.metadata.drive.Vspk_rms, 0.01 / sqrt(2), 'RelTol', 1e-9);
             h.ampAt.Value = 'loudspeaker';
             feval(h.ampAt.ValueChangedFcn, h.ampAt, struct('PreviousValue', 'generator'));
             % choosing an amplifier shows the same generator level as the generator's

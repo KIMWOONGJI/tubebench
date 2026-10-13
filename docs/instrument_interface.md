@@ -76,9 +76,9 @@ are static and must not do any I/O.
 
 | Member | Returns / does |
 |---|---|
-| `d = describe()` | `name` (registry name, lower case, = `generator.driver` / `daq.driver`); `displayName` (e.g. `'Keysight/Agilent 33220A function generator'`, shown in the window and stored in the metadata); `labels` (struct, one short lamp label per role, e.g. `source: 'Generator'`, `acquisition: 'LAN-XI'`); `defaults.settings` (default driver settings = the sub-struct `generator.<name>` / `daq.<name>`); `defaults.acquisition` (acquisition drivers: the values `acquisition.sampleRate`, `range`, `filter` and `ccld` take when the configuration leaves them empty, section 9.2); `texts.settle` (what the settling step after `prepare` waits for, `sprintf` format with the filter, e.g. `'CCLD + %s high-pass'`; `''` = no settling needed); `texts.noun` (the instrument in a sentence of the window, lower case unless a name: `'generator'`, `'LAN-XI module'`, `'simulated device'`); `texts.closed` (the state `close()` leaves it in, read after the noun: `'output off'`, `'back to Idle'`, `'stopped, output at 0 V'`) - section 7.1; `simulation` (`'protocol'`: real driver that runs on its protocol mock in simulation mode; `'only'`: a driver without a real instrument - the contract-level `simcombined`, the guide's demo source on its own mock -, simulation mode only) |
+| `d = describe()` | `name` (registry name, lower case, = `generator.driver` / `daq.driver`); `displayName` (e.g. `'Keysight/Agilent 33220A function generator'`, shown in the window and stored in the metadata); `labels` (struct, one short lamp label per role: the role as the operator calls it, never the product, which the "In use" line shows - `source: 'Generator'`, `acquisition: 'DAQ'`; a device in both roles may name its parts, `'Output'` / `'Inputs'`; owner, 2026-10-13); `defaults.settings` (default driver settings = the sub-struct `generator.<name>` / `daq.<name>`); `defaults.acquisition` (acquisition drivers: the values `acquisition.sampleRate`, `range`, `filter` and `ccld` take when the configuration leaves them empty, section 9.2); `texts.settle` (what the settling step after `prepare` waits for, `sprintf` format with the filter, e.g. `'CCLD + %s high-pass'`; `''` = no settling needed); `texts.noun` (the instrument in a sentence of the window, lower case unless a name or abbreviation, the role rather than the product: `'generator'`, `'DAQ'`, `'simulated device'`); `texts.closed` (the state `close()` leaves it in, read after the noun: `'output off'`, `'back to Idle'`, `'stopped, output at 0 V'`) - section 7.1; `simulation` (`'protocol'`: real driver that runs on its protocol mock in simulation mode; `'only'`: a driver without a real instrument - the contract-level `simcombined`, the guide's demo source on its own mock -, simulation mode only) |
 | `c = capabilities()` | section 5 (roles, shared clock, pairing, products, source and acquisition limits) |
-| `s = connectionSteps()` | struct array `key`, `label`, `role` (`'source'`, `'acquisition'` or `'both'`), `phase` (`'connect'`: reported by `fromConfig`; `'prepare'`: reported by `prepare`) - section 6 |
+| `s = connectionSteps()` | struct array `key`, `label` (a short lower-case phrase without the role: the window shows it after the lamp label of its role, "DAQ: open recorder"; the connect step names the model and interface, `'connect (33220A, SCPI)'`), `role` (`'source'`, `'acquisition'` or `'both'`), `phase` (`'connect'`: reported by `fromConfig`; `'prepare'`: reported by `prepare`) - section 6 |
 | `report = checkConfig(cfg)` | validates the driver's part of the configuration (its sub-struct and the role settings it constrains, section 9.2); errors `tim:config:*`, returns warnings (cellstr) |
 | `obj = fromConfig(cfg, ctx)` | factory used only by `tim.instr.create`: builds the transport (hardware) or the protocol mock (simulation, on `ctx.rig`), connects, identifies, puts the instrument in its safe state (section 3.1); reports its `'connect'` steps through `ctx.progress`. Named `fromConfig` because MATLAB rejects a static `create` next to the LAN-XI driver's instance method `create` (= `PUT /rest/rec/create`), D20. |
 | `h = testHooks(obj)` | simulation only: function handles into the driver's protocol mock with which the contract tests observe the safety duties (section 11.3); `tim:instr:noHooks` for an object that does not run on its mock |
@@ -175,8 +175,19 @@ in hardware mode unless the owner sets `generator.allowUnconfirmedOff = true` (s
 ### 3.4 Level limit
 
 * Every method that sets a level checks it **first** and sends no level command when the check
-  fails (`tim:gen:amplitude`): a positive scalar, at most `generator.maxVpp` (fixed at creation),
-  at least `capabilities.source.minVpp` for the configured load.
+  fails (`tim:gen:amplitude`): a positive scalar, its **open-circuit voltage** at most
+  `generator.maxVpp` (fixed at creation; since 1.3.0, WO-004: the limit is an open-circuit
+  voltage at every load), within the level range of the source at the configured load
+  (`tim.instr.SignalSource.levelRange`).
+* Loads: `generator.load` is `'INF'` (the programmed level is the open-circuit voltage) or one of
+  `source.loads`; a source that accepts any resistance R as its load setting declares
+  `source.loadRange` = [Rmin Rmax] Ω (the 33220A: [1 10000], `OUTP:LOAD <ohms>`, manual p.189).
+  At a load of R ohm the programmed level is the voltage across R, its open-circuit voltage
+  level × (R + R_s) / R (`openCircuitFactor`, R_s = `outputImpedance_ohm`) and its range the
+  open-circuit range × R / (R + R_s). The window sets the load to the amplifier's input impedance
+  (owner decision 2026-10-12); direct drive needs `'INF'`. Static helpers of
+  `tim.instr.SignalSource`: `supportsLoad`, `levelRange`, `openCircuitFactor`, `loadOhm`,
+  `loadsText`.
 * `capabilities.source.levelKnown = true`: the driver programs an absolute voltage (SCPI
   generators, NI analog outputs).
 * `levelKnown = false`: the output is programmed in full-scale units (audio interface); the volts
@@ -266,8 +277,9 @@ because the LAN-XI `info.unit` already is a per-signal cell stored in saved meas
 | `source.sweepSpacing` | subset of `{'LOG','LIN'}` | both | - | both | both |
 | `source.frequencyRange` | [fMin fMax] Hz (`Inf`: limited by the sample rate only) | [1e-6 20e6] | - | [1 Inf] | [0.1 1e5] |
 | `source.bandFraction` | highest frequency as a fraction of the sample rate (shared clock), `NaN` for an own clock | NaN | - | 0.45 | NaN |
-| `source.loads` | accepted `generator.load` values: `'INF'` = programmed value is the open-circuit voltage, `'50'` = the voltage into 50 Ω | INF, 50 | - | INF | INF |
-| `source.maxVpp` | largest programmable level per entry of `loads`; `generator.maxVpp` must not exceed it | 20, 10 | - | 10 | 10 |
+| `source.loads` | listed `generator.load` values: `'INF'` = programmed value is the open-circuit voltage, `'50'` = the voltage into 50 Ω | INF, 50 | - | INF | INF |
+| `source.loadRange` | optional (1.3.0): [Rmin Rmax] Ω of any resistance accepted as the load (written as a number, e.g. `'600'`); the level range there scales from the INF entry by R / (R + `outputImpedance_ohm`) | [1 10000] | - | - | - |
+| `source.maxVpp` | largest programmable level per entry of `loads`; `generator.maxVpp` (an open-circuit voltage) must not exceed the largest open-circuit voltage | 20, 10 | - | 10 | 10 |
 | `source.minVpp` | smallest programmable level per entry of `loads` | 0.02, 0.01 | - | 0.001 | 0.002 |
 | `source.sweepTime` | [min max] sweep duration [s] | [0.001 500] | - | [0.1 300] | [0.01 300] |
 | `source.noiseCrest` | crest factor of the noise (Vpp / 2 / rms) | 3.3 | - | 3.3 | 3.3 (no noise) |
@@ -302,14 +314,16 @@ simcombined values are those of `tim.sim.SimulatedCombined` (as implemented in s
 The window shows, in this order: the source's steps, the acquisition's steps (once for a combined
 device), then the session's own steps `sens` (microphone sensitivities), `settle` (settling after
 the channel setup, hardware only; its text from `describe().texts.settle`) and `signal` (1 s
-signal check without excitation).
+signal check without excitation). A driver step is shown after the lamp label of its role
+(`describe().labels`; both labels joined by " + " for a `'both'` step): "Generator: connect
+(33220A, SCPI)", "DAQ: open recorder" (1.3.0, owner 2026-10-13: the roles, not the product names).
 
 | Driver | Steps (`key`: label, role, phase) |
 |---|---|
-| keysight33220a | `gen`: Function generator 33220A (SCPI), source, connect |
-| lanxi | `lanxi`: LAN-XI module (REST), acquisition, connect; `idle`: LAN-XI recorder state Idle, acquisition, connect; `open`: Open recorder, acquisition, prepare; `teds`: TEDS transducer detection, acquisition, prepare; `setup`: Channel setup → streaming, acquisition, prepare |
-| simcombined | `device`: Simulated device (output + 4 inputs), both, connect; `setup`: Channel setup, acquisition, prepare |
-| demo | `demo`: Demo generator DEMO-SG1 (SCPI, simulated), source, connect |
+| keysight33220a | `gen`: connect (33220A, SCPI), source, connect |
+| lanxi | `lanxi`: connect (LAN-XI, REST), acquisition, connect; `idle`: recorder state Idle, acquisition, connect; `open`: open recorder, acquisition, prepare; `teds`: TEDS detection, acquisition, prepare; `setup`: channel setup → streaming, acquisition, prepare |
+| simcombined | `device`: connect (simulated device), both, connect; `setup`: channel setup, acquisition, prepare |
+| demo | `demo`: connect (DEMO-SG1, SCPI, simulated), source, connect |
 
 Rules:
 
@@ -378,12 +392,13 @@ connecting) and from the connected objects:
 | INSTRUMENTS "In use" (one line per instrument; the row holds three lines, so a `displayName` of more than about 50 characters may wrap once) | before Connect (and after Disconnect) the `displayName` of each configured driver; after Connect `'<label>: <model> s/n <serial>'` from `identity()`, followed by "(simulated)" in simulation mode (the protocol mocks report realistic identities, the LAN-XI mock the lab module's) |
 | Setup > Connection, Instruments table | one row per role, one row "Output + Inputs (both roles)" for a combined device: role (lamp label and role), `displayName`, driver name, vendor, model, serial number, firmware (`identity()`, "–" before Connect) and the configured settings (`generator.maxVpp`, `load`; sample rate, range, filter, CCLD) |
 | Instruments table tooltip | the values the drivers allow (`capabilities()`: loads with `minVpp`–`maxVpp`, `sweepTime`, `waveforms`; `sampleRates` or `sampleRateRange`, `ranges`, `filters`, `ccld`, `teds`). The window has no sample-rate or range control: these are set in the configuration and checked by `checkConfig` (section 9.2) |
-| Connection checklist, lamp of each step, card refresh | `connectionSteps()` (`key`, `label`, `role`, `phase`), then the session's steps; the settling label from `texts.settle` (section 6) |
-| Operating-mode, Connect and Disconnect tooltips, the log line of Disconnect, the closing dialog | `texts.noun` and `texts.closed`, e.g. "Connect the generator and the LAN-XI module (generator output off), read TEDS and check every channel" ("read TEDS" only when `capabilities.acquisition.teds`), "Generator output off, LAN-XI module back to Idle, connections closed." - the texts of before for the two lab drivers |
+| Connection checklist, lamp of each step, card refresh | `connectionSteps()` (`key`, `label` after the lamp label of its `role`, `phase`), then the session's steps; the settling label from `texts.settle` (section 6) |
+| Operating-mode, Connect and Disconnect tooltips, the log line of Disconnect, the closing dialog | `texts.noun` and `texts.closed`, e.g. "Connect the generator and the DAQ (generator output off), read TEDS and check every channel" ("read TEDS" only when `capabilities.acquisition.teds`), "Generator output off, DAQ back to Idle, connections closed." (before 1.3.0 "LAN-XI module") |
 | Output state after Stop, an error or closing | `isOutputOn(1)` worded by `capabilities.source.readback` (section 3.2) |
 | Live view, background work | `recent()`; the background build waits while `isAcquiring()` |
 | Frequency fields (EXCITATION) | at most `acquisition.bandFraction` × `acquisition.sampleRate`, `source.frequencyRange(2)` and, for a shared clock, `source.bandFraction` × sample rate; at least `max(1 Hz, source.frequencyRange(1))` |
-| Amplitude field | from `source.minVpp` at `generator.load` (33220A at `INF`: 0.01 Vpk; before 1.2.0 the field allowed 0.005 Vpk, which the 33220A refuses: such a file loads with a warning and the field starts at the minimum) up to `generator.maxVpp` / 2 |
+| Amplitude field | from the smallest level at `generator.load` (`levelRange`; 33220A at `INF`: 0.01 Vpk; before 1.2.0 the field allowed 0.005 Vpk, which the 33220A refuses: such a file loads with a warning and the field starts at the minimum) up to `generator.maxVpp` / 2 as open-circuit voltage and the largest level at the load (`tim.app.driveLimits`) |
+| Amplifier input (EXCITATION) | the list offers High Z and typical inputs; a typed resistance up to `source.loadRange(2)` becomes `generator.load`, above it `'INF'` (1.3.0) |
 | Sweep duration field | `source.sweepTime` |
 | Drive estimate | `source.outputImpedance_ohm` (`tim.app.driveEstimate`, D12) |
 
@@ -552,8 +567,10 @@ session only (tests; trying a driver before its line is added).
   gives the step `'skip'`, no error; the swept sine with the configured spacing must be supported
   (`'sweep'` in `source.waveforms`, `excitation.sweep.spacing` in `sweepSpacing`) because the
   switching calibration and Test E are sweeps (`tim.app.runCalibration`), and `excitation.mode`
-  must be in `source.waveforms` (`tim:config:excitation`); `generator.maxVpp` at most `maxVpp` of
-  the load, and the levels of the swept sine and of the selected signal at least `minVpp` (a level
+  must be in `source.waveforms` (`tim:config:excitation`); `generator.load` one of `loads` or
+  within `loadRange`; `generator.maxVpp` (open circuit) at most the source's largest open-circuit
+  voltage, and the levels of the swept sine and of the selected signal at least the minimum at the
+  load (`levelRange`; a level
   that is not played now is refused by `configure*` when it is, `tim:gen:amplitude`); sweep
   durations within `sweepTime`; a sample rate the device runs exactly; in hardware mode
   `vppAtFullScale` for `levelKnown = false`.
@@ -778,7 +795,8 @@ own driver tests (D42).
 | `tim:config:legacyField` (warning) | `migrateConfig` | old keys ignored or not moved (section 9.3) |
 | `tim:config:misplacedSettings` (warning) | `loadConfig`, registry | driver settings in a section the driver never reads, e.g. `generator.<d>` of a combined driver (section 9.2) |
 | `tim:gen:notArmed` | source | `outputOn` without `armOutput(true)` |
-| `tim:gen:amplitude` | source | level above the limit, not positive, below the instrument minimum or above full scale |
+| `tim:gen:amplitude` | source | level above the limit (open circuit), not positive, outside the instrument's range at the load, or above full scale |
+| `tim:gen:load` | source | a load setting the driver does not accept (33220A: not `INF` or 1-10000 Ω written as a number; 1.3.0) |
 | `tim:gen:mode` | source | call not valid in the configured mode (unconfigured `outputOn`, `setFrequency` outside sine, `triggerSweep` outside sweep, a block source configured before any sample rate is known) |
 | `tim:gen:sweep` | source | invalid sweep settings |
 | `tim:gen:unsupported` | source | waveform or feature not in the capabilities |

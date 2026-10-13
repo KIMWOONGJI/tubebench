@@ -12,9 +12,10 @@ cfg.mode = 'simulation';                % 'simulation' | 'hardware'
 cfg.projectName = 'tubebench';
 cfg.ui = struct('language', 'en', ...  % operator prompts and confirmations (tim.app.msg): 'en' (default) | 'ko'
     'amplitudeAt', 'generator');        % what the window's amplitude field gives: 'generator' (the programmed
-                                        % level, default) | 'loudspeaker' (direct drive only; the window computes
-                                        % the generator level, tim.app.generatorAmplitude). The excitation
-                                        % amplitudes below are always the generator's.
+                                        % level: open circuit in direct drive, the amplifier input with an
+                                        % amplifier; default) | 'loudspeaker' (the window computes the generator
+                                        % level, tim.app.generatorAmplitude; with an amplifier it needs the gain).
+                                        % The excitation amplitudes below are always the generator's.
 
 % ---------------- instruments ----------------
 % generator.driver and daq.driver select the instrument drivers (registry
@@ -24,15 +25,17 @@ cfg.ui = struct('language', 'en', ...  % operator prompts and confirmations (tim
 % timeout), daq.lanxi (host, timeout, connector). A driver that takes both
 % roles is named in both sections and reads daq.<driver>.
 % maxVpp and load are the same for every generator; their allowed values
-% come from the driver (capabilities().source). maxVpp limits the PROGRAMMED
-% amplitude. 33220A: the source impedance is always 50 ohm and OUTP:LOAD only
-% rescales the programmed amplitude: 'INF' -> VOLT is the open-circuit
-% voltage; '50' -> VOLT is the voltage across a 50-ohm load (open circuit =
-% 2 x VOLT).
+% come from the driver (capabilities().source). maxVpp limits the OPEN-CIRCUIT
+% voltage at the generator terminals, whatever the load setting (WO-004).
+% 33220A: the source impedance is always 50 ohm and OUTP:LOAD only rescales
+% the programmed amplitude: 'INF' -> VOLT is the open-circuit voltage; a
+% resistance R ('50', '600', 1 .. 10000) -> VOLT is the voltage across R
+% (open circuit = VOLT x (R + 50) / R). With an amplifier the window sets the
+% load to the amplifier's input impedance; direct drive uses 'INF'.
 gen = tim.instr.driverInfo('keysight33220a');
 cfg.generator = struct('driver', gen.name, ...
-    'maxVpp', 0.5, ...                  % SAFETY LIMIT for amplifier/loudspeaker [Vpp, programmed]
-    'load', 'INF', ...                  % 'INF' (high-Z amplifier input, direct drive) | '50' (50-ohm amplifier input)
+    'maxVpp', 0.5, ...                  % SAFETY LIMIT for amplifier/loudspeaker [Vpp, open circuit]
+    'load', 'INF', ...                  % 'INF' (direct drive; high-Z amplifier input) | the amplifier input in ohm as text ('50', '600')
     'allowUnconfirmedOff', false, ...   % true: accept a generator that cannot report its output state (hardware)
     gen.name, gen.defaults.settings);
 % Power amplifier between 33220A and loudspeaker. Its gain is set BY HAND
@@ -43,12 +46,15 @@ cfg.amplifier = struct('model', '', ...
     'gainFactor', NaN, ...              % voltage gain as a multiplier (x10 -> 10); 1 for direct drive; NaN = unknown
     'gainSetting', '', ...              % free text, e.g. knob position as written on the amplifier
     'gain_dB', NaN, ...                 % = 20*log10(gainFactor), kept for the metadata
-    'inputImpedance_ohm', NaN, ...      % amplifier input impedance; NaN = from generator.load (INF -> high-Z, 50 -> 50 ohm)
+    'inputImpedance_ohm', NaN, ...      % amplifier input [ohm] (data sheet); NaN = from generator.load (INF: high-Z)
     'knownModels', {{'none (direct drive)', 'power amplifier'}}, ...  % GUI drop-down items (typed models are added)
     'confirmBeforeExcitation', true);   % ask operator before driving the loudspeaker (hardware mode)
 % Loudspeaker data: used to estimate the electrical drive (voltage, current,
 % power) from generator amplitude x amplifier gain, and to REFUSE excitation
-% above maxPower_W (sine/sweep mean power, P = Vpk^2 / (2 Z)).
+% above maxPower_W (the test limit; at most ratedPower_W). The power is taken
+% at the NOMINAL impedance, P = Vrms^2 / Z (sine / sweep: Vrms = Vpk/sqrt(2);
+% noise: Vpk / crest factor); 80 % of maxPower_W and more is shown as "near
+% the limit" (tim.app.driveEstimate).
 cfg.loudspeaker = struct('impedance_ohm', 8, 'ratedPower_W', 25, 'maxPower_W', 1.0);
 % LAN-XI: daq.lanxi.connector 'BNC' | 'LEMO' (the 3676 supports both; must match the cabling);
 % '' (files of 1.1.0) sends no ConnectorSelect: the module keeps its own setting

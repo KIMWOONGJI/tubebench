@@ -396,6 +396,28 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             end
         end
 
+        function levelLimitIsOpenCircuit(tc, source)
+            % generator.maxVpp is an open-circuit voltage (contract 3.4, WO-004):
+            % at every listed load of R ohm a programmed level counts as
+            % level x (R + Rs) / R (a driver that compared the programmed level
+            % would let 2 x maxVpp reach an open input at 50 ohm)
+            c = capabilitiesOf(source); c = c.source;
+            for ld = c.loads(~strcmp(c.loads, 'INF'))
+                f = tim.instr.SignalSource.openCircuitFactor(c, ld{1});
+                cfg = tc.config('source', source); cfg.generator.load = ld{1};
+                lim = cfg.generator.maxVpp;
+                [src, h] = tc.make('source', source, cfg);
+                tc.verifyError(@() src.configureSine(1000, 1.05 * lim / f), 'tim:gen:amplitude', ...
+                    sprintf('load %s: 1.05 x maxVpp open circuit', ld{1}));
+                [lo, hi] = tim.instr.SignalSource.levelRange(c, ld{1});
+                if 0.9 * lim / f >= lo && 0.9 * lim / f <= hi
+                    src.configureSine(1000, 0.9 * lim / f);
+                end
+                tc.verifyTrue(all(h.levelHistory() * f <= lim * (1 + 1e-6)), ...
+                    sprintf('load %s: no level above maxVpp open circuit reached the instrument', ld{1}));
+            end
+        end
+
         function outputOnOnlyArmedAndConfigured(tc, source)
             [src, h, cfg] = tc.make('source', source);
             tc.verifyError(@() src.outputOn(), 'tim:gen:notArmed');
