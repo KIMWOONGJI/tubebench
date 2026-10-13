@@ -321,9 +321,11 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   the generator's switching clicks out. Since 2026-10-11 an end without the margin is analysed
   without the gate's ramp, so the lines near the band edge stay accurate (before, they were biased
   by up to 13 % at a 109 Hz start and 58 % for 120–4500 Hz in simulation): a start above the lower
-  limit is analysed from the detected start of the excitation (the output-on click included), a
-  stop below the upper limit keeps a ring-down margin after the sweep (an output-off click within
-  it included). The message pane warns when the configuration or a processed sweep does not keep
+  limit keeps the gate's ramp, placed on the start-frequency tone before the sweep (since 1.3.1;
+  an output-on click before the ramp stays out, one within it is included - with the lab's
+  trigger latency of 0.13–0.28 s the click mostly stays out; from 2026-10-11 to 1.3.0 the window
+  began at the detected start, the click always included), a stop below the upper limit keeps a
+  ring-down margin after the sweep (an output-off click within it included). The message pane warns when the configuration or a processed sweep does not keep
   the margin, names the edge that was used and prints the two limits; the configuration check and
   the analysis use the same limits.
 * **Amplifier gain [×]**: the field is disabled for "none (direct drive)" (gain 1). When you choose
@@ -590,10 +592,11 @@ tone) and after it (the jump back to the start frequency and the click when the 
 switched off).
 The sweep is located in every repetition by a matched filter; only the sweep enters the transfer
 functions and the calibration (`docs/theory.md`, section 4). A sweep that starts too close to the
-band (above f_lo/1.3) is analysed from the detected start, one that stops too close (below
-1.1 × f_hi) with a ring-down margin after its end, so the shading starts or ends there (see
-"Swept-sine range" above). The header note then says so per end: before the analysed part there
-is only the pre-roll and the output-on transient and the start-frequency tone are analysed, or
+band (above f_lo/1.3) keeps its ramp on the start-frequency tone before the sweep, one that stops
+too close (below 1.1 × f_hi) a ring-down margin after its end, so the shading starts or ends there
+(see "Swept-sine range" above). The header note then says so per end: the analysed part begins
+on the start-frequency tone before the sweep (an output-on transient after that time is
+included; results of 1.2.0–1.3.0 analysed from the detected start, and their note says so), or
 the analysed part continues past the sweep end and includes an output-off transient within the
 margin. If the sweep cannot be found, the message pane says so and the whole excited interval is
 used.
@@ -710,8 +713,13 @@ validity threshold). The derivations are in `theory.md`, whose reference list is
     If the microphones were on other ports when the measurement was recorded (`meas.mics` in
     `raw.mat`, or the folder's `config.json`) than the configuration says now (e.g. re-cabled
     since, or another configuration loaded), a second dialog shows both assignments and asks
-    "Use the recorded mapping" (the default, also when the dialog is closed) or "Keep the
-    configuration's mapping" (only to correct an assignment that was recorded wrongly). The
+    "Use the recorded mapping" (the default, also when the dialog is closed with Esc or X; kept
+    by the owner on 2026-10-13) or "Keep the configuration's mapping" (only to correct an
+    assignment that was recorded wrongly). Since 1.3.1 the dialog and the message pane also name
+    the assignment the **saved results** were computed with (the folder's `config.json`): for a
+    folder saved after such a correction that is the corrected one, so reopening it shows that
+    the default answer would undo the correction. When no dialog is needed (recorded =
+    configured) but the saved results used another assignment, the message pane says so. The
     choice applies to Reprocess of this measurement only; the message pane records it.
     **Reprocess** then computes the results again with the fields, the active calibration and that
     assignment; **Save measurement** writes a new folder whose `config.json` holds the assignment

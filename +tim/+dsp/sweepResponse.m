@@ -53,15 +53,20 @@ function out = sweepResponse(records, fs, opts)
 %   limits tim.app.validateConfig checks too), the gate would put its ramp
 %   on the band edge there (biased lines with a high coherence). That end of
 %   the window is then
-%       start: as without the gate, from the detected start - taper (raised
-%              cosine; the output-on transient and the start tone included);
+%       start: the gate's ramp on the sweep law continued before the sweep
+%              start: 0 before t(fLo/1.5), raised cosine up to t(fLo/1.1)
+%              (at least 'taper'), i.e. on the start tone the generator
+%              plays before t0, so an earlier output-on transient stays out
+%              (owner decision 2026-10-13; from 2026-10-11 to then: from the
+%              detected start - taper, the output-on transient included);
 %       end:   extended past the sweep end t0+T by the gate's ring-down
 %              margin, the sweep law continued beyond fStop: 1 up to
 %              t(1.1 fHi), raised cosine down to t(1.5 fHi) (at least
 %              'taper', at most the end of the record), so a later
 %              output-off transient stays out.
 %   excitation.gateEnds names the edge used per repetition ('gate',
-%   'detected start', 'ring-down margin') and a warning says so. If the
+%   'ramp before start', 'ring-down margin'; results of 2026-10-11 to
+%   2026-10-13 may hold 'detected start') and a warning says so. If the
 %   sweep is not found reliably the record is cut as below and a warning
 %   says so.
 %   Without the gate the record of each repetition is cut from (detected
@@ -233,8 +238,8 @@ m = '';
 if ~(lo || hi), return; end
 what = {}; parts = {};
 if lo
-    what{end+1} = ['the analysis window starts at the detected excitation, as without the gate (the ' ...
-        'output-on transient and the start tone included)'];
+    what{end+1} = ['the window''s ramp lies before the sweep start, on the start tone (an output-on ' ...
+        'transient within it is included)'];
     parts{end+1} = sprintf('start at or below %.0f Hz (now %g Hz)', floor(lim(1)), sw.fStart);
 end
 if hi
@@ -287,17 +292,23 @@ end
 f1 = sw.fStart; f2 = sw.fStop;
 if strncmpi(sw.spacing, 'LOG', 3)
     tf = @(f) t0 + T * log(min(max(f, f1), f2) / f1) / log(f2 / f1);
+    tx = @(f) t0 + T * log(f / f1) / log(f2 / f1);          % the sweep law continued beyond its ends
 else
     tf = @(f) t0 + T * (min(max(f, f1), f2) - f1) / (f2 - f1);
+    tx = @(f) t0 + T * (f - f1) / (f2 - f1);
 end
 t = [tf(band(1) / 1.5), tf(band(1) / 1.1), tf(band(2) * 1.1), tf(band(2) * 1.5)];
 [lo, hi] = noMargin(sw, lim);
 ends = {'gate', 'gate'};
 if lo
-    % no room below the band (owner decision 2026-10-11): from the detected
-    % start, as without the gate (docs/theory.md section 4, step 2')
-    t(1) = max(0, min(ex.start_s, t0) - taper); t(2) = t(1) + taper;
-    ends{1} = 'detected start';
+    % no room below the band (owner decision 2026-10-13, WO-003 4.2; until
+    % then from the detected start): the gate's ramp on the sweep law
+    % continued before the sweep start, 0 before t(f_lo/1.5), raised cosine up
+    % to t(f_lo/1.1) (at least the taper). Before t0 the generator plays its
+    % start tone, so the ramp lies on that tone; an output-on transient before
+    % t(f_lo/1.5) stays out (with the lab's trigger latency of 0.13-0.28 s)
+    t(1) = max(0, tx(band(1) / 1.5)); t(2) = max(t(1) + taper, tx(band(1) / 1.1));
+    ends{1} = 'ramp before start';
 elseif t(2) - t(1) < taper
     % minimum ramp length inside the sweep
     t(1) = max(t0, t(2) - taper); t(2) = t(1) + taper;
@@ -307,11 +318,6 @@ if hi
     % margin past the sweep end, the sweep law continued beyond fStop - 1 up
     % to t(1.1 f_hi), raised cosine down to t(1.5 f_hi) (at least the taper,
     % at most the record), so a later output-off transient stays out
-    if strncmpi(sw.spacing, 'LOG', 3)
-        tx = @(f) t0 + T * log(f / f1) / log(f2 / f1);
-    else
-        tx = @(f) t0 + T * (f - f1) / (f2 - f1);
-    end
     t(4) = min(numel(xr) / fs, max(tx(band(2) * 1.5), t0 + T + taper));
     t(3) = min(max(tx(band(2) * 1.1), t0 + T), t(4) - taper);
     ends{2} = 'ring-down margin';

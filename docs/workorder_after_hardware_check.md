@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.2.1 |
-| Status | **sections 1, 2 and 6 done**: built on branch `wo-003` on 2026-10-12, the owner's hardware check of sections 1 and 2 passed (`docs/hardware_status.md`, "Hardware check of 1.2.1"), the rounded paths of section 6 confirmed by the owner on screen captures; version 1.2.1, merged into `main` on 2026-10-12. The after-merge items of section 3 were done the same evening. **Still open:** the owner decisions 2-4 of section 4 and the question of section 5 (written 2026-10-12 after the owner's hardware check of 1.2.0) |
+| Status | **sections 1, 2 and 6 done**: built on branch `wo-003` on 2026-10-12, the owner's hardware check of sections 1 and 2 passed (`docs/hardware_status.md`, "Hardware check of 1.2.1"), the rounded paths of section 6 confirmed by the owner on screen captures; version 1.2.1, merged into `main` on 2026-10-12. The after-merge items of section 3 were done the same evening. The owner decisions 2-4 of section 4 were approved on 2026-10-13 and built in 1.3.1. **Still open:** the question of section 5 (written 2026-10-12 after the owner's hardware check of 1.2.0) |
 | Requested by | the owner (Woongji Kim), during and after the hardware check |
 | Rules | as in CLAUDE.md; a change of the instrument communication needs a short hardware check with the owner present; the bus-traffic fixtures are regenerated only for an owner-approved change |
 | Decisions | owner, 2026-10-12: (1) the connection check before every measurement / calibration with an automatic reconnect - **approved, including the regeneration of the bus-traffic fixtures**; (2) the idle check every 60 s - **yes**; (3) the loudspeaker voltage as the level in direct drive - **in 1.2.1**. Branch `wo-003` |
@@ -100,9 +100,32 @@ Tasks:
    Recommended in simulation:
    - with an output-on click, 0.63 % error instead of 60 %;
    - without a click, 3.4 % instead of 2.0 %.
+
+   **Approved 2026-10-13, built in 1.3.1** (`tim.dsp.sweepResponse`, edge `'ramp before start'`;
+   `TestDsp/sweepStartWithoutMarginKeepsTheOutputOnClickOut`). Simulated again before building,
+   with the lab's 5 s sweep (the figures above were for a 3 s sweep with a 62.5 ms trigger block):
+   the ramp before the start is never worse than the detected start (without clicks equal within
+   0.4 %, one case 0.75 %) and better with an output-on click, by how much depending on the start
+   tone: 5 s, latency 0.13 s, |R_term| 0.9: 109 Hz 16.5 % → 9.0 %, 100 Hz 17.4 % → 2.3 %, 92 Hz
+   18 % → 0.62 %; latency 0.28 s: 109 Hz 17.3 % → 1.2 %. A start no earlier than 50 ms after the
+   detected output-on (also simulated) keeps the click out always but biases the edge lines with a
+   short start tone (up to 15 %), so it was not taken (`docs/theory.md`, section 4).
 3. Show the mapping of the saved results in the mapping question of File > Open measurement…
-   (recommended).
-4. Keep "Esc = recorded mapping" and the cancel rule of `ask()` (recommended).
+   (recommended). **Approved 2026-10-13, built in 1.3.1**: the dialog and the message pane name
+   the mapping of the saved results (the folder's `config.json`) and whether it is the recorded or
+   the configuration's; without a dialog (recorded = configured) the message pane says when the
+   saved results used another (`TestGui/openedMeasurementReprocessedWithItsRecordedMapping`).
+4. Keep "Esc = recorded mapping" and the cancel rule of `ask()` (recommended). **Kept, owner
+   2026-10-13** (no change; user guide section on File > Open measurement).
+
+Verification of 1.3.1 (2026-10-13, branch `wo-003-decisions`, `run_tests()` in the owner's idle
+MATLAB R2022b, hidden windows only): 365 tests, 364 passed, 1 failed:
+`TestInstruments/generatorReplacesAnIdleConnection`, which talks to a local TCP fake instrument
+with a 2 s time-out and touches none of the changed code; run again alone three times: passed.
+The changed classes before (TestDsp, TestPlotsMeasurement, TestFormulaPanel, TestConfiguration and
+the mapping window test): 61 / 61. Code Analyzer: the same message counts as before. The lab
+folders and the lab calibration all have sweeps from 80 Hz (the gate at both ends), so their
+results do not change.
 
 ## 5. To look into (no change decided)
 

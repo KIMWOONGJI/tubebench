@@ -935,6 +935,10 @@ classdef TestGui < matlab.unittest.TestCase
             app.openMeasurement(d);                                % asked; a hidden window takes the default
             tc.verifySubstring(logText(), sprintf(['Microphone mapping for Reprocess: the recorded one (%s); ' ...
                 'the configuration has %s.'], recordedText, configuredText));
+            % owner decision 2026-10-13 (WO-003 4.3): the question also names the
+            % mapping of the saved results (config.json of the folder), and the log
+            tc.verifySubstring(logText(), sprintf('The saved results were computed with the microphone mapping %s (the recorded one).', ...
+                recordedText));
             tc.verifySubstring(logText(), 'and the microphone mapping the measurement was recorded with.');
             tc.verifyEqual(app.LastRes.analysis.R, res.analysis.R, 'the saved results are shown, not recomputed');
             feval(h.reprocess.ButtonPushedFcn, h.reprocess, []);
@@ -955,6 +959,13 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.LastRes.channelOfPosition, [2 1 3 4], 'Reprocess used the configuration''s mapping');
             tc.verifySubstring(logText(), sprintf('Warning: Microphone mapping of the configuration (%s) differs', configuredText), ...
                 'the mismatch is still reported');
+            % saved after that deliberate correction: reopened, the question names
+            % the corrected mapping as the one of the saved results
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            d2 = app.SavedDir;
+            app.openMeasurement(d2);
+            tc.verifySubstring(logText(), sprintf(['The saved results were computed with the microphone mapping %s ' ...
+                '(the configuration''s).'], configuredText));
             % the recorded mapping belongs to the opened measurement only: a new
             % measurement is processed with the configuration's (that of the connection)
             app.openMeasurement(d);

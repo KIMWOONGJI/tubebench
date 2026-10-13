@@ -4,7 +4,8 @@ function [g, ends] = analysisGate(res)
 %   gate of tim.dsp.sweepResponse: window 0 before tA and after tD, ramps tA-tB
 %   and tC-tD), or [] when the sweep was not gated (other signals, older
 %   results); ends = {lower, upper}, the edge used at each end
-%   (excitation.gateEnds: 'gate', 'detected start' or 'ring-down margin'),
+%   (excitation.gateEnds: 'gate', 'ramp before start' - 'detected start' in
+%   results of 2026-10-11 to 2026-10-13 - or 'ring-down margin'),
 %   {} when not recorded (results before 2026-10-11: the gate at both ends).
 %   Used by the Time signals view (opts.gate and opts.gateEnds of
 %   tim.plots.timeSignals).
