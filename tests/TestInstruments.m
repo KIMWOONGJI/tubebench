@@ -432,12 +432,20 @@ error('test:abort', 'aborted inside the measurement');
 end
 
 function answerFake(s)
-% fake 33220A on 127.0.0.1 (scpiConnectionDroppedAndReopened)
-cmd = strtrim(readline(s));
-switch cmd
-    case "*IDN?", writeline(s, "Agilent Technologies,33220A,FAKE0001,2.02-2.02-22-2");
-    case "OUTP?", writeline(s, "0");
-    case "SYST:ERR?", writeline(s, "+0,""No error""");
+% fake 33220A on 127.0.0.1 (scpiConnectionDroppedAndReopened,
+% generatorReplacesAnIdleConnection). Every complete line received is
+% answered: MATLAB may call the terminator callback once for several lines
+% that arrived together (the driver sends OUTP OFF, OUTP:LOAD INF, SYST:ERR?
+% right after a reopen), and a callback that read only one line left
+% SYST:ERR? unanswered - generatorReplacesAnIdleConnection then failed in the
+% owner's desktop MATLAB, where events are processed later (2026-10-13)
+while s.NumBytesAvailable > 0
+    cmd = strtrim(readline(s));
+    switch cmd
+        case "*IDN?", writeline(s, "Agilent Technologies,33220A,FAKE0001,2.02-2.02-22-2");
+        case "OUTP?", writeline(s, "0");
+        case "SYST:ERR?", writeline(s, "+0,""No error""");
+    end
 end
 end
 
