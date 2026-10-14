@@ -270,7 +270,7 @@ switch [tk '|' char(string(atJoint))]
 end
 if atJoint
     % in the space of the removed extension tube, at the height of the tube
-    text(ax, xEnd + tc + 6, 0, 0, tl, 'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+    text(ax, xEnd + tc + 10, 0, 0, tl, 'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
         'FontSize', C.fs, 'Color', C.text, 'Tag', 'endLabel');
 else
     % right-aligned on the end cap: stays inside the drawing, above the extension tube
@@ -308,7 +308,7 @@ if opts.dimensions
         C.dim2, C.fs2, 'dim_down', xHousing, T);
     zDimBottom = min(zDimBottom, zb - 1.5 - r2);
     if S.section
-        xBore = (xJ + xT) / 2; if atJoint, xBore = (x(4) + xJ) / 2; end   % in the extension, else before the joint
+        xBore = (xJ + xT) / 2; if atJoint, xBore = (xR + x(3)) / 2; end   % in the extension, else between the rear face and M3
         dimV(ax, xBore, -rb, rb, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), C.dim2, C.fs2);
     else                                           % (bore hidden) one row below the overall length
         text(ax, (x(4) + xT) / 2, 0, zb - 1.5 - r2, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), ...

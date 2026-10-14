@@ -1062,7 +1062,7 @@ classdef Tubebench < handle
                 'microphone shows (a re-packed absorber does not)']);
             uilabel(go, 'Text', 'B level', 'HorizontalAlignment', 'right', 'Tooltip', ...
                 'Generator level of load B relative to load A (only lower; raising it needs the owner''s approval)');
-            h.termLevelB = uidropdown(go, 'Items', {'same as A', '−3 dB', '−6 dB', '−10 dB', '−20 dB'}, ...
+            h.termLevelB = uidropdown(go, 'Items', {'as A', '−3 dB', '−6 dB', '−10 dB', '−20 dB'}, ...
                 'ItemsData', {0, -3, -6, -10, -20}, 'ValueChangedFcn', @(~, ~) app.onTermChanged(), 'Tooltip', ...
                 ['Generator level of load B relative to load A. A rigid cap raises the sound pressure at the tube ' ...
                 'resonances; a lower level keeps a specimen that is not linear at the level it meets with load A.']);
@@ -1162,7 +1162,7 @@ classdef Tubebench < handle
             h.axTw3D = uiaxes(tg); h.axTw3D.Layout.Row = 2;
             axtoolbar(h.axTw3D, {'rotate', 'zoomin', 'zoomout', 'pan', 'restoreview'});
             sg = page.SummaryPanel;                  % right column: loads table, note, step list
-            sg.RowHeight = {22, 92, 110, '1x'};
+            sg.RowHeight = {22, 104, 104, '1x'};
             ps = uipanel(sg, 'Title', 'Operator steps and quality of every load', 'FontWeight', 'bold', ...
                 'BackgroundColor', 'w');
             ps.Layout.Row = 4;
@@ -4293,7 +4293,7 @@ classdef Tubebench < handle
                         case 'tl', info = tim.plots.transmissionLoss(app.H.axTL, r, o);
                         case 'zt', info = tim.plots.transferImpedance(app.H.axZ, r, o);
                         case 'valid', info = tim.plots.validity(app.H.axV, r, o);
-                        case 'twoload', info = tim.plots.twoLoad(app.H.axTwQ, app.LastTM, ot);
+                        case 'twoload', info = tim.plots.twoLoad(app.H.axTwQ, app.LastTM, setfield(ot, 'sideBySide', true));
                         case 'tm', info = tim.plots.transferMatrix(app.H.axTM, app.LastTM, ot);
                     end
                     % notes of the measurement views are information, of the result views warnings

@@ -755,7 +755,7 @@ energy mean over the valid lines, TL = −10 log10(mean |τ|²).
 With a transfer matrix the first, black curve is the **TL from T** (the specimen with an anechoic
 termination, independent of the actual one; legend "TL from T (two loads)" or "… (one load,
 symmetric specimen assumed)"), masked with the validity of T; the TL from τ of the load shown
-follows dashed, and the table gets a first column "TL from T [dB]".
+follows dashed, and the table ("Octave bands: TL [dB]") gets a first column "from T".
 
 ### Results > Transfer impedance
 

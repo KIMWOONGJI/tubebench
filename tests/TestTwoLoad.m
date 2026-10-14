@@ -113,7 +113,8 @@ classdef TestTwoLoad < matlab.unittest.TestCase
             tc.verifyEqual(fieldnames(f).', {'waveforms', 'spectrum', 'transfer', 'twoLoad', 'reflection', ...
                 'transmissionLoss', 'impedance', 'validity', 'transferMatrix'});
             ti = getappdata(f.transmissionLoss, 'timViewInfo');
-            tc.verifyEqual(ti.summary.columns(1:3), {'Band [Hz]', 'TL from T [dB]', 'TL from τ [dB]'});
+            tc.verifyEqual(ti.summary.columns(1:3), {'Band [Hz]', 'from T', 'from τ'});
+            tc.verifyEqual(ti.summary.title, 'Octave bands: TL [dB]');
             tc.verifySubstring(ti.note, 'TL from T (two loads)');
             ri = getappdata(f.reflection, 'timViewInfo');
             tc.verifyEqual(ri.summary.columns, {'Band [Hz]', '|R_a|', '|τ_a|', 'α_d', 'α_h'});

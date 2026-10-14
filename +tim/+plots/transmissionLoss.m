@@ -91,7 +91,8 @@ if numel(grey) > 1, uistack(grey, 'bottom'); end
 if any(okAll) && ~o.stepped
     set(grey, 'YLimInclude', 'off');                 % y range from the valid values (no invalid spikes)
 end
-title(ax, tim.plots.dataTitle(res, struct('simulation', o.simulation)), 'Interpreter', 'none');
+src = res; if ~isempty(tl), src = tl; end             % the transfer matrix names its loads
+title(ax, tim.plots.dataTitle(src, struct('simulation', o.simulation)), 'Interpreter', 'none');
 tim.plots.legend(ax, info.lines, names);
 xr = o.band;                                         % analysis band; stepped: every step stays visible
 if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
@@ -145,8 +146,11 @@ end
 function s = bandSummary(B, cells, withZt, tl)
 if nargin < 4, tl = []; end
 cols = {'Band [Hz]', 'TL [dB]'};
-if ~isempty(tl), cols = {'Band [Hz]', 'TL from T [dB]', 'TL from τ [dB]'}; end
-if withZt, cols{end + 1} = 'TL from Z_t [dB]'; end
+ttl = 'Octave bands';
+if ~isempty(tl), cols = {'Band [Hz]', 'from T', 'from τ'}; ttl = 'Octave bands: TL [dB]'; end
+if withZt
+    if isempty(tl), cols{end + 1} = 'TL from Z_t [dB]'; else, cols{end + 1} = 'from Z_t'; end
+end
 note = ['Energy mean over the valid frequency lines of each octave band: TL = ' char(8722) ...
         '10·log10(mean |τ|²); ' char(8211) ' = no valid frequency line. TL from τ needs an anechoic termination.'];
 if ~isempty(tl)
@@ -154,7 +158,7 @@ if ~isempty(tl)
         'actual termination). ' note];
 end
 if ~isempty(B.note), note = [note ' ' B.note]; end
-s = struct('title', 'Octave bands', 'columns', {cols}, 'data', {[B.labels, cells]}, 'note', note);
+s = struct('title', ttl, 'columns', {cols}, 'data', {[B.labels, cells]}, 'note', note);
 end
 
 function t = tmName(tl)

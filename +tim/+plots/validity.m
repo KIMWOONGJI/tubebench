@@ -150,7 +150,7 @@ for i = 1:numel(flags)
 end
 if isempty(tl) || isempty(a) || numel(tl.f) ~= nF, return; end
 % ---- transfer matrix (two loads, or one load of a symmetric specimen)
-v = tl.valid; aff = 'T and its TL, R_a, α (Transfer matrix)';
+v = tl.valid; aff = 'T, TL, R_a, α';
 if strcmp(tl.method, 'oneLoadSymmetric')
     T = {'Load valid (symmetric assumed)', v.base, aff
          '\bfValid T', v.valid, aff};

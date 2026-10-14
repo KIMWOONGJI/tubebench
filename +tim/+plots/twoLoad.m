@@ -16,7 +16,8 @@ function info = twoLoad(ax, tl, opts)
 %   axes say so.
 %
 %   opts (all optional): band [fMin fMax] (default tl.band), simulation,
-%   emptyText.
+%   emptyText, sideBySide (the window: the axes next to each other, short
+%   titles; the data title only in the stacked saved figure).
 %
 %   info.summary  the loads: Load | Termination | Valid | Peak [dB] | T [°C]
 %   info.note     one-line explanation for the view header ('' when none)
@@ -34,22 +35,37 @@ if isfield(opts, 'band') && numel(opts.band) == 2, band = opts.band(:).'; end
 sim = isfield(opts, 'simulation') && ~isempty(opts.simulation) && opts.simulation;
 emptyText = 'No two-load measurement yet';
 if isfield(opts, 'emptyText') && ~isempty(opts.emptyText), emptyText = opts.emptyText; end
+% opts.sideBySide (the Two-load view of the window): the two axes next to each
+% other, each with its own short title; the loads table says which data
+side = isfield(opts, 'sideBySide') && ~isempty(opts.sideBySide) && opts.sideBySide;
 ylabel(ax1, 'cond(Q) [–]');
 if isempty(ax2)
     xlabel(ax1, 'Frequency [Hz]');
 else
-    ylabel(ax2, ['|T(A,B) ' char(8722) ' T(A' char(8242) ',B)| / |T| [–]']); xlabel(ax2, 'Frequency [Hz]');
+    xlabel(ax2, 'Frequency [Hz]');
+    if side
+        xlabel(ax1, 'Frequency [Hz]');
+        ylabel(ax2, ['Difference of T [' char(8211) ']']);
+    else
+        ylabel(ax2, ['|T(A,B) ' char(8722) ' T(A' char(8242) ',B)| / |T| [–]']);
+    end
 end
 info = struct('summary', loadTable([]), 'note', '', 'lines', gobjects(0));
+if side
+    title(ax1, 'Condition number of the two loads', 'FontWeight', 'normal');
+    if ~isempty(ax2)
+        title(ax2, ['Repeat of load A: |T(A,B) ' char(8722) ' T(A' char(8242) ',B)| / |T|'], 'FontWeight', 'normal');
+    end
+end
 if isempty(tl) || ~isstruct(tl)
-    title(ax1, char(160));
+    if ~side, title(ax1, char(160)); end
     tim.plots.fitAxes(ax1, 'XRange', band, 'YRange', [0 10], 'YStep', 2);
     if ~isempty(ax2), tim.plots.fitAxes(ax2, 'XRange', band, 'YRange', [0 0.1], 'YStep', 0.02); end
     tim.plots.emptyState(ax1, emptyText);
     return
 end
 f = tl.f; v = tl.valid;
-title(ax1, tim.plots.dataTitle(tl, struct('simulation', sim)), 'Interpreter', 'none');
+if ~side, title(ax1, tim.plots.dataTitle(tl, struct('simulation', sim)), 'Interpreter', 'none'); end
 info.summary = loadTable(tl);
 if strcmp(tl.method, 'oneLoadSymmetric')
     tim.plots.fitAxes(ax1, 'XRange', band, 'YRange', [0 10], 'YStep', 2);
