@@ -112,8 +112,8 @@ for k = 1:n
     if doSave
         % the data at once (fast); the figures of all loads after the last one,
         % so that the operator does not wait for them between the loads
-        nm = m.kind; if ~isempty(specimen), nm = sprintf('%s_%s', m.kind, specimen); end
-        folder = tim.app.saveMeasurement(m, res, c, sprintf('%s_load%s_%s', nm, st.role, st.desc.tag));
+        % (<signal>_<specimen>_load<role>_<termination>: tim.app.measurementName)
+        folder = tim.app.saveMeasurement(m, res, c, tim.app.measurementName(m, res));
         session.log('Load %s saved to %s', st.role, folder);
     end
     loads(end+1) = struct('role', st.role, 'load', st.load, 'meas', m, 'res', res, 'folder', folder, 'cfg', c); %#ok<AGROW>

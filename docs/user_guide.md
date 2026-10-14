@@ -1173,12 +1173,20 @@ the warning "Microphone mapping of the configuration … differs …" to `res2.d
 
 ## 12. Stored data
 
-**Save measurement** writes a new folder `data\<yyyyMMdd_HHmmss>_<signal>_<specimen>\`, e.g.
-`20261009_111602_sweep_foam_25mm` (`<yyyyMMdd_HHmmss>` = the time of saving; the measurement time
-is in `metadata.json` and `README.txt`; `<signal>` = sweep, stepped or background; `<specimen>` =
-the name entered at Start measurement, characters other than letters, digits, `_` and `-` become
-`_`; without a name, and always for background noise, the folder ends with the signal). Folders are
-never overwritten; a suffix `_2`, `_3`, … is added if needed.
+**Save measurement** writes a new folder `data\<yyyyMMdd_HHmmss>_<method>_<signal>_<specimen>\`,
+e.g. `20261009_111602_oneload_sweep_foam_25mm`:
+
+* `<yyyyMMdd_HHmmss>` is the time of saving; the measurement time is in `metadata.json` and
+  `README.txt`.
+* `<method>` names the method like the pair folder of two loads (`…_twoload_<specimen>`, below):
+  `oneload` (one load), or `oneload-symmetric` (one load, with the transfer matrix of a symmetric
+  specimen assumed). Background noise is saved as `…_background` without method, signal or name.
+  Folders saved before 1.4.0 have no method (`…_sweep_<specimen>`).
+* `<signal>` is sweep or stepped.
+* `<specimen>` is the name entered at Start measurement. Characters other than letters, digits,
+  `_` and `-` become `_`. Without a name the folder ends with the signal.
+
+Folders are never overwritten; a suffix `_2`, `_3`, … is added if needed.
 
 | File | Content |
 |---|---|

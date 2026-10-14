@@ -235,9 +235,18 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             tc.verifySubstring(h.axTM(1).Title.String, 'symmetric specimen ASSUMED');
             feval(h.save.ButtonPushedFcn, h.save, []);
             d = app.SavedDir;
+            % the folder names the method (owner 2026-10-14), like ..._twoload_...
+            [~, n] = fileparts(d);
+            tc.verifyTrue(endsWith(n, '_oneload-symmetric_sweep'), n);
             h.method.Value = 'oneLoad'; feval(h.method.ValueChangedFcn, h.method, []);
             app.openMeasurement(d, false, false);
             tc.verifyEqual(app.LastTM.method, 'oneLoadSymmetric', 'the saved T is shown again');
+            % one load
+            h.specimen.Value = 'foam 25';
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            feval(h.save.ButtonPushedFcn, h.save, []);
+            [~, n] = fileparts(app.SavedDir);
+            tc.verifyTrue(endsWith(n, '_oneload_sweep_foam_25'), n);
             clear cleanup
         end
     end

@@ -4128,12 +4128,9 @@ classdef Tubebench < handle
             figEnd = onCleanup(@() closeFigures(figs));
             names = fieldnames(figs);
             done{end + 1} = sprintf('%d figures drawn.', numel(names));
-            name = app.LastMeas.kind;
-            sp = '';                     % the name entered at Start (metadata.specimen)
-            if isfield(app.LastMeas.metadata, 'specimen') && ~strcmp(app.LastMeas.metadata.specimen, 'unnamed specimen')
-                sp = app.LastMeas.metadata.specimen;
-            end
-            if ~isempty(sp), name = [name '_' sp]; end
+            % method, signal and the name entered at Start (metadata.specimen), e.g.
+            % oneload_sweep_foam / oneload-symmetric_sweep_foam (owner 2026-10-14)
+            name = tim.app.measurementName(app.LastMeas, app.LastRes);
             % config.json describes the results it is saved with: the configuration
             % they were computed with (an opened folder: its config.json), not the
             % window's set-up of now; folder and exports follow the window

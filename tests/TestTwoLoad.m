@@ -250,6 +250,24 @@ classdef TestTwoLoad < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function folderNamesNameTheMethod(tc)
+            % owner 2026-10-14: the folder of one load names the method, like the
+            % pair folder of two loads (..._twoload_<specimen>)
+            m = struct('kind', 'sweep', 'metadata', struct('specimen', 'empty75'));
+            tc.verifyEqual(tim.app.measurementName(m, []), 'oneload_sweep_empty75');
+            r = struct('transferMatrix', struct('method', 'oneLoadSymmetric'));
+            tc.verifyEqual(tim.app.measurementName(m, r), 'oneload-symmetric_sweep_empty75');
+            m.kind = 'stepped'; m.metadata.specimen = 'unnamed specimen';
+            tc.verifyEqual(tim.app.measurementName(m, []), 'oneload_stepped', 'no name entered');
+            m = struct('kind', 'sweep', 'metadata', struct('specimen', 'empty75', ...
+                'termination', struct('kind', 'rigid', 'place', 'tubeEnd', 'label', 'Rigid cap at tube end'), ...
+                'twoLoad', struct('group', 'g', 'role', 'B')));
+            tc.verifyEqual(tim.app.measurementName(m, []), 'sweep_empty75_loadB_rigid-end', ...
+                'a load of a two-load run: its pair folder names the method');
+            tc.verifyEqual(tim.app.measurementName(struct('kind', 'background', 'metadata', struct()), []), ...
+                'background');
+        end
+
         function loadsAndTerminations(tc)
             % decision 2: kind x place, the absorber only at the tube end; the
             % virtual terminations at the CAD distances behind M4
