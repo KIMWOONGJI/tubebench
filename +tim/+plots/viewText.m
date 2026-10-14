@@ -6,7 +6,9 @@ function [ttl, desc] = viewText(key)
 %   One source for the header of a view in the GUI (tim.gui.ViewPage) and of
 %   its saved figure (tim.app.plotResults), so that both say the same.
 %   Keys = field names of tim.app.plotResults: waveforms, spectrum,
-%   transfer, reflection, transmissionLoss, impedance, validity.
+%   transfer, twoLoad, reflection, transmissionLoss, impedance, validity,
+%   transferMatrix (twoLoad and transferMatrix only with a transfer-matrix
+%   result, WO-005).
 %   Plain text with Unicode symbols, as a uilabel shows it; the saved
 %   figures convert it to TeX (X_word -> subscript).
 T = {
@@ -16,6 +18,8 @@ T = {
         'or the level of every step (stepped sine). Dashed: analysis band.']
     'transfer', 'Transfer functions', ['Calibrated transfer functions H = p(port) / p(reference) of the four ' ...
         'ports, their phase and the coherence of every channel.']
+    'twoLoad', 'Two-load', ['The specimen measured with two terminations (ASTM E2611): the operator steps, the ' ...
+        'condition number of the two loads and the repeat of load A.']
     'reflection', 'Reflection and transmission', ['Reflection coefficient R at the specimen front face, ' ...
         'transmission coefficient τ to the rear face and dissipation coefficient α_d = 1 − |R|² − |τ|². ' ...
         'Grey: outside the valid range.']
@@ -25,6 +29,8 @@ T = {
         'normalised by ρc (thin specimens only: k·d ≪ 1). Grey: outside the valid range.']
     'validity', 'Validity', ['Which frequency lines meet each criterion (geometry, coherence and SNR, ' ...
         'passivity, anechoic termination, thin-element velocity match).']
+    'transferMatrix', 'Transfer matrix', ['Transfer matrix T of the specimen, [p_front; u_front] = T [p_rear; ' ...
+        'u_rear], from two loads (or one load of a symmetric specimen). Grey: outside the valid range.']
     };
 if nargin < 1
     ttl = T(:, 1).';

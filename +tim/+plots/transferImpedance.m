@@ -14,7 +14,11 @@ function info = transferImpedance(ax, res, opts)
 %   x axis.
 %
 %   opts (all optional): band [fMin fMax] (default res.analysis.options.fRange,
-%   else [120 4500]), simulation, emptyText, stepped (default from res.kind).
+%   else [120 4500]), simulation, emptyText, stepped (default from res.kind),
+%   transferMatrix (a result of tim.app.processTwoLoad, WO-005: Z_t = T12,
+%   coloured where T is valid and the specimen is a thin element by T itself,
+%   |Zc T21| and |T22 - 1| at most the velocity-mismatch limit; drawn also
+%   for a thick specimen, then in grey, and the note says why).
 %
 %   info.summary  octave bands: Band [Hz] | Re{Z_t}/ρc | Im{Z_t}/ρc (mean over
 %                 the VALID frequency lines of each band, '–' when there is
@@ -40,6 +44,12 @@ B = tim.plots.octaveBands(o.band); centres = B.centres;
 dash = repmat({char(8211)}, numel(centres), 2);
 info = struct('summary', bandSummary(B, dash, ''), 'note', '', 'lines', gobjects(0));
 
+% ---- with a transfer matrix (WO-005): its series element T12 is Z_t where the
+% specimen behaves as a thin element (Zc T21 ~ 0, T22 ~ 1)
+if ~isempty(o.a) && ~isempty(o.tl) && o.a.boundary.available
+    info = seriesElement(ax1, ax2, o, B, info);
+    return
+end
 % ---- nothing to draw: empty state with the default limits
 msg = '';
 if isempty(o.a)
@@ -113,6 +123,47 @@ info.note = joinNotes(parts);
 end
 
 % ---------------------------------------------------------------------------
+function info = seriesElement(ax1, ax2, o, B, info)
+% T12 / rho c of the transfer matrix, coloured where T is valid AND the
+% specimen is a thin element by T itself (|Zc T21| and |T22 - 1| at most the
+% velocity-mismatch limit): independent of the termination, unlike delta_u
+P = tim.gui.palette(); tl = o.tl; f = tl.f;
+lim = 0.10;
+if isfield(o.a, 'options') && isfield(o.a.options, 'velocityMismatchMax'), lim = o.a.options.velocityMismatchMax; end
+thin = tl.thin.T21Zc <= lim & tl.thin.T22dev <= lim;
+ok = tl.valid.valid & thin;
+z = tl.thin.Zt / tl.Z0;
+xr = o.band;
+[hRe, gRe] = tim.plots.masked(ax1, f, real(z), ok, P.q.first);
+info.lines = hRe;
+title(ax1, tim.plots.dataTitle(tl, struct('simulation', o.simulation)), 'Interpreter', 'none');
+if any(ok), gRe.YLimInclude = 'off'; end
+if ~isempty(ax2)
+    [hIm, gIm] = tim.plots.masked(ax2, f, imag(z), ok, P.q.second);
+    info.lines(2) = hIm;
+    if any(ok), gIm.YLimInclude = 'off'; end
+    linkaxes([ax1 ax2], 'x');
+    tim.plots.fitAxes(ax2, 'XRange', xr, 'YInclude', 0);
+end
+tim.plots.fitAxes(ax1, 'XRange', xr, 'YInclude', 0);
+[~, ~, tRe] = tim.plots.bandValues(f, real(z), ok, B.centres, '%.2f');
+[~, ~, tIm] = tim.plots.bandValues(f, imag(z), ok, B.centres, '%.2f');
+info.summary = bandSummary(B, [tRe tIm], sprintf(['Z_t = T12 of the transfer matrix, valid where T is valid and ' ...
+    'the specimen is a thin element by T itself: |Z_c·T21| %s %g and |T22 %s 1| %s %g (independent of the ' ...
+    'termination). Mean over those lines of each octave band; %s = none. ρc = %.1f Pa·s/m.'], char(8804), lim, ...
+    char(8722), char(8804), lim, char(8211), tl.Z0));
+if ~isempty(tl.checks.errors)
+    info.note = ['Two loads not combined: ' tl.checks.errors{1}];
+elseif any(tl.valid.valid) && ~any(ok)
+    info.note = sprintf(['Not a thin element: |Z_c·T21| or |T22 %s 1| above %g on every valid line - T12 in grey; ' ...
+        'see Transfer matrix'], char(8722), lim);
+elseif ~any(tl.valid.valid)
+    info.note = 'No valid frequency line of the transfer matrix (grey curves) - see Validity';
+elseif strcmp(tl.method, 'oneLoadSymmetric')
+    info.note = 'From one load: assumes a symmetric, reciprocal specimen';
+end
+end
+
 function txt = noCalNote(res)
 txt = '';
 if isfield(res, 'calibration') && isfield(res.calibration, 'applied') && ~res.calibration.applied
@@ -153,6 +204,10 @@ o.emptyText = 'No measurement yet';
 if isfield(opts, 'emptyText') && ~isempty(opts.emptyText), o.emptyText = opts.emptyText; end
 o.stepped = isstruct(res) && isfield(res, 'kind') && strcmp(res.kind, 'stepped');
 if isfield(opts, 'stepped') && ~isempty(opts.stepped), o.stepped = logical(opts.stepped); end
+o.tl = [];                                            % transfer-matrix result (tim.app.processTwoLoad)
+if isfield(opts, 'transferMatrix') && isstruct(opts.transferMatrix) && ~isempty(opts.transferMatrix)
+    o.tl = opts.transferMatrix;
+end
 end
 
 function markMissing(ax, fm)

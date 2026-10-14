@@ -27,6 +27,15 @@ function out = drawTube3D(ax, geom, drawing, mapping, opts)
 %     opts.micLabels   1x4 cell, label of DAQ channel c (calibration mode)
 %     opts.absorberLength  [m] absorber drawn in calibration mode when
 %                      drawing.absorberLength is not given (schematic, 0.06)
+%     opts.termination (kind, place) of the termination load (WO-005,
+%                      tim.app.describeLoad): the absorber, the empty extension
+%                      tube with the end cap, without it (open end), or at the
+%                      joint the extension removed, with a rigid cap on the
+%                      flange or open; the label and the dimension "M4 –
+%                      termination" follow. [] (default): extension, end cap
+%                      and the absorber as before
+%     opts.highlightTermination  yellow sleeve around the termination (the
+%                      two-load sequence: the load to mount now; in M.glow)
 %
 %   Output M (units: mm, the drawing's data units):
 %     M.micGroup(c)  hgtransform holding the microphone of DAQ channel c
@@ -139,16 +148,27 @@ if cal                                            % calibration: the section is 
     text(ax, (xF + xR) / 2, 0, -ro - 5, t1, 'HorizontalAlignment', 'center', ...
         'VerticalAlignment', 'top', 'FontSize', C.fs, 'FontWeight', 'bold', 'Color', C.specText, 'Tag', 'emptyLabel');
 end
-% downstream tube: joint flanges and body; extension; end cap
+% downstream tube: joint flanges and body; then the termination. opts.termination
+% (kind, place; WO-005): the extension tube up to the end cap, or nothing beyond
+% the joint (extension removed); the end cap, a rigid cap on the joint flange, or
+% an open end; the absorber (schematic length unless drawing.absorberLength).
+% Without it: extension, end cap and - length known, or calibration - the absorber
 S = shell(S, xR, xR + tf, rb, ro, metal, [], 'tube');
 S = shell(S, xR + tf, xJ - tf, rb, rB, metal, portGaps(3:4, :), 'tube');
 S = shell(S, max(xJ - tf, xR + tf), xJ, rb, ro, metal, [], 'tube');
-S = shell(S, xJ, xT, rb, ro, metal, [], 'tube');
-S = solid(S, xT, xT + tc, ro, metal, 'endCap');
-annulus(S, xT - 0.05, 0, rb, [0.55 0.57 0.60], 'termination');   % termination face
+tk = ''; atJoint = false;
+if ~isempty(opts.termination)
+    tk = char(opts.termination.kind); atJoint = strcmp(char(opts.termination.place), 'joint');
+end
+xEnd = xT; if atJoint, xEnd = xJ; end               % termination face
+if ~atJoint, S = shell(S, xJ, xT, rb, ro, metal, [], 'tube'); end
+if ~strcmp(tk, 'open')
+    S = solid(S, xEnd, xEnd + tc, ro, metal, 'endCap');
+    annulus(S, xEnd - 0.05, 0, rb, [0.55 0.57 0.60], 'termination');   % termination face
+end
 la = mm(td.absorberLength); laGiven = isscalar(la) && isfinite(la) && la > 0;
-if cal && ~laGiven, la = mm(opts.absorberLength); end
-if isscalar(la) && isfinite(la) && la > 0
+if (cal || strcmp(tk, 'absorber')) && ~laGiven, la = mm(opts.absorberLength); end
+if (isempty(tk) || strcmp(tk, 'absorber')) && isscalar(la) && isfinite(la) && la > 0
     S = solid(S, xT - la, xT - 0.1, rb - 0.1, porous([0.55 0.72 0.52]), 'absorber');
 end
 % loudspeaker housing (large end) with the loudspeaker (schematic)
@@ -159,7 +179,8 @@ loudspeaker(S, xS, rCav);
 % bolts: 6 x M4 per joint (heads in counterbores), 4 on the housing front
 ang = (0:5) * pi / 3;
 bolts(S, xF - tf, -1, rbc, ang); bolts(S, xR + tf, +1, rbc, ang);
-bolts(S, xJ - tf, -1, rbc, ang); bolts(S, xT + tc, +1, rbc, ang);
+bolts(S, xJ - tf, -1, rbc, ang);
+if ~strcmp(tk, 'open'), bolts(S, xEnd + tc, +1, rbc, ang); end
 housingBolts(S, xS + tSF, (rSF + rH) / 2 - 2.5, (0:3) * pi / 2);
 % microphone holders, microphones (coloured by the DAQ channel in the port), cables;
 % each channel's microphone + label in its own hgtransform (moved without redraw)
@@ -229,18 +250,36 @@ T = drawScale(ax, xl);                               % screen scale for the labe
 % left-aligned on the housing back: stays inside the drawing, above the tube
 text(ax, xH0, 0, rH + 6, 'loudspeaker (large end)', 'HorizontalAlignment', 'left', 'VerticalAlignment', 'bottom', ...
     'FontSize', C.fs, 'Color', C.text, 'Tag', 'speakerLabel');
-if cal && laGiven
-    tl = {'absorbing termination', sprintf('absorber %g mm', round(la, 3))};
-elseif cal
-    tl = {'absorbing / anechoic termination', '(absorber schematic)'};
-elseif laGiven
-    tl = {'termination', sprintf('absorber %g mm', round(la, 3))};
-else
-    tl = {'termination', '(absorber side)'};
+absTxt = '(absorber schematic)'; if laGiven, absTxt = sprintf('absorber %g mm', round(la, 3)); end
+switch [tk '|' char(string(atJoint))]
+    case {'absorber|false', 'absorber|true'}, tl = {'absorbing termination', absTxt};
+    case 'rigid|false', tl = {'rigid end cap', '(absorber removed)'};
+    case 'open|false', tl = {'open end', '(end cap and absorber removed)'};
+    case 'rigid|true', tl = {'rigid cap at the joint', '(extension removed)'};
+    case 'open|true', tl = {'open at the joint', '(extension removed)'};
+    otherwise
+        if cal && laGiven
+            tl = {'absorbing termination', absTxt};
+        elseif cal
+            tl = {'absorbing / anechoic termination', absTxt};
+        elseif laGiven
+            tl = {'termination', absTxt};
+        else
+            tl = {'termination', '(absorber side)'};
+        end
 end
-% right-aligned on the end cap: stays inside the drawing, above the extension tube
-text(ax, xT + tc, 0, ro + 6, tl, 'HorizontalAlignment', 'right', 'VerticalAlignment', 'bottom', ...
-    'FontSize', C.fs, 'Color', C.text, 'Tag', 'endLabel');
+if atJoint
+    % in the space of the removed extension tube, at the height of the tube
+    text(ax, xEnd + tc + 6, 0, 0, tl, 'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+        'FontSize', C.fs, 'Color', C.text, 'Tag', 'endLabel');
+else
+    % right-aligned on the end cap: stays inside the drawing, above the extension tube
+    text(ax, xT + tc, 0, ro + 6, tl, 'HorizontalAlignment', 'right', 'VerticalAlignment', 'bottom', ...
+        'FontSize', C.fs, 'Color', C.text, 'Tag', 'endLabel');
+end
+if opts.highlightTermination        % the termination the operator changes now (two-load sequence)
+    out.glow = [out.glow, termGlow(ax, xEnd - 22, xEnd + tc + 4, ro + 4)];
+end
 zDimTop = zTop;
 zDimBottom = min(-rH, -ro - 5 - 2 * rowHeight(C.fs, T));   % two-line specimen / empty-section label
 if opts.dimensions
@@ -261,15 +300,16 @@ if opts.dimensions
     zb = -ro - 10; r2 = rowHeight(C.fs2, T);
     line3(ax, [xS xS], [-rb - 1, zb - 1], C.ext, 0.5, 'dimExt');
     for xx = x([1 4]), line3(ax, [xx xx], [-rB - 1.5, zb - 1], C.ext, 0.5, 'dimExt'); end
-    line3(ax, [xT xT], [-ro - 1.5, zb - 1], C.ext, 0.5, 'dimExt');
+    line3(ax, [xEnd xEnd], [-ro - 1.5, zb - 1], C.ext, 0.5, 'dimExt');
     xHousing = xS + tSF + 14;                      % right of the loudspeaker housing (also in the full view)
     dimBelow(ax, xS, x(1), zb, sprintf('bore end %s M1: %g mm', char(8211), round(x(1) - xS, 3)), ...
         C.dim2, C.fs2, 'dim_up', xHousing, T);
-    dimBelow(ax, x(4), xT, zb, sprintf('M4 %s termination: %g mm', char(8211), round(xT - x(4), 3)), ...
+    dimBelow(ax, x(4), xEnd, zb, sprintf('M4 %s termination: %g mm', char(8211), round(xEnd - x(4), 3)), ...
         C.dim2, C.fs2, 'dim_down', xHousing, T);
     zDimBottom = min(zDimBottom, zb - 1.5 - r2);
     if S.section
-        dimV(ax, (xJ + xT) / 2, -rb, rb, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), C.dim2, C.fs2);
+        xBore = (xJ + xT) / 2; if atJoint, xBore = (x(4) + xJ) / 2; end   % in the extension, else before the joint
+        dimV(ax, xBore, -rb, rb, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), C.dim2, C.fs2);
     else                                           % (bore hidden) one row below the overall length
         text(ax, (x(4) + xT) / 2, 0, zb - 1.5 - r2, sprintf('bore %s%g mm', char(216), round(2 * rb, 3)), ...
             'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', 'FontSize', C.fs2, 'Color', C.dim2, 'Tag', 'dim_bore');
@@ -304,7 +344,8 @@ end
 % ====================================================================== parts
 function o = fillOpts(o)
 d = struct('section', true, 'dimensions', true, 'view', 'keep', 'mode', 'setup', ...
-    'highlightPorts', [], 'micLabels', {{}}, 'absorberLength', 0.06);
+    'highlightPorts', [], 'micLabels', {{}}, 'absorberLength', 0.06, 'termination', [], ...
+    'highlightTermination', false);
 for f = fieldnames(d).'
     if ~isfield(o, f{1}), o.(f{1}) = d.(f{1}); end
 end
@@ -507,6 +548,15 @@ h = surf(ax, X, Y, Z, 'FaceColor', yel, 'EdgeColor', 'none', 'FaceAlpha', 0.35, 
 Xa = xc + [rIn; r] * cos(t); Ya = [rIn; r] * sin(t);
 h(2) = surf(ax, Xa, Ya, z1 * ones(size(Xa)), 'FaceColor', yel, 'EdgeColor', 'none', 'FaceAlpha', 0.35, ...
     'FaceLighting', 'none', 'PickableParts', 'none', 'Tag', 'portGlow');
+end
+
+function h = termGlow(ax, x0, x1, r)
+% translucent yellow sleeve around the termination the operator changes now
+% (two-load sequence; pulsed like the port glow)
+yel = [1 0.85 0.25]; t = linspace(0, 2 * pi, 49);
+X = [x0; x1] * ones(size(t)); Y = [r; r] * cos(t); Z = [r; r] * sin(t);
+h = surf(ax, X, Y, Z, 'FaceColor', yel, 'EdgeColor', 'none', 'FaceAlpha', 0.35, ...
+    'FaceLighting', 'none', 'PickableParts', 'none', 'Tag', 'termGlow');
 end
 
 function h = tubeAlong(ax, Pth, r, col, tag)

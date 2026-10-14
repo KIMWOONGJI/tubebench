@@ -17,7 +17,12 @@ function info = transmissionLoss(ax, res, opts)
 %   the x axis.
 %
 %   opts (all optional): band [fMin fMax] (default res.analysis.options.fRange,
-%   else [120 4500]), simulation, emptyText, stepped (default from res.kind).
+%   else [120 4500]), simulation, emptyText, stepped (default from res.kind),
+%   transferMatrix (a result of tim.app.processTwoLoad, WO-005: its TL from
+%   T - the specimen with an anechoic termination, independent of the actual
+%   one - is drawn first, black, masked with its own validity; the TL from
+%   tau of the load shown follows dashed; the table gets a first column
+%   'TL from T').
 %
 %   info.summary  octave bands: Band [Hz] | TL [dB] (| TL from Z_t [dB]),
 %                 energy mean over the VALID frequency lines of each band:
@@ -61,16 +66,28 @@ end
 [thick, thickTxt] = tim.plots.thickSpecimen(a);
 showZt = a.boundary.available && ~thick;
 mo = struct('stepped', o.stepped);
-[h1, g1] = tim.plots.masked(ax, f, a.power.TL_tau_dB, v.validTau, P.q.first, mo);
-info.lines = h1; names = {['TL = ' mn '20 log_{10}|\tau|']};
-grey = g1; okAll = v.validTau & isfinite(a.power.TL_tau_dB);
+tl = o.tl; info.lines = gobjects(0); names = {}; grey = gobjects(0); okAll = false(size(f));
+if ~isempty(tl)
+    % the transfer matrix first (independent of the termination): two loads,
+    % or one load of a specimen assumed symmetric
+    [h0, g0] = tim.plots.masked(ax, tl.f, tl.anechoic.TL_dB, tl.valid.valid, P.q.first, mo);
+    info.lines = h0; names = {tmName(tl)}; grey = g0;
+    okAll = tl.valid.valid & isfinite(tl.anechoic.TL_dB);
+    mo.lineStyle = '--';
+end
+cTau = P.q.first; if ~isempty(tl), cTau = P.q.second; end
+[h1, g1] = tim.plots.masked(ax, f, a.power.TL_tau_dB, v.validTau, cTau, mo);
+info.lines(end + 1) = h1; names{end + 1} = ['TL = ' mn '20 log_{10}|\tau|'];
+if ~isempty(tl), names{end} = [names{end} ' (this load)']; end
+grey = [grey; g1]; okAll = okAll | (v.validTau & isfinite(a.power.TL_tau_dB));
 if showZt
     mo.lineStyle = '--';
-    [h2, g2] = tim.plots.masked(ax, f, a.thin.TL_dB, v.validThinZt, P.q.second, mo);
+    cZ = P.q.second; if ~isempty(tl), cZ = P.q.third; mo.lineStyle = '-.'; end
+    [h2, g2] = tim.plots.masked(ax, f, a.thin.TL_dB, v.validThinZt, cZ, mo);
     info.lines(end + 1) = h2; names{end + 1} = 'TL from Z_t = 20 log_{10}|1 + Z_t / (2Z_c)|';
     grey = [grey; g2]; okAll = okAll | (v.validThinZt & isfinite(a.thin.TL_dB));
-    uistack(grey, 'bottom');
 end
+if numel(grey) > 1, uistack(grey, 'bottom'); end
 if any(okAll) && ~o.stepped
     set(grey, 'YLimInclude', 'off');                 % y range from the valid values (no invalid spikes)
 end
@@ -90,8 +107,17 @@ if showZt
     m2 = tim.plots.bandValues(f, 10.^(-a.thin.TL_dB / 10), v.validThinZt, centres);
     cells = [cells tl2txt(m2)];
 end
-info.summary = bandSummary(B, cells, showZt);
+if ~isempty(tl)
+    m0 = tim.plots.bandValues(tl.f, 10.^(-tl.anechoic.TL_dB / 10), tl.valid.valid, centres);
+    cells = [tl2txt(m0) cells];
+end
+info.summary = bandSummary(B, cells, showZt, tl);
 parts = {resultNote(res, a, showZt)};               % in order of importance
+if ~isempty(tl)
+    % the transfer matrix decides: the one-load notes only when it has no valid line
+    parts = {tmNote(tl)};
+    if ~any(tl.valid.valid), parts{end + 1} = resultNote(res, a, showZt); end
+end
 if thick, parts{end + 1} = [thickTxt ' - TL from Z_t not shown']; end
 if any(miss)
     parts{end + 1} = sprintf('No value at %s Hz (see Validity)', strjoin(arrayfun(@(x) sprintf('%.0f', x), ...
@@ -116,13 +142,41 @@ function s = fmtTL(tauPow)
 if isnan(tauPow), s = char(8211); else, s = sprintf('%.1f', -10 * log10(tauPow)); end
 end
 
-function s = bandSummary(B, cells, withZt)
+function s = bandSummary(B, cells, withZt, tl)
+if nargin < 4, tl = []; end
 cols = {'Band [Hz]', 'TL [dB]'};
+if ~isempty(tl), cols = {'Band [Hz]', 'TL from T [dB]', 'TL from τ [dB]'}; end
 if withZt, cols{end + 1} = 'TL from Z_t [dB]'; end
 note = ['Energy mean over the valid frequency lines of each octave band: TL = ' char(8722) ...
         '10·log10(mean |τ|²); ' char(8211) ' = no valid frequency line. TL from τ needs an anechoic termination.'];
+if ~isempty(tl)
+    note = ['TL from T: the specimen with an anechoic termination, from the transfer matrix (independent of the ' ...
+        'actual termination). ' note];
+end
 if ~isempty(B.note), note = [note ' ' B.note]; end
 s = struct('title', 'Octave bands', 'columns', {cols}, 'data', {[B.labels, cells]}, 'note', note);
+end
+
+function t = tmName(tl)
+% legend entry of the TL from the transfer matrix
+if strcmp(tl.method, 'oneLoadSymmetric')
+    t = 'TL from T (one load, symmetric specimen assumed)';
+else
+    t = 'TL from T (two loads)';
+end
+end
+
+function t = tmNote(tl)
+% header note of a view with a transfer-matrix result (one line)
+if ~isempty(tl.checks.errors)
+    t = ['Two loads not combined: ' tl.checks.errors{1}];
+elseif strcmp(tl.method, 'oneLoadSymmetric')
+    t = 'TL from T assumes a symmetric, reciprocal specimen (one load) - not valid for an asymmetric specimen';
+elseif ~any(tl.valid.valid)
+    t = 'TL from T: no valid frequency line (grey) - see Validity';
+else
+    t = sprintf('TL from T (two loads): %d of %d lines valid', tl.valid.nValid, tl.valid.nBand);
+end
 end
 
 function o = viewOptions(res, opts)
@@ -139,6 +193,10 @@ o.emptyText = 'No measurement yet';
 if isfield(opts, 'emptyText') && ~isempty(opts.emptyText), o.emptyText = opts.emptyText; end
 o.stepped = isstruct(res) && isfield(res, 'kind') && strcmp(res.kind, 'stepped');
 if isfield(opts, 'stepped') && ~isempty(opts.stepped), o.stepped = logical(opts.stepped); end
+o.tl = [];                                            % transfer-matrix result (tim.app.processTwoLoad)
+if isfield(opts, 'transferMatrix') && isstruct(opts.transferMatrix) && ~isempty(opts.transferMatrix)
+    o.tl = opts.transferMatrix;
+end
 end
 
 function markMissing(ax, fm)

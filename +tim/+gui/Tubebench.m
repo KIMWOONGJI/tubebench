@@ -69,6 +69,12 @@ classdef Tubebench < handle
         DriveCheck struct = struct()  % the drive check below the EXCITATION fields (updateDrive): state of the
                                 % loudspeaker ('ok' | 'near' | 'over' | 'unknown'), binding criterion, ... (tests)
         LastCheck char = ''     % last configuration warnings (logged once)
+        LastTM = []             % transfer-matrix result shown (tim.app.processTwoLoad): two loads, or one
+                                % load of a symmetric specimen; [] = none (WO-005)
+        LastLoads = []          % the loads of LastTM (role, load, meas, res, cfg, folder); [] = one load
+        TwStep double = 0       % current / total operator steps of a two-load measurement
+        TwSteps double = 0
+        TwList = []             % tim.gui.Checklist of the two-load steps
         CalStep double = 0      % current / total operator steps of a calibration
         CalSteps double = 0
         Busy logical = false    % an action is running (control panel locked)
@@ -81,6 +87,7 @@ classdef Tubebench < handle
         CalDirty logical = true % geometry / config / TEDS changed: redraw the calibration model
         CalDrawCount double = 0 % number of 3D calibration draws (diagnostics / tests)
         PulseTimer = []         % highlights the calibration ports while the operator works
+        PulseHi = gobjects(0)   % the glow it pulses (calibration ports, or the termination of a two-load step)
         CloseAfterBusy logical = false  % window close requested during a running action
         Closing logical = false % closeNow running: further close requests are ignored
         ClosingWin = []         % "Closing ..." progress dialog (steps of the shutdown)
@@ -116,7 +123,7 @@ classdef Tubebench < handle
         % views prepared after the main window is shown, in this order (the
         % control panel, the message pane, the tabs and Setup > Connection are
         % built before)
-        Parts = {'tube', 'cal', 'wave', 'spec', 'tf', 'refl', 'tl', 'zt', 'valid', 'formula'}
+        Parts = {'tube', 'cal', 'wave', 'spec', 'tf', 'twoload', 'refl', 'tl', 'zt', 'valid', 'tm', 'formula'}
     end
     properties (Access = private)
         T0                         % tic of the constructor
@@ -166,6 +173,7 @@ classdef Tubebench < handle
             app.startStep('Building the control panel…', 0.06);
             app.buildCore();                  % step: Connection view
             app.startStep('Filling in the settings…', 0.62);
+            if show, app.applyRememberedLoads(); end      % the loads of the last two-load Start (WO-005)
             app.refreshFromCfg();
             if ~app.Deferred
                 for p = app.Parts, app.ensureBuilt(p{1}, 'sync'); end   % every view now (hidden: tests)
@@ -656,6 +664,8 @@ classdef Tubebench < handle
             % ---------------- menu bar (version + repository: Help > About)
             m = uimenu(app.Fig, 'Text', 'File');
             h.mOpenMeas = uimenu(m, 'Text', 'Open measurement…', 'MenuSelectedFcn', @(~, ~) app.onOpenMeasurement());
+            h.mCombine = uimenu(m, 'Text', 'Combine two saved measurements (two loads)…', ...
+                'MenuSelectedFcn', @(~, ~) app.onCombine());
             h.mLoadCfg = uimenu(m, 'Text', 'Load configuration…', 'Separator', 'on', ...
                 'MenuSelectedFcn', @(~, ~) app.onLoadConfig());
             h.mSaveCfg = uimenu(m, 'Text', 'Save configuration…', 'MenuSelectedFcn', @(~, ~) app.onSaveConfig());
@@ -683,7 +693,7 @@ classdef Tubebench < handle
                 sp, bar, rw, 16, rw, 30, ...                %  6-11 IMPEDANCE TUBE: spacer, bar, D/T/p, names, distances, info
                 sp, bar, rw, rw, rw, rw, rw, rw, rw, 45, ...% 12-21 EXCITATION: spacer, bar, 7 field rows, drive check (3 lines)
                 sp, bar, 22, 28, ...                        % 22-25 CALIBRATION: spacer, bar, status, buttons
-                sp, bar, rw, 36, rw, ...                    % 26-30 MEASUREMENT: spacer, bar, specimen, start / stop, background
+                sp, bar, rw, rw, 36, ...                    % 26-30 MEASUREMENT: spacer, bar, specimen, method + background, start / stop
                 sp, bar, 22, 28};                           % 31-34 RESULTS: spacer, bar, status, buttons
             left = uigridlayout(g, [numel(rowH) 1], 'RowHeight', rowH, 'ColumnWidth', {'1x'}, ...
                 'Scrollable', 'on', 'RowSpacing', 4, 'Padding', [10 8 10 8], 'BackgroundColor', P.ui.panel);
@@ -860,6 +870,20 @@ classdef Tubebench < handle
             app.label(rg, 'Specimen', 'Name of the specimen; it becomes part of the name of the data folder.');
             h.specimen = uieditfield(rg, 'text', 'Placeholder', 'Name of the specimen (data folder)', ...
                 'Tooltip', 'Name of the specimen; it becomes part of the name of the data folder.');
+            % the method (WO-005; the panel is at its height limit: one row with
+            % the background-noise button); the terminations: Setup > Tube setup
+            r = r + 1; rg = app.rowGrid(left, r, {LW, '1x', 124});
+            app.label(rg, 'Method', ['One load: the termination of Tube setup (τ and the TL from τ need an anechoic ' ...
+                'termination). One load, symmetric: the transfer matrix from one load - only for a front-to-back ' ...
+                'symmetric specimen. Two loads (ASTM E2611): load A, load B and (optionally) load A again, as set ' ...
+                'in Setup > Tube setup.']);
+            h.method = uidropdown(rg, 'Items', {'One load', 'One load, symmetric', 'Two loads'}, ...
+                'ItemsData', {'oneLoad', 'oneLoadSymmetric', 'twoLoad'}, 'ValueChangedFcn', @(~, ~) app.onMethodChanged(), ...
+                'Tooltip', ['One load: today''s measurement. One load, symmetric: T from one load, ASSUMING a symmetric, ' ...
+                'reciprocal specimen. Two loads: the transfer matrix from two terminations (ASTM E2611); the ' ...
+                'terminations are chosen in Setup > Tube setup.']);
+            h.background = uibutton(rg, 'Text', 'Background noise', 'ButtonPushedFcn', @(~, ~) app.onBackground(), ...
+                'Tooltip', 'Record 2 s without excitation (background noise level of every channel).');
             r = r + 1; rg = app.rowGrid(left, r, {'1x', 116});
             h.start = uibutton(rg, 'Text', 'Start measurement', 'BackgroundColor', P.ui.start, 'FontColor', 'w', ...
                 'FontWeight', 'bold', 'FontSize', 13, 'Icon', tim.gui.icon('start'), 'ButtonPushedFcn', @(~, ~) app.onStart(), ...
@@ -867,9 +891,6 @@ classdef Tubebench < handle
             h.stop = uibutton(rg, 'Text', 'Stop', 'BackgroundColor', P.ui.stop, 'FontColor', 'w', 'FontWeight', 'bold', ...
                 'FontSize', 13, 'Icon', tim.gui.icon('stop'), 'ButtonPushedFcn', @(~, ~) app.onStop(), ...
                 'Tooltip', 'Stop the running action; the generator output is switched off at once.');
-            r = r + 1; rg = app.rowGrid(left, r, {'1x'});
-            h.background = uibutton(rg, 'Text', 'Measure background noise', 'ButtonPushedFcn', @(~, ~) app.onBackground(), ...
-                'Tooltip', 'Record 2 s without excitation (background noise level of every channel).');
             % ---------------- RESULTS
             r = r + 2; app.sectionBar(left, r, 'RESULTS');
             r = r + 1; rg = app.rowGrid(left, r, {LW, '1x'});
@@ -955,6 +976,7 @@ classdef Tubebench < handle
             h.waveTab = uitab(h.measTabs, 'Title', tim.plots.viewText('waveforms'));
             h.specTab = uitab(h.measTabs, 'Title', tim.plots.viewText('spectrum'));
             h.tfTab = uitab(h.measTabs, 'Title', tim.plots.viewText('transfer'));
+            h.twoLoadTab = uitab(h.measTabs, 'Title', tim.plots.viewText('twoLoad'));   % WO-005
             % Results > Reflection and transmission | Transmission loss | Transfer impedance | Validity
             h.resTab = uitab(tabs, 'Title', 'Results');
             h.resTabs = app.subTabs(h.resTab);
@@ -962,6 +984,7 @@ classdef Tubebench < handle
             h.tlTab = uitab(h.resTabs, 'Title', tim.plots.viewText('transmissionLoss'));
             h.ztTab = uitab(h.resTabs, 'Title', tim.plots.viewText('impedance'));
             h.validTab = uitab(h.resTabs, 'Title', tim.plots.viewText('validity'));
+            h.tmTab = uitab(h.resTabs, 'Title', tim.plots.viewText('transferMatrix'));   % WO-005
             % Formula: every equation used by the software
             h.formulaTab = uitab(tabs, 'Title', 'Formula');
             % a view is prepared when its tab is opened (major or sub tab)
@@ -984,8 +1007,9 @@ classdef Tubebench < handle
             % Setup > Tube setup: 3D model of the tube as entered, geometry table
             P = tim.gui.palette(); h = struct();
             page = tim.gui.ViewPage(tab, 'Tube setup', ['3D model of the tube as entered in IMPEDANCE TUBE ' ...
-                '(distances between port centres and specimen faces); microphones coloured by the channel in the port.'], ...
-                'SummaryTitle', 'Geometry', 'ToolWidths', {72, 52, 92, 48, 14, 104, 96});
+                '(distances between port centres and specimen faces) with the termination chosen on the right; ' ...
+                'microphones coloured by the channel in the port.'], ...
+                'SummaryTitle', 'Geometry', 'ToolWidths', {72, 52, 92, 48, 14, 104, 96, 14, 40, 84});
             views = {'Default', 'default'; 'Side', 'side'; 'Perspective', 'perspective'; 'Top', 'top'};
             for i = 1:4
                 uibutton(page.Tools, 'Text', views{i, 1}, 'ButtonPushedFcn', @(~, ~) app.tubeView(views{i, 2}), ...
@@ -997,8 +1021,59 @@ classdef Tubebench < handle
                 'ValueChangedFcn', @(~, ~) app.onTubeChanged());
             h.dimChk = uicheckbox(page.Tools, 'Text', 'Dimensions', 'Value', true, ...
                 'ValueChangedFcn', @(~, ~) app.onTubeChanged());
+            % two loads: which load the model shows (WO-005)
+            uilabel(page.Tools, 'Text', '');
+            h.termShowLabel = uilabel(page.Tools, 'Text', 'Show', 'HorizontalAlignment', 'right');
+            h.termShow = uidropdown(page.Tools, 'Items', {'Load A', 'Load B'}, 'ItemsData', {'A', 'B'}, ...
+                'Tooltip', 'Two loads: the termination the 3D model shows', 'ValueChangedFcn', @(~, ~) app.refreshTube());
+            % the termination (WO-005, owner decision 2026-10-14): a box above the
+            % geometry table - one load: its termination; two loads: load A, load B,
+            % the repeat of A and the level of B. Kind and place side by side, the
+            % same in every row; a muted line says what is mounted and where
+            sg = page.SummaryPanel;
+            sg.RowHeight = {150, 22, '1x', 96};
+            page.SummaryTitle.Layout.Row = 2; page.SummaryTable.Layout.Row = 3; page.SummaryNote.Layout.Row = 4;
+            pt = uipanel(sg, 'Title', 'Termination', 'FontWeight', 'bold', 'BackgroundColor', 'w');
+            pt.Layout.Row = 1; pt.Layout.Column = 1;
+            h.termPanel = pt;
+            gt = uigridlayout(pt, [4 4], 'RowHeight', {24, 24, 22, '1x'}, 'ColumnWidth', {74, '1x', 16, 84}, ...
+                'Padding', [8 4 8 4], 'RowSpacing', 4, 'ColumnSpacing', 6, 'BackgroundColor', 'w');
+            h.termGrid = gt;
+            catL = tim.app.describeLoad();
+            tipK = ['Absorber: the absorber in the extension tube, end cap on. Rigid cap: a rigid, sealed cap. Open ' ...
+                'end: the tube left open. Two loads: any two different terminations; ASTM E2611 and Brüel & Kjær ' ...
+                'use an open and an approximately anechoic termination.'];
+            tipP = ['Tube end: the end of the extension tube (end cap, the distance tubeDrawing.downstreamLength behind ' ...
+                'M4). Joint: the joint of the downstream tube, the extension tube removed (downstreamTubeEnd behind M4). ' ...
+                'The absorber exists only at the tube end.'];
+            for k = 'AB'
+                h.(['termLabel' k]) = uilabel(gt, 'Text', ['Load ' k]);
+                h.(['termKind' k]) = uidropdown(gt, 'Items', {catL.kinds.label}, 'ItemsData', {catL.kinds.value}, ...
+                    'Tooltip', tipK, 'ValueChangedFcn', @(~, ~) app.onTermChanged());
+                uilabel(gt, 'Text', 'at', 'HorizontalAlignment', 'center', 'FontColor', P.ui.muted);
+                h.(['termPlace' k]) = uidropdown(gt, 'Items', {catL.places.label}, 'ItemsData', {catL.places.value}, ...
+                    'Tooltip', tipP, 'ValueChangedFcn', @(~, ~) app.onTermChanged());
+            end
+            go = uigridlayout(gt, [1 3], 'ColumnWidth', {'1x', 44, 84}, 'Padding', [0 0 0 0], 'ColumnSpacing', 6, ...
+                'BackgroundColor', 'w');
+            go.Layout.Row = 3; go.Layout.Column = [1 4];
+            h.termRepeat = uicheckbox(go, 'Text', 'Repeat load A at the end', 'ValueChangedFcn', @(~, ~) app.onTermChanged(), ...
+                'Tooltip', ['A → B → A: T from A, B and T from A again, B are compared - a moved specimen or ' ...
+                'microphone shows (a re-packed absorber does not)']);
+            uilabel(go, 'Text', 'B level', 'HorizontalAlignment', 'right', 'Tooltip', ...
+                'Generator level of load B relative to load A (only lower; raising it needs the owner''s approval)');
+            h.termLevelB = uidropdown(go, 'Items', {'same as A', '−3 dB', '−6 dB', '−10 dB', '−20 dB'}, ...
+                'ItemsData', {0, -3, -6, -10, -20}, 'ValueChangedFcn', @(~, ~) app.onTermChanged(), 'Tooltip', ...
+                ['Generator level of load B relative to load A. A rigid cap raises the sound pressure at the tube ' ...
+                'resonances; a lower level keeps a specimen that is not linear at the level it meets with load A.']);
+            h.termText = uilabel(gt, 'Text', '', 'FontSize', 11, 'FontColor', P.ui.muted, 'WordWrap', 'on', ...
+                'VerticalAlignment', 'top');
+            h.termText.Layout.Row = 4; h.termText.Layout.Column = [1 4];
             if app.Busy                % locked like the other inputs (a 3D redraw would stall the stream)
                 h.secChk.Enable = 'off'; h.dimChk.Enable = 'off';
+                for c = {'termKindA', 'termPlaceA', 'termKindB', 'termPlaceB', 'termRepeat', 'termLevelB', 'termShow'}
+                    h.(c{1}).Enable = 'off';
+                end
             end
             tg = uigridlayout(page.Body, [2 1], 'RowHeight', {'1x', 0}, 'RowSpacing', 2, 'Padding', [0 0 0 0], ...
                 'BackgroundColor', 'w');
@@ -1055,6 +1130,54 @@ classdef Tubebench < handle
             probe = h.axCalSetup;      % bar height (fitCalBar) and 3D labels need the laid-out width
         end
 
+        function [h, page, probe] = constructTwoLoad(app, tab)
+            % Measurement > Two-load (WO-005), built like the Calibration view:
+            % operator bar (the load to mount; the buttons only while it waits),
+            % the 3D model with that termination glowing, the condition number of
+            % the loads and the repeat of load A side by side; on the right the
+            % loads and the operator steps. "Show load" picks the load whose
+            % measurement and own results the other views show.
+            P = tim.gui.palette(); h = struct();
+            [vt, vd] = tim.plots.viewText('twoLoad');
+            page = tim.gui.ViewPage(tab, vt, vd, 'SummaryTitle', 'Loads', 'SummaryWidth', 450, 'ToolWidths', {74, 96});
+            uilabel(page.Tools, 'Text', 'Show load', 'HorizontalAlignment', 'right');
+            h.twShow = uidropdown(page.Tools, 'Items', {'A'}, 'ItemsData', {'A'}, 'Enable', 'off', ...
+                'ValueChangedFcn', @(~, ~) app.onShowLoad(), 'Tooltip', ['The load whose measurement (time signals, ' ...
+                'spectrum, transfer functions) and own results (|R_term|, τ, the validity of the load) are shown.']);
+            tg = uigridlayout(page.Body, [3 1], 'RowHeight', {116, '1x', 190}, ...
+                'RowSpacing', 6, 'Padding', [0 0 0 0], 'BackgroundColor', 'w');
+            h.twTg = tg;
+            pb = uigridlayout(tg, [4 2], 'ColumnWidth', {'1x', 0}, 'RowHeight', {'1x', 36, 30, '1x'}, ...
+                'Padding', [12 4 12 4], 'ColumnSpacing', 14, 'RowSpacing', 6, 'BackgroundColor', 'w');
+            pb.Layout.Row = 1;
+            h.twBar = pb;
+            h.twText = uilabel(pb, 'Text', '', 'WordWrap', 'on', 'FontSize', 12, 'VerticalAlignment', 'center', ...
+                'Interpreter', 'html');
+            h.twText.Layout.Row = [1 4]; h.twText.Layout.Column = 1;
+            h.twOk = uibutton(pb, 'Text', 'Measure', 'FontSize', 13, 'FontWeight', 'bold', ...
+                'BackgroundColor', P.ui.start, 'FontColor', 'w');
+            h.twCancel = uibutton(pb, 'Text', 'Abort', 'FontSize', 12);
+            h.twOk.Layout.Row = 2; h.twOk.Layout.Column = 2;
+            h.twCancel.Layout.Row = 3; h.twCancel.Layout.Column = 2;
+            h.axTw3D = uiaxes(tg); h.axTw3D.Layout.Row = 2;
+            axtoolbar(h.axTw3D, {'rotate', 'zoomin', 'zoomout', 'pan', 'restoreview'});
+            sg = page.SummaryPanel;                  % right column: loads table, note, step list
+            sg.RowHeight = {22, 92, 110, '1x'};
+            ps = uipanel(sg, 'Title', 'Operator steps and quality of every load', 'FontWeight', 'bold', ...
+                'BackgroundColor', 'w');
+            ps.Layout.Row = 4;
+            h.TwList = tim.gui.Checklist(ps, {}, {}, struct('RowHeight', 20, 'FontSize', 11, 'Stacked', true));
+            gk = uipanel(tg, 'BorderType', 'none', 'BackgroundColor', 'w');
+            gk.Layout.Row = 3;
+            tl = tiledlayout(gk, 1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');   % condQ | repeat of A
+            for i = 1:2
+                ax = nexttile(tl); tim.plots.style(ax);
+                axtoolbar(ax, {'export', 'zoomin', 'zoomout', 'pan', 'restoreview'});
+                h.axTwQ(i) = ax;
+            end
+            probe = h.axTw3D;          % bar height and 3D labels need the laid-out width
+        end
+
         function [h, page, probe] = constructView(~, p, tab)
             % a measurement / result view: header, stacked axes, summary
             % (titles and descriptions: tim.plots.viewText, shared with the saved figures)
@@ -1065,7 +1188,8 @@ classdef Tubebench < handle
                 'refl', {{'reflection', 'axR', {'Axes', 2, 'AxesHeights', {'2x', '1x'}, 'SummaryTitle', 'Octave bands'}}}, ...
                 'tl', {{'transmissionLoss', 'axTL', {'Axes', 1, 'SummaryTitle', 'Octave bands'}}}, ...
                 'zt', {{'impedance', 'axZ', {'Axes', 2, 'SummaryTitle', 'Octave bands'}}}, ...
-                'valid', {{'validity', 'axV', {'Axes', 1, 'SummaryTitle', 'Criteria', 'SummaryWidth', 470}}});
+                'valid', {{'validity', 'axV', {'Axes', 1, 'SummaryTitle', 'Criteria', 'SummaryWidth', 470}}}, ...
+                'tm', {{'transferMatrix', 'axTM', {'Axes', 2, 'SummaryTitle', 'Octave bands', 'SummaryWidth', 380}}});
             s = spec.(p);
             [vt, vd] = tim.plots.viewText(s{1});
             page = tim.gui.ViewPage(tab, vt, vd, s{3}{:});
@@ -1092,8 +1216,8 @@ classdef Tubebench < handle
         function tab = partTab(app, p)
             % tab that holds a view
             names = struct('tube', 'tubeTab', 'cal', 'calTab', 'wave', 'waveTab', 'spec', 'specTab', ...
-                'tf', 'tfTab', 'refl', 'reflTab', 'tl', 'tlTab', 'zt', 'ztTab', 'valid', 'validTab', ...
-                'formula', 'formulaTab');
+                'tf', 'tfTab', 'twoload', 'twoLoadTab', 'refl', 'reflTab', 'tl', 'tlTab', 'zt', 'ztTab', ...
+                'valid', 'validTab', 'tm', 'tmTab', 'formula', 'formulaTab');
             tab = app.H.(names.(p));
         end
 
@@ -1126,6 +1250,7 @@ classdef Tubebench < handle
                 switch p
                     case 'tube', [h, page, probe] = app.constructTube(tab);
                     case 'cal', [h, page, probe] = app.constructCal(tab);
+                    case 'twoload', [h, page, probe] = app.constructTwoLoad(tab);
                     case 'formula'
                         tim.gui.equationsPanel(tab); h = struct(); page = []; probe = [];
                     otherwise, [h, page, probe] = app.constructView(p, tab);
@@ -1142,6 +1267,7 @@ classdef Tubebench < handle
             end
             % commit in one go, after everything exists
             if isfield(h, 'CalList'), app.CalList = h.CalList; h = rmfield(h, 'CalList'); end
+            if isfield(h, 'TwList'), app.TwList = h.TwList; h = rmfield(h, 'TwList'); end
             for f = fieldnames(h).'
                 app.H.(f{1}) = h.(f{1});
             end
@@ -1154,6 +1280,8 @@ classdef Tubebench < handle
             end
             app.PartState.(p) = 'built';
             if strcmp(p, 'cal'), app.setCalText([], '', ''); end   % 3D model: when the tab is opened / first step
+            if strcmp(p, 'tube'), app.termToUi(); end               % termination box from the configuration
+            if strcmp(p, 'twoload'), app.setTwText('', ''); end
             app.Constructing = prevC; app.Building = prevB;
             app.logBuild(p, 'construct', how, t0, toc(tt), busy, bw);
         end
@@ -1172,6 +1300,10 @@ classdef Tubebench < handle
                         app.refreshViews({'cal'});     % C_k of the active calibration
                         app.buildCalSteps();
                         app.fitCalBar();               % bar height from the laid-out width of the model
+                    case 'twoload'
+                        app.refreshViews({'twoload'}); % loads and graphs of the last transfer-matrix result
+                        app.buildTwSteps();
+                        app.drawTwModel(app.Cfg.measurement.loadA, false);
                     case 'formula'
                     otherwise
                         app.refreshViews({p});
@@ -1651,6 +1783,12 @@ classdef Tubebench < handle
             app.ampToUi(c.excitation.sweep.amplitudeVpp / 2);  % in the unit of the amplitude label, with its limits
             app.excitationToUi(h.exMode.Value);
             app.onAmpModel(false);
+            % the method and the terminations (WO-005; the box: Setup > Tube setup)
+            if isfield(c, 'measurement') && any(strcmp(c.measurement.method, h.method.ItemsData))
+                h.method.Value = c.measurement.method;
+            end
+            app.updateStartText();
+            app.termToUi();
             app.onTubeChanged();
             if isempty(app.Session), app.refreshCards(); end
             app.buildCalSteps();
@@ -2011,7 +2149,8 @@ classdef Tubebench < handle
             app.H.tubeInfo.Text = '';
             app.Pages.tube.setSummary(app.geometrySummary(geom, air, lim, known));
             tim.gui.drawTube3D(app.H.axTube3D, geom, app.drawingDims(), app.homeMapping(), ...
-                struct('section', app.H.secChk.Value, 'dimensions', app.H.dimChk.Value));
+                struct('section', app.H.secChk.Value, 'dimensions', app.H.dimChk.Value, ...
+                'termination', app.shownTermination()));
         end
 
         function b = bandOfFields(app)
@@ -2393,10 +2532,11 @@ classdef Tubebench < handle
             end
             h = app.H; P = tim.gui.palette();
             ctl = [app.inputControls(), {h.connect, h.disconnect, h.start, h.background, h.loadCal, h.runCal, ...
-                h.save, h.reprocess, h.mOpenMeas, h.mLoadCfg, h.mSaveCfg}, num2cell(h.mHelp)];
+                h.save, h.reprocess, h.mOpenMeas, h.mCombine, h.mLoadCfg, h.mSaveCfg}, num2cell(h.mHelp)];
             if tf
                 app.Busy = true; app.BusyWhat = what;
                 for i = 1:numel(ctl), ctl{i}.Enable = 'off'; end
+                if app.isBuilt('twoload'), h.twShow.Enable = 'off'; end
                 % Stop only for actions it can stop (saving / loading cannot be interrupted)
                 stoppable = any(strcmp(what, {'measurement', 'calibration', 'connection', 'background recording'}));
                 h.stop.Text = 'Stop';
@@ -2418,6 +2558,10 @@ classdef Tubebench < handle
                 h.stop.Tooltip = 'Stop the running action. The generator output is switched off at once.';
                 app.Busy = false; app.BusyWhat = '';
                 for i = 1:numel(ctl), ctl{i}.Enable = 'on'; end
+                if app.isBuilt('tube'), app.termLayout(); end   % the place of an absorber stays fixed
+                if app.isBuilt('twoload')
+                    h.twShow.Enable = matlab.lang.OnOffSwitchState(numel(app.LastLoads) > 1);
+                end
                 h.lamp(1).Tooltip = app.LampTips{1};     % display name and identity (refreshInstruments)
                 if app.OutputUnconfirmed
                     % the read-back after an error did not confirm the output off
@@ -2458,9 +2602,12 @@ classdef Tubebench < handle
             % every field / selector of the control panel and the drawing options
             h = app.H;
             c = {h.mode, h.exMode, h.fStart, h.fStop, h.dur, h.amp, h.reps, h.ampModel, h.ampGain, h.genLoad, ...
-                h.spkZ, h.spkP, h.ampAt, h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen};
+                h.spkZ, h.spkP, h.ampAt, h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen, h.method};
             if app.isBuilt('tube')
                 c = [c, {h.secChk, h.dimChk}];   % 3D redraw (~1 s) would stall the data stream
+                % the terminations (termLayout sets them again after an action: the
+                % place of an absorber stays fixed)
+                c = [c, {h.termKindA, h.termPlaceA, h.termKindB, h.termPlaceB, h.termRepeat, h.termLevelB, h.termShow}];
             end
         end
 
@@ -2613,8 +2760,9 @@ classdef Tubebench < handle
             start = tim.app.outputDir(c, 'data');
             if ~isempty(app.SavedDir) && isfolder(fileparts(app.SavedDir)), start = fileparts(app.SavedDir); end
             if ~isfolder(start), start = tim.app.projectRoot(); end
-            [f, p] = uigetfile({'raw.mat;result.mat', 'Saved measurement (raw.mat, result.mat)'}, ...
-                'Open measurement – select raw.mat in a measurement folder', [start filesep]);
+            [f, p] = uigetfile({'raw.mat;result.mat;twoload.json', ...
+                'Saved measurement or two-load result (raw.mat, result.mat, twoload.json)'}, ...
+                'Open measurement – select raw.mat in a measurement folder (or a file of a two-load folder)', [start filesep]);
             figure(app.Fig);
             if isequal(f, 0), return; end
             app.openMeasurement(p);
@@ -2623,6 +2771,9 @@ classdef Tubebench < handle
             folder = char(folder);
             if isfile(folder), folder = fileparts(folder); end       % raw.mat / result.mat given
             if endsWith(folder, filesep), folder = folder(1:end - 1); end
+            if isfile(fullfile(folder, 'twoload.json'))
+                app.doOpenTwoLoad(folder); return                     % a two-load pair folder (WO-005)
+            end
             f = fullfile(folder, 'raw.mat');
             if ~isfile(f)
                 error('tim:gui:open', 'No raw.mat in %s.\nSelect raw.mat in a folder written by Save measurement.', folder);
@@ -2644,6 +2795,8 @@ classdef Tubebench < handle
             end
             m = S.meas; md = m.metadata;
             app.LastMeas = m; app.LastRes = res;
+            app.LastLoads = []; app.LastTM = [];
+            if isstruct(res) && isfield(res, 'transferMatrix'), app.LastTM = res.transferMatrix; end   % one load, symmetric
             app.LastCfg = saved;         % the set-up of the saved results (Save writes it again)
             app.Saved = true; app.SavedDir = folder; app.Opened = true;
             app.ReprocessMics = [];      % the configuration's mapping unless chosen below
@@ -2929,7 +3082,11 @@ classdef Tubebench < handle
                 app.alert('The instruments are not connected. Press Connect first.', 'Not connected', 'info'); return
             end
             if ~app.confirmDiscard('Measure'), return; end
-            app.run(@() app.doStart(), 'measurement');
+            if strcmp(app.H.method.Value, 'twoLoad')
+                app.run(@() app.doTwoLoad(), 'measurement');      % A -> B (-> A'), WO-005
+            else
+                app.run(@() app.doStart(), 'measurement');
+            end
         end
         function doStart(app)
             app.readCfgFromUi();
@@ -2940,7 +3097,9 @@ classdef Tubebench < handle
             app.ensureBuilt('wave');                     % live view: prepared BEFORE the data stream
             app.showTab(app.H.waveTab);
             app.prepareLive();
+            app.Session.setTermination(app.Cfg.measurement.loadA);   % recorded with the data (Tube setup, WO-005)
             m = app.Session.measure(app.Cfg.excitation.mode);
+            app.LastLoads = []; app.LastTM = [];         % one measurement: no transfer matrix of earlier loads
             app.LastMeas = m; app.LastRes = []; app.LastCfg = app.Cfg; app.Saved = false; app.SavedDir = ''; app.Opened = false;
             app.ReprocessMics = [];                      % a new measurement: the configuration's mapping
             app.LastMeas.metadata.specimen = app.specimenName();   % name at Start (folder + metadata)
@@ -3388,6 +3547,458 @@ classdef Tubebench < handle
             if s < 0, l.HorizontalAlignment = 'right'; else, l.HorizontalAlignment = 'left'; end
         end
 
+        %% ------------------------------------------- method and terminations (WO-005)
+        function onMethodChanged(app)
+            % MEASUREMENT > Method: the Start button, the termination box (one row or
+            % loads A and B); choosing two loads opens Setup > Tube setup, where the
+            % loads are chosen
+            app.Cfg.measurement.method = app.H.method.Value;
+            app.updateStartText();
+            if app.isBuilt('tube'), app.termLayout(); app.refreshTube(); end
+            if strcmp(app.H.method.Value, 'twoLoad') && ~app.Busy
+                if strcmp(app.Fig.Visible, 'on'), app.showTab(app.H.tubeTab); end
+                ms = app.Cfg.measurement;
+                app.log('Two loads: load A "%s", load B "%s" - choose them in Setup > Tube setup (Termination).', ...
+                    tim.app.describeLoad(ms.loadA).label, tim.app.describeLoad(ms.loadB).label);
+            end
+        end
+
+        function updateStartText(app)
+            if strcmp(app.Cfg.measurement.method, 'twoLoad')
+                app.H.start.Text = 'Start two-load measurement';
+                app.H.start.Tooltip = ['Measure the specimen with load A, load B and (Repeat) load A again; every load ' ...
+                    'is saved at once, then the transfer matrix (hardware mode: asks before the loudspeaker is driven).'];
+            else
+                app.H.start.Text = 'Start measurement';
+                app.H.start.Tooltip = ['Measure the specimen with the selected signal (hardware mode: asks before the ' ...
+                    'loudspeaker is driven).'];
+            end
+        end
+
+        function termToUi(app)
+            % the termination box of Setup > Tube setup from app.Cfg.measurement
+            if ~app.isBuilt('tube'), return; end
+            h = app.H; ms = app.Cfg.measurement;
+            h.termKindA.Value = char(ms.loadA.kind); h.termPlaceA.Value = char(ms.loadA.place);
+            h.termKindB.Value = char(ms.loadB.kind); h.termPlaceB.Value = char(ms.loadB.place);
+            h.termRepeat.Value = logical(ms.repeatLoadA);
+            lv = double(ms.loadBLevel_dB);
+            if ~any(cellfun(@(v) isequal(v, lv), h.termLevelB.ItemsData))     % a value set in the file
+                h.termLevelB.Items{end + 1} = sprintf('%s%g dB', char(8722), abs(lv));
+                h.termLevelB.ItemsData{end + 1} = lv;
+            end
+            h.termLevelB.Value = lv;
+            app.termLayout();
+        end
+
+        function onTermChanged(app)
+            % a termination field changed: the configuration, the box and the model
+            h = app.H; ms = app.Cfg.measurement;
+            for k = 'AB'
+                kd = h.(['termKind' k]).Value; pl = h.(['termPlace' k]).Value;
+                if strcmp(kd, 'absorber'), pl = 'tubeEnd'; h.(['termPlace' k]).Value = pl; end   % only at the tube end
+                ms.(['load' k]) = struct('kind', kd, 'place', pl);
+            end
+            ms.repeatLoadA = h.termRepeat.Value;
+            ms.loadBLevel_dB = h.termLevelB.Value;
+            app.Cfg.measurement = ms;
+            app.termLayout();
+            app.refreshTube();
+            if app.isBuilt('twoload') && app.TwStep == 0, app.buildTwSteps(); end
+        end
+
+        function termLayout(app)
+            % one load: one row "Termination"; two loads: load A, load B, the
+            % repeat and the level of B. The place of an absorber is fixed (tube end).
+            if ~app.isBuilt('tube'), return; end
+            h = app.H; ms = app.Cfg.measurement; P = tim.gui.palette();
+            two = strcmp(ms.method, 'twoLoad');
+            if two
+                h.termLabelA.Text = 'Load A'; h.termGrid.RowHeight = {24, 24, 22, '1x'};
+                app.Pages.tube.SummaryPanel.RowHeight{1} = 176;
+            else
+                h.termLabelA.Text = 'Termination'; h.termGrid.RowHeight = {24, 0, 0, '1x'};
+                app.Pages.tube.SummaryPanel.RowHeight{1} = 118;
+            end
+            onoff = @(tf) matlab.lang.OnOffSwitchState(tf);
+            set([h.termLabelB, h.termKindB, h.termPlaceB, h.termRepeat, h.termLevelB], 'Visible', onoff(two));
+            free = ~app.Busy;
+            h.termKindA.Enable = onoff(free); h.termKindB.Enable = onoff(free);
+            h.termPlaceA.Enable = onoff(free && ~strcmp(ms.loadA.kind, 'absorber'));
+            h.termPlaceB.Enable = onoff(free && ~strcmp(ms.loadB.kind, 'absorber'));
+            h.termRepeat.Enable = onoff(free); h.termLevelB.Enable = onoff(free);
+            h.termShow.Enable = onoff(two && free); h.termShowLabel.Enable = onoff(two);
+            if ~two, h.termShow.Value = 'A'; end
+            % what is mounted and where (English, as every window text)
+            dA = tim.app.describeLoad(ms.loadA, app.Cfg); dB = tim.app.describeLoad(ms.loadB, app.Cfg);
+            mt = @(d) tim.app.msg('en', ['tlMount_' d.kind '_' d.place], distText(d.distance_m));
+            col = P.ui.muted;
+            if ~two
+                txt = [capital1(mt(dA)) '.'];
+            elseif strcmp(dA.tag, dB.tag)
+                txt = sprintf('Load A and load B are both "%s": choose two different terminations.', dA.label);
+                col = P.fail;
+            else
+                txt = sprintf('A: %s.\nB: %s.', mt(dA), mt(dB));
+                if ms.loadBLevel_dB < 0
+                    txt = sprintf('%s\nLoad B at %s%g dB of the level of load A.', txt, char(8722), abs(ms.loadBLevel_dB));
+                end
+            end
+            h.termText.Text = txt; h.termText.FontColor = col;
+        end
+
+        function d = shownTermination(app)
+            % the load the Tube setup model shows: one load - its termination;
+            % two loads - load A or B (Show)
+            ms = app.Cfg.measurement; d = ms.loadA;
+            if strcmp(ms.method, 'twoLoad') && app.isBuilt('tube') && strcmp(app.H.termShow.Value, 'B'), d = ms.loadB; end
+        end
+
+        function k = prefKey(app)
+            % the remembered loads belong to the configuration file (the lab and the
+            % virtual tube do not overwrite each other)
+            f = ''; if isfield(app.Cfg, 'configFile') && ~isempty(app.Cfg.configFile), f = app.Cfg.configFile; end
+            [~, n] = fileparts(char(f)); if isempty(n), n = 'default'; end
+            k = matlab.lang.makeValidName(['loads_' lower(n)]);
+        end
+
+        function applyRememberedLoads(app)
+            % load A, load B and the repeat of the last two-load Start with this
+            % configuration file (MATLAB preferences of the Windows user; owner
+            % decision 2026-10-14). Visible windows only: a hidden one (tests)
+            % neither reads nor writes them. The method is not remembered.
+            try
+                k = app.prefKey();
+                if ~ispref('tubebench', k), return; end
+                r = getpref('tubebench', k);
+                ms = app.Cfg.measurement;
+                tim.app.describeLoad(r.loadA); tim.app.describeLoad(r.loadB);     % a damaged record is ignored
+                ms.loadA = struct('kind', char(r.loadA.kind), 'place', char(r.loadA.place));
+                ms.loadB = struct('kind', char(r.loadB.kind), 'place', char(r.loadB.place));
+                ms.repeatLoadA = logical(r.repeatLoadA);
+                app.Cfg.measurement = ms;
+                app.log('Terminations of the last two-load measurement with this configuration: load A "%s", load B "%s".', ...
+                    tim.app.describeLoad(ms.loadA).label, tim.app.describeLoad(ms.loadB).label);
+            catch
+            end
+        end
+
+        function rememberLoads(app)
+            if ~strcmp(app.Fig.Visible, 'on'), return; end        % a hidden window (tests) writes nothing
+            try
+                ms = app.Cfg.measurement;
+                setpref('tubebench', app.prefKey(), struct('loadA', ms.loadA, 'loadB', ms.loadB, ...
+                    'repeatLoadA', logical(ms.repeatLoadA)));
+            catch
+            end
+        end
+
+        %% ------------------------------------------------ two-load measurement
+        function doTwoLoad(app)
+            % A -> B (-> A') with the operator bar of the Two-load view, every load
+            % saved at once (tim.app.runTwoLoad); the loads measured so far stay
+            % shown and saved after a Stop or an error
+            app.ensureBuilt({'twoload', 'wave'});
+            app.readCfgFromUi();
+            app.requireGain();
+            app.syncSession();
+            ms = app.Cfg.measurement;
+            dA = tim.app.describeLoad(ms.loadA, app.Cfg); dB = tim.app.describeLoad(ms.loadB, app.Cfg);
+            if strcmp(dA.tag, dB.tag)
+                error('tim:gui:input', ['Two loads: load A and load B are both "%s". Choose two different ' ...
+                    'terminations in Setup > Tube setup (Termination).'], dA.label);
+            end
+            app.rememberLoads();
+            rep = ''; if ms.repeatLoadA, rep = ', load A repeated at the end'; end
+            app.log('Start: two-load measurement of "%s" (%s): load A "%s", load B "%s"%s (started by the operator).', ...
+                app.specimenName(), app.signalName(app.Cfg.excitation.mode), dA.label, dB.label, rep);
+            app.LastLoads = []; app.LastTM = []; app.LastMeas = []; app.LastRes = []; app.LastCfg = app.Cfg;
+            app.Saved = true; app.SavedDir = ''; app.Opened = false; app.ReprocessMics = [];
+            app.TwStep = 0; app.buildTwSteps();
+            app.showTab(app.H.twoLoadTab);
+            app.refreshViews();
+            figOpt = struct('Visible', 'off');
+            out = tim.app.runTwoLoad(app.Session, struct('cfg', app.Cfg, 'specimen', app.specimenName(), ...
+                'prompt', @(msg, load, k, n) app.twStep(msg, load, k, n), 'report', @(q) app.twReport(q), ...
+                'figures', @(res, meas) tim.app.plotResults(res, meas, figOpt), ...
+                'pairFigures', @(tm, loads) tim.app.plotResults(loads(1).res, loads(1).meas, ...
+                setfield(figOpt, 'transferMatrix', tm))));
+            app.LastLoads = out.loads; app.LastTM = out.tl;
+            app.Saved = true; app.SavedDir = out.folder; app.Opened = false;
+            app.showLoad('A');
+            app.setResultStatus();
+        end
+
+        function twStep(app, msg, load, k, n)
+            % one operator step: the model shows the termination to mount (glowing),
+            % then (hardware, or practice) the operator confirms in the bar; in
+            % simulation the virtual rig mounts the load
+            app.ensureBuilt('twoload');
+            app.TwStep = k;
+            key = app.twKey(k);
+            L = app.Cfg.ui.language;
+            app.drawTwModel(load, true);
+            app.setTwText(msg, tim.app.msg(L, 'tlStepHeader', k, n));
+            app.showTab(app.H.twoLoadTab);
+            app.TwList.set(key, 'run', 'operator: terminate the tube as shown');
+            hw = strcmp(app.Session.Cfg.mode, 'hardware');
+            if hw || app.PromptInSimulation
+                ok = tim.app.msg(L, 'tlMeasureButton');
+                app.startPulse(app.H.twHi);
+                sel = app.askTwBar({ok, tim.app.msg(L, 'tlAbortButton')}, 1, 2);
+                app.stopPulse();
+                if ~strcmp(sel, ok)
+                    app.TwList.set(key, 'fail', 'cancelled by the operator');
+                    error('tim:gui:abort', 'Two-load measurement cancelled by the operator.');
+                end
+            end
+            app.TwList.set(key, 'run', sprintf('measuring (%s) ...', app.signalName(app.Session.Cfg.excitation.mode)));
+            app.prepareLive();
+        end
+
+        function twReport(app, q)
+            % after every load (quality, saved folder; shown at once) and at the end
+            app.ensureBuilt('twoload');
+            switch q.kind
+                case 'load'
+                    v = q.res.analysis.valid; inB = ~v.flags.outsideBand;
+                    frac = nnz(v.valid & inB) / max(1, nnz(inB));
+                    pk = tim.app.peakLevel(q.meas).max_dB;
+                    st = 'ok';
+                    if ~q.meas.integrityOk || frac < 0.5, st = 'fail'; elseif frac < 0.9, st = 'warn'; end
+                    [~, fn] = fileparts(q.folder);
+                    txt = sprintf('%.0f %% valid · peak %.0f dB', 100 * frac, pk);
+                    if ~isempty(fn), txt = [txt ' · saved ' fn]; end
+                    if ~q.meas.integrityOk, txt = ['data integrity failed – ' txt]; end
+                    app.TwList.set(app.twKey(q.k), st, txt);
+                    Lq = struct('role', q.role, 'load', q.load, 'meas', q.meas, 'res', q.res, 'folder', q.folder, ...
+                        'cfg', q.cfg);
+                    if isempty(app.LastLoads), app.LastLoads = Lq; else, app.LastLoads(end + 1) = Lq; end
+                    app.LastMeas = q.meas; app.LastRes = q.res; app.LastCfg = q.cfg;
+                    app.Saved = true; app.SavedDir = q.folder;
+                    app.refreshViews({'wave', 'spec', 'tf'});
+                    app.setResultStatus();
+                case 'saving'
+                    app.TwList.set('result', 'run', q.text);
+                case 'result'
+                    tm = q.tl; st = 'ok';
+                    if ~isempty(tm.checks.errors) || tm.valid.nValid == 0
+                        st = 'fail';
+                    elseif ~isempty(tm.warnings)
+                        st = 'warn';
+                    end
+                    txt = tm.valid.summary;
+                    if ~isempty(tm.checks.errors), txt = ['not combined: ' tm.checks.errors{1}]; end
+                    [~, fn] = fileparts(q.folder);
+                    if ~isempty(fn), txt = [txt ' · saved ' fn]; end
+                    app.TwList.set('result', st, txt);
+            end
+        end
+
+        function k = twKey(app, i)
+            ks = app.twKeys(); k = ks{min(i, end)};
+        end
+
+        function ks = twKeys(app)
+            ks = {'A', 'B'}; if app.Cfg.measurement.repeatLoadA, ks{end + 1} = 'A2'; end
+        end
+
+        function buildTwSteps(app)
+            % operator steps of the two-load measurement (same order as
+            % tim.app.runTwoLoad), "pending" until it starts
+            if ~app.isBuilt('twoload'), return; end
+            ms = app.Cfg.measurement;
+            dA = tim.app.describeLoad(ms.loadA, app.Cfg); dB = tim.app.describeLoad(ms.loadB, app.Cfg);
+            lb = ''; if ms.loadBLevel_dB < 0, lb = sprintf(' (%s%g dB)', char(8722), abs(ms.loadBLevel_dB)); end
+            keys = [app.twKeys(), {'result'}];
+            labels = {['Load A: ' dA.label], ['Load B: ' dB.label lb]};
+            if ms.repeatLoadA, labels{end + 1} = ['Load A again: ' dA.label]; end
+            labels{end + 1} = 'Transfer matrix, figures and the pair folder';
+            app.TwList.rebuild(keys, labels);
+            app.TwSteps = numel(keys) - 1;
+        end
+
+        function sel = askTwBar(app, options, defaultIdx, cancelIdx)
+            %ASKTWBAR Operator question in the bar of the Two-load view (as askBar
+            %   in the Calibration view): no modal dialog; Stop or closing the
+            %   window returns the cancel option, a hidden window the default.
+            app.LastPrompt = struct('text', '', 'options', {options});
+            if ~isvalid(app) || ~isvalid(app.Fig) || app.stopPending()
+                sel = options{cancelIdx}; return
+            end
+            if ~strcmp(app.Fig.Visible, 'on'), sel = options{defaultIdx}; return; end
+            h = app.H; P = tim.gui.palette();
+            app.LastPrompt.text = h.twText.Text;
+            app.PromptAnswer = '';
+            h.twOk.Text = options{1}; h.twCancel.Text = options{2};
+            h.twOk.ButtonPushedFcn = @(~, ~) app.setPromptAnswer(options{1});
+            h.twCancel.ButtonPushedFcn = @(~, ~) app.setPromptAnswer(options{2});
+            h.twBar.ColumnWidth = {'1x', max(150, 8 * max(numel(options{1}), numel(options{2})) + 30)};
+            h.twBar.BackgroundColor = P.ui.attention;
+            h.twOk.Enable = 'on'; h.twCancel.Enable = 'on';
+            drawnow;
+            done = onCleanup(@() endTwPrompt(app));
+            while isempty(app.PromptAnswer)
+                if ~isvalid(app) || ~isvalid(app.Fig) || app.stopPending()
+                    sel = options{cancelIdx}; return
+                end
+                pause(0.1);
+            end
+            sel = app.PromptAnswer;
+        end
+
+        function endTwPrompt(app)
+            if ~isvalid(app) || ~isvalid(app.Fig) || ~app.isBuilt('twoload'), return; end
+            app.H.twBar.ColumnWidth = {'1x', 0}; app.H.twBar.BackgroundColor = 'w';
+        end
+
+        function setTwText(app, msg, stepText)
+            if ~app.isBuilt('twoload'), return; end
+            note = @(s) ['<br><span style="color:#5f6368;font-size:11px">' htmlText(s) '</span>'];
+            if isempty(msg)
+                app.H.twText.Text = [htmlText(['Method "Two loads" and "Start two-load measurement": every step ' ...
+                    'shows here which termination to mount; it glows yellow in the model. The loads are chosen in ' ...
+                    'Setup > Tube setup.']), note(['The specimen section and the microphones stay untouched for all ' ...
+                    'loads. Every load is saved at once; the transfer matrix follows (ASTM E2611).'])];
+            else
+                app.H.twText.Text = ['<b>' htmlText(stepText) ':</b>&nbsp; ' htmlText(msg), ...
+                    note('Yellow: the termination to mount now  ·  the specimen and the microphones stay as they are')];
+            end
+        end
+
+        function drawTwModel(app, load, highlight)
+            % 3D model of the Two-load view with a termination (glowing: the one to mount now)
+            if ~app.isBuilt('twoload'), return; end
+            [geom, ~, msgs] = app.readTube();
+            if ~isempty(msgs), geom = app.Cfg.geometry; end
+            M = tim.gui.drawTube3D(app.H.axTw3D, geom, app.drawingDims(), app.homeMapping(), ...
+                struct('termination', load, 'highlightTermination', highlight, 'section', true, 'dimensions', false));
+            app.H.tw3D = M; app.H.twHi = M.glow;
+        end
+
+        function onShowLoad(app)
+            app.showLoad(app.H.twShow.Value);
+        end
+
+        function showLoad(app, role)
+            % the measurement and the own results of one load in the views (the
+            % transfer matrix stays); "Show load" lists the loads there are
+            L = app.LastLoads;
+            if isempty(L), return; end
+            i = find(strcmp({L.role}, role), 1); if isempty(i), i = 1; end
+            app.LastMeas = L(i).meas; app.LastRes = L(i).res;
+            if ~isempty(L(i).cfg), app.LastCfg = L(i).cfg; end
+            if app.isBuilt('twoload')
+                names = struct('A', 'A', 'B', 'B', 'A2', ['A' char(8242)], 'oneLoad', '1');
+                app.H.twShow.Items = cellfun(@(r) names.(r), {L.role}, 'UniformOutput', false);
+                app.H.twShow.ItemsData = {L.role};
+                app.H.twShow.Value = L(i).role;
+                app.H.twShow.Enable = matlab.lang.OnOffSwitchState(numel(L) > 1);
+            end
+            app.refreshViews();
+        end
+
+        function onCombine(app)
+            % File > Combine two saved measurements…: load A, then load B
+            if app.Busy || ~app.confirmDiscard('Combine two measurements'), return; end
+            c = app.Cfg; if isempty(app.Session), c.mode = app.H.mode.Value; end
+            start = tim.app.outputDir(c, 'data'); if ~isfolder(start), start = tim.app.projectRoot(); end
+            f = cell(1, 2);
+            for i = 1:2
+                [fn, p] = uigetfile({'raw.mat', 'Saved measurement (raw.mat)'}, ...
+                    sprintf('Combine two measurements – select raw.mat of load %c', 'A' + i - 1), [start filesep]);
+                figure(app.Fig);
+                if isequal(fn, 0), return; end
+                f{i} = p; start = fileparts(fileparts(p));
+            end
+            app.combineMeasurements(f{1}, f{2});
+        end
+    end
+
+    methods
+        function combineMeasurements(app, folderA, folderB)
+            %COMBINEMEASUREMENTS Two saved measurements of the same specimen with
+            %   different terminations as loads A and B (File > Combine two saved
+            %   measurements…): both are reprocessed with the IMPEDANCE TUBE
+            %   fields and the active calibration, then the transfer matrix
+            %   (tim.app.processTwoLoad). Save measurement writes a pair folder;
+            %   the measurement folders are only read.
+            app.run(@() app.doCombine(folderA, folderB), 'combining two measurements');
+        end
+    end
+
+    methods (Access = private)
+        function doCombine(app, folderA, folderB)
+            app.ensureBuilt({'twoload', 'tm'});
+            app.readCfgFromUi();
+            p = tim.app.loadTwoLoad({char(folderA), char(folderB)});
+            [cal, src] = app.currentCalibration();
+            L = struct('role', {}, 'load', {}, 'meas', {}, 'res', {}, 'folder', {}, 'cfg', {});
+            for i = 1:numel(p.loads)
+                q = p.loads(i);
+                c = app.Cfg; md = q.meas.metadata;
+                if isfield(md, 'mode'), c.mode = md.mode; elseif isfield(md, 'WARNING'), c.mode = 'simulation'; end
+                res = tim.app.processMeasurement(q.meas, c, cal);
+                if isempty(q.load)
+                    app.log('Load %s (%s): the termination was not recorded (saved before 1.4.0).', q.role, q.folder);
+                end
+                L(end + 1) = struct('role', q.role, 'load', q.load, 'meas', q.meas, 'res', res, 'folder', q.folder, ...
+                    'cfg', q.cfg); %#ok<AGROW>
+            end
+            app.LastLoads = L;
+            app.LastTM = tim.app.processTwoLoad(L, app.Cfg);
+            app.Saved = false; app.SavedDir = ''; app.Opened = false; app.ReprocessMics = [];
+            app.logTwoLoad(app.LastTM, sprintf('Combined %s (A) and %s (B), calibration %s%s', ...
+                folderName(folderA), folderName(folderB), L(1).res.calibration.version, src));
+            app.showLoad('A');
+            app.setResultStatus();
+            app.showTab(app.H.twoLoadTab);
+        end
+
+        function doOpenTwoLoad(app, folder)
+            % a pair folder (tim.app.saveTwoLoad): its loads with their saved results
+            % and the saved transfer matrix; Reprocess reprocesses every load
+            p = tim.app.loadTwoLoad(folder);
+            for w = reshape(p.warnings, 1, []), app.log('Warning: %s.', w{1}); end
+            L = struct('role', {}, 'load', {}, 'meas', {}, 'res', {}, 'folder', {}, 'cfg', {});
+            for i = 1:numel(p.loads)
+                q = p.loads(i);
+                L(end + 1) = struct('role', q.role, 'load', q.load, 'meas', q.meas, 'res', q.res, 'folder', q.folder, ...
+                    'cfg', q.cfg); %#ok<AGROW>
+            end
+            app.LastLoads = L; app.LastTM = p.tl;
+            app.Saved = true; app.SavedDir = folder; app.Opened = true; app.ReprocessMics = [];
+            app.logTwoLoad(app.LastTM, sprintf('Opened %s', folderName(folder)));
+            app.showLoad('A');
+            app.setResultStatus();
+        end
+
+        function reprocessLoads(app)
+            % Reprocess of a transfer-matrix result: every load with the fields
+            % and the active calibration, then T again
+            [cal, src] = app.currentCalibration();
+            L = app.LastLoads;
+            for i = 1:numel(L)
+                c = app.Cfg; md = L(i).meas.metadata;
+                if isfield(md, 'mode'), c.mode = md.mode; elseif isfield(md, 'WARNING'), c.mode = 'simulation'; end
+                L(i).res = tim.app.processMeasurement(L(i).meas, c, cal);
+            end
+            app.LastLoads = L;
+            app.LastTM = tim.app.processTwoLoad(L, app.Cfg);
+            app.logTwoLoad(app.LastTM, sprintf('Reprocessed every load with calibration %s%s', ...
+                L(1).res.calibration.version, src));
+            shown = 'A'; if app.isBuilt('twoload'), shown = app.H.twShow.Value; end
+            app.showLoad(shown);
+        end
+
+        function logTwoLoad(app, tm, head)
+            app.log('%s: transfer matrix %s.', head, tm.valid.summary);
+            if tm.repeat.performed, app.log('%s.', capital1(tm.repeat.text)); end
+            if ~isempty(tm.level.text), app.log('%s.', capital1(tm.level.text)); end
+            for w = reshape(tm.checks.warnings, 1, []), app.log('Warning: %s.', w{1}); end
+            for e = reshape(tm.checks.errors, 1, []), app.log('Error: %s - no transfer matrix.', e{1}); end
+        end
+
         function onTabChanged(app, ev)
             % (major or sub tab) a view opened before it is ready is prepared now -
             % but never during a running action (1-3 s would stall the data
@@ -3438,17 +4049,22 @@ classdef Tubebench < handle
             end
         end
 
-        function startPulse(app)
-            % calibration ports pulse while MATLAB waits for the operator
+        function startPulse(app, hi)
+            % the glow pulses while MATLAB waits for the operator: the calibration
+            % ports (default) or the termination of a two-load step (hi)
             app.stopPulse();
-            if ~isfield(app.H, 'calHi') || isempty(app.H.calHi), return; end
+            if nargin < 2
+                hi = gobjects(0); if isfield(app.H, 'calHi'), hi = app.H.calHi; end
+            end
+            if isempty(hi), return; end
+            app.PulseHi = hi;
             app.PulseTimer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.35, 'BusyMode', 'drop', ...
                 'Name', 'Tubebench-calibration-pulse', 'TimerFcn', @(~, ~) app.pulseStep(), 'Tag', app.TimerTag);
             start(app.PulseTimer);
         end
         function pulseStep(app)
             try
-                hi = app.H.calHi(isvalid(app.H.calHi));
+                hi = app.PulseHi(isvalid(app.PulseHi));
                 if isempty(hi), return; end
                 if hi(1).FaceAlpha > 0.4, a = 0.12; else, a = 0.65; end
                 set(hi, 'FaceAlpha', a);
@@ -3461,10 +4077,11 @@ classdef Tubebench < handle
                 try, stop(app.PulseTimer); delete(app.PulseTimer); catch, end
                 app.PulseTimer = [];
             end
-            if isfield(app.H, 'calHi')
-                hi = app.H.calHi(isvalid(app.H.calHi));
-                if ~isempty(hi), set(hi, 'FaceAlpha', 0.35); end
-            end
+            hi = app.PulseHi;
+            if isfield(app.H, 'calHi'), hi = [hi(:); app.H.calHi(:)]; end
+            hi = hi(isvalid(hi));
+            if ~isempty(hi), set(hi, 'FaceAlpha', 0.35); end
+            app.PulseHi = gobjects(0);
         end
 
         function onSave(app)
@@ -3475,6 +4092,9 @@ classdef Tubebench < handle
             % Progress dialog in the window (same style as the closing dialog): the
             % steps done so far and the running one, with a progress bar. Data
             % files first, then the figures one by one (the slow part).
+            if numel(app.LastLoads) > 1 && ~isempty(app.LastTM)
+                app.doSaveTwoLoad(); return           % a transfer matrix of two loads: a new pair folder
+            end
             done = {};
             dlgEnd = onCleanup(@() app.closeProgress());
             app.progressDialog('Saving the measurement', {'Drawing the figures …'}, 0.03);
@@ -3516,13 +4136,39 @@ classdef Tubebench < handle
             app.log('Saved to %s', d);
         end
 
+        function doSaveTwoLoad(app)
+            % the transfer matrix of the loads in a NEW pair folder (the load
+            % folders are not touched: their raw data are the source)
+            dlgEnd = onCleanup(@() app.closeProgress());
+            app.progressDialog('Saving the two-load result', {'Drawing the figures …'}, 0.05);
+            L = app.LastLoads;
+            i = find(strcmp({L.role}, 'A'), 1); if isempty(i), i = 1; end
+            figs = tim.app.plotResults(L(i).res, L(i).meas, struct('Visible', 'off', 'transferMatrix', app.LastTM));
+            figEnd = onCleanup(@() closeFigures(figs));
+            c = app.Cfg; md = L(i).meas.metadata;
+            if isfield(md, 'mode'), c.mode = md.mode; elseif isfield(md, 'WARNING'), c.mode = 'simulation'; end
+            sp = ''; if isfield(md, 'specimen'), sp = md.specimen; end
+            app.progressDialog('Saving the two-load result', {sprintf('%d figures drawn.', numel(fieldnames(figs))), ...
+                'Writing the pair folder (result, CSV, figures) …'}, 0.4);
+            d = tim.app.saveTwoLoad(app.LastTM, L, c, sp, figs);
+            clear figEnd
+            app.progressDialog('Saving the two-load result', {'Done.'}, 1);
+            app.Saved = true; app.SavedDir = d; app.Opened = false;
+            app.setResultStatus();
+            app.log('Two-load result saved to %s (the loads stay in their folders).', d);
+        end
+
         function onReprocess(app)
             if isempty(app.LastMeas) || strcmp(app.LastMeas.kind, 'background'), return; end
             app.run(@() app.doReprocess(), 're-processing');
         end
         function doReprocess(app)
             app.readCfgFromUi();                  % the fields as they are now (geometry, air)
-            app.process();
+            if numel(app.LastLoads) > 1
+                app.reprocessLoads();             % a transfer matrix of two loads: every load, then T
+            else
+                app.process();
+            end
             app.Saved = false; app.SavedDir = ''; app.Opened = false;  % new results: not saved yet
             app.setResultStatus();
         end
@@ -3546,6 +4192,18 @@ classdef Tubebench < handle
             end
             app.LastRes = tim.app.processMeasurement(app.LastMeas, c, cal);
             app.LastCfg = c;             % saved as config.json with these results
+            app.LastTM = [];
+            if strcmp(app.Cfg.measurement.method, 'oneLoadSymmetric')
+                % the transfer matrix from this one load, ASSUMING a symmetric,
+                % reciprocal specimen (WO-005); saved with the results
+                ld = [];
+                md0 = app.LastMeas.metadata;
+                if isfield(md0, 'termination'), ld = struct('kind', md0.termination.kind, 'place', md0.termination.place); end
+                app.LastTM = tim.app.processTwoLoad(struct('role', 'oneLoad', 'res', app.LastRes, 'load', ld, ...
+                    'meas', app.LastMeas, 'cfg', c, 'folder', ''), c);
+                app.LastRes.transferMatrix = app.LastTM;
+                app.log('One load, symmetric specimen ASSUMED: transfer matrix %s.', app.LastTM.valid.summary);
+            end
             app.log('%s', app.LastRes.summary);
             app.log('Processed with calibration %s%s; L1/d/L2 = %s/%s/%s mm, T = %g °C.', ...
                 app.LastRes.calibration.version, src, app.H.L1.Value, app.H.dTh.Value, app.H.L2.Value, app.H.temp.Value);
@@ -3602,10 +4260,18 @@ classdef Tubebench < handle
             % pages: some of them ('cal' = calibration curves). Views not built
             % yet are skipped - never built here: their first drawing shows the
             % data of then (progressive start-up).
-            if nargin < 2, pages = {'wave', 'spec', 'tf', 'refl', 'tl', 'zt', 'valid', 'cal'}; end
+            if nargin < 2, pages = {'wave', 'spec', 'tf', 'twoload', 'refl', 'tl', 'zt', 'valid', 'tm', 'cal'}; end
             pages = pages(cellfun(@(p) app.isBuilt(p), pages));
             m = app.LastMeas; r = app.LastRes;
             o = app.plotOpts(m, r);
+            % the transfer matrix (two loads, or one load of a symmetric specimen;
+            % WO-005): the result views show it first; its own views use their
+            % own empty texts
+            ot = app.plotOpts(m, r);
+            if ~isempty(app.LastTM)
+                o.transferMatrix = app.LastTM; ot.transferMatrix = app.LastTM;
+                ot.band = app.LastTM.band;
+            end
             if isempty(m)
                 o.emptyText = 'No measurement yet – connect and press Start measurement';
             elseif strcmp(m.kind, 'background')
@@ -3627,6 +4293,8 @@ classdef Tubebench < handle
                         case 'tl', info = tim.plots.transmissionLoss(app.H.axTL, r, o);
                         case 'zt', info = tim.plots.transferImpedance(app.H.axZ, r, o);
                         case 'valid', info = tim.plots.validity(app.H.axV, r, o);
+                        case 'twoload', info = tim.plots.twoLoad(app.H.axTwQ, app.LastTM, ot);
+                        case 'tm', info = tim.plots.transferMatrix(app.H.axTM, app.LastTM, ot);
                     end
                     % notes of the measurement views are information, of the result views warnings
                     if ~isfield(info, 'status') && any(strcmp(views{i}, {'wave', 'spec', 'tf'})), info.status = 'info'; end
@@ -3664,6 +4332,10 @@ classdef Tubebench < handle
                 ts = char(m.timestamp); if numel(ts) >= 19, ts = ts(12:19); end
                 h.resultStatus.Text = sprintf('%s %s – not saved', app.capital(app.signalName(m.kind)), ts);
                 h.resultStatus.FontColor = P.fail; h.resultStatus.Tooltip = 'Press Save measurement to keep it.';
+                if numel(app.LastLoads) > 1 && ~isempty(app.LastTM)
+                    h.resultStatus.Text = 'Two-load result – not saved';
+                    h.resultStatus.Tooltip = 'Press Save measurement: a new pair folder (the loads stay in their folders).';
+                end
             end
             app.updateEnable();
         end
@@ -4040,4 +4712,19 @@ end
 function restoreBuilding(app, prev)
 % end of an on-demand preparation of a view (also on an error / closed window)
 if isvalid(app), app.setBuildingFlag(prev); end
+end
+
+function t = distText(d)
+% distance of a termination face behind M4 as text (the operator texts of tim.app.msg)
+if isfinite(d), t = sprintf('%g mm', round(1e3 * d, 1)); else, t = '?'; end
+end
+
+function s = capital1(s)
+if ~isempty(s), s(1) = upper(s(1)); end
+end
+
+function n = folderName(f)
+% the name of a data folder (the last part of its path)
+[~, n, e] = fileparts(char(f)); n = [n e];
+if isempty(n), [~, n] = fileparts(fileparts(char(f))); end
 end

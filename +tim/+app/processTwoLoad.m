@@ -17,7 +17,9 @@ function tl = processTwoLoad(loads, cfg)
 %          maxTemperatureDiff_C, maxMinutesBetween, levelStepWarn_dB
 %
 %   tl.method        'twoLoad' | 'oneLoadSymmetric';  tl.assumption (text)
-%   tl.f, tl.Zc      frequency lines and the characteristic impedance
+%   tl.f, tl.Zc      frequency lines and the characteristic impedance; tl.Z0
+%                    = rho c; tl.band (analysis band), tl.kind, tl.timestamp,
+%                    tl.calibrationVersion (of load A: titles of the views)
 %   tl.T             T11, T12, T21, T22, detT ([p_L; u_L] = T [p_R; u_R])
 %   tl.condQ         condition number of the loads (columns of unit length)
 %   tl.anechoic      tau, TL_dB, R, alpha (= 1 - |R|^2), dissipation
@@ -53,6 +55,13 @@ first = 1; if ~oneLoad, first = iA; end
 a0 = loads(first).res.analysis;
 f = a0.f(:); Nf = numel(f); Zc = a0.Zc(:);
 tl = struct('method', 'twoLoad', 'assumption', '', 'f', f, 'Zc', Zc);
+tl.Z0 = a0.air.Z0;                               % rho c (the normalisation of Zt / rho c)
+tl.band = [f(1) f(end)];
+if isfield(a0, 'options') && isfield(a0.options, 'fRange') && numel(a0.options.fRange) == 2
+    tl.band = a0.options.fRange(:).';
+end
+r0 = loads(first).res;
+tl.kind = r0.kind; tl.timestamp = r0.timestamp; tl.calibrationVersion = r0.calibration.version;
 tl.loads = loadSummary(loads, cfg);
 tl.checks = pairChecks(loads, ms);
 if oneLoad

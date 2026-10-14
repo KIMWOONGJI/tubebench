@@ -17,7 +17,11 @@ function info = validity(ax, res, opts)
 %   stays visible on white).
 %
 %   opts (all optional): band [fMin fMax] (default res.analysis.options.fRange,
-%   else [120 4500]), simulation, emptyText, stepped (default from res.kind).
+%   else [120 4500]), simulation, emptyText, stepped (default from res.kind),
+%   transferMatrix (a result of tim.app.processTwoLoad, WO-005: below a
+%   second separator the rows of the transfer matrix - both loads valid,
+%   loads differ (condQ), Valid T, reciprocal, the repeat of load A - the
+%   last two report only).
 %
 %   info.summary  Criterion | Passing (bins) | % | Affects (which results
 %                 the criterion masks); note = res.analysis.valid.summary +
@@ -34,10 +38,10 @@ ax = ax(1);
 legend(ax, 'off'); cla(ax); hold(ax, 'on'); ax.XScale = 'log'; tim.plots.style(ax);
 cOn = [0.20 0.40 0.80]; cOff = [0.90 0.90 0.90]; cEdge = [0.60 0.60 0.60]; cRej = P.fail;
 
-rows = criteria(o.a);
+rows = criteria(o.a, o.tl);
 n = numel(rows);
-isFlag = [rows.flag];
-y = (1:n) + 0.6 * isFlag;                             % a gap between the criteria and the flags
+grp = [rows.group];
+y = (1:n) + 0.6 * (grp >= 1) + 0.6 * (grp >= 2);     % gaps: criteria | flags | transfer matrix
 info = struct('summary', [], 'note', '', 'lines', gobjects(1, 0));
 xlabel(ax, 'Frequency [Hz]'); ylabel(ax, '');
 % rows are placed here, not by fitAxes: forget fitted y limits of an earlier
@@ -45,10 +49,12 @@ xlabel(ax, 'Frequency [Hz]'); ylabel(ax, '');
 if isappdata(ax, 'timFitAxes'), rmappdata(ax, 'timFitAxes'); end
 set(ax, 'YDir', 'reverse', 'YLim', [y(1) - 0.6, y(end) + 0.6], 'YGrid', 'off');
 set(ax, 'YTick', y, 'YTickLabel', {rows.label}, 'TickLabelInterpreter', 'tex');
-sepY = y(find(isFlag, 1)) - 0.8;
-if ~isempty(sepY)
-    plot(ax, [1e-3 1e6], [sepY sepY], '-', 'Color', [0.80 0.80 0.82], 'LineWidth', 0.8, ...
-        'XLimInclude', 'off', 'YLimInclude', 'off', 'HitTest', 'off');
+for g = 1:2
+    sepY = y(find(grp == g, 1)) - 0.8;
+    if ~isempty(sepY)
+        plot(ax, [1e-3 1e6], [sepY sepY], '-', 'Color', [0.80 0.80 0.82], 'LineWidth', 0.8, ...
+            'XLimInclude', 'off', 'YLimInclude', 'off', 'HitTest', 'off');
+    end
 end
 
 if isempty(o.a)                                       % ---- empty state
@@ -80,7 +86,9 @@ title(ax, tim.plots.dataTitle(res, struct('simulation', o.simulation)), 'Interpr
 xr = o.band;                                         % analysis band; stepped: every step stays visible
 if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
 tim.plots.fitAxes(ax, 'Axis', 'x', 'XRange', xr);
-info.summary = summaryTable(rows, numel(f), [a.valid.summary ' ' rNote()]);
+sn = [a.valid.summary ' ' rNote()];
+if ~isempty(o.tl), sn = sprintf('Transfer matrix: %s. Load shown: %s', o.tl.valid.summary, sn); end
+info.summary = summaryTable(rows, numel(f), sn);
 nR = nnz(a.valid.validR);                             % R: upstream pair only (validityMasks)
 if isfield(res, 'calibration') && isfield(res.calibration, 'applied') && ~res.calibration.applied
     info.note = 'No calibration applied: no frequency line is valid. Load or run a calibration and reprocess.';
@@ -101,10 +109,12 @@ end
 end
 
 % ---------------------------------------------------------------------------
-function rows = criteria(a)
-% rows of the view: label (TeX), plain name, mask, flag row?, what it affects.
+function rows = criteria(a, tl)
+% rows of the view: label (TeX), plain name, mask, flag row?, what it affects,
+% group (0 criteria, 1 rejection flags, 2 transfer matrix, WO-005).
 % Both-pair criteria mask τ, α_d, TL and Z_t; R (validR = upstream.valid) has
 % its own pair-1 version of them: '(R: M1/M2)', see rNote
+if nargin < 2, tl = []; end
 both = ['|τ|, α_d, TL, Z_t ' rOnly()];
 S = {'Measured (in band)',            'Measured (in band)',          'measured',    both
      'Geometry OK',                   'Geometry OK',                 'geometryOK',  both
@@ -123,19 +133,42 @@ if ~isempty(a) && isfield(a.valid, 'flags')
         setdiff(fieldnames(a.valid.flags).', flags, 'stable')];   % known order, then any new flag
 end
 nF = 0; if ~isempty(a), nF = numel(a.f); end
-rows = struct('label', {}, 'name', {}, 'mask', {}, 'flag', {}, 'affects', {});
+rows = struct('label', {}, 'name', {}, 'mask', {}, 'flag', {}, 'affects', {}, 'group', {});
 for i = 1:size(S, 1)
     m = false(nF, 1);
     if ~isempty(a)
         if strcmp(S{i, 3}, '~nonPassive'), m = ~a.valid.flags.nonPassive; else, m = a.valid.(S{i, 3}); end
     end
-    rows(end + 1) = struct('label', S{i, 1}, 'name', S{i, 2}, 'mask', m, 'flag', false, 'affects', S{i, 4}); %#ok<AGROW>
+    rows(end + 1) = struct('label', S{i, 1}, 'name', S{i, 2}, 'mask', m, 'flag', false, 'affects', S{i, 4}, ...
+        'group', 0); %#ok<AGROW>
 end
 for i = 1:numel(flags)
     m = false(nF, 1);
     if ~isempty(a), m = a.valid.flags.(flags{i}); end
     rows(end + 1) = struct('label', ['Rejected: ' flagName(flags{i})], 'name', ['Rejected: ' flagName(flags{i})], ...
-        'mask', m, 'flag', true, 'affects', flagAffects(flags{i})); %#ok<AGROW>
+        'mask', m, 'flag', true, 'affects', flagAffects(flags{i}), 'group', 1); %#ok<AGROW>
+end
+if isempty(tl) || isempty(a) || numel(tl.f) ~= nF, return; end
+% ---- transfer matrix (two loads, or one load of a symmetric specimen)
+v = tl.valid; aff = 'T and its TL, R_a, α (Transfer matrix)';
+if strcmp(tl.method, 'oneLoadSymmetric')
+    T = {'Load valid (symmetric assumed)', v.base, aff
+         '\bfValid T', v.valid, aff};
+else
+    T = {'Both loads valid', v.base, aff
+         sprintf('Loads differ (cond(Q) %s %g)', char(8804), v.condQMax), v.loadsDiffer & isfinite(tl.condQ), aff
+         '\bfValid T', v.valid, aff
+         sprintf('Reciprocal (|det T %s 1| %s %g)', char(8722), char(8804), v.reciprocityTol), ~v.notReciprocal, ...
+            'report only (a quality indicator)'};
+    if tl.repeat.performed
+        T(end + 1, :) = {sprintf('Load A repeat (%s %g)', char(8804), tl.repeat.tol), tl.repeat.diff <= tl.repeat.tol, ...
+            'report only (median decides)'};
+    end
+end
+for i = 1:size(T, 1)
+    nm = strrep(strrep(T{i, 1}, '\bf', ''), '\tau', 'τ');
+    rows(end + 1) = struct('label', T{i, 1}, 'name', nm, 'mask', logical(T{i, 2}(:)), 'flag', false, ...
+        'affects', T{i, 3}, 'group', 2); %#ok<AGROW>
 end
 end
 
@@ -233,4 +266,8 @@ o.emptyText = 'No measurement yet';
 if isfield(opts, 'emptyText') && ~isempty(opts.emptyText), o.emptyText = opts.emptyText; end
 o.stepped = isstruct(res) && isfield(res, 'kind') && strcmp(res.kind, 'stepped');
 if isfield(opts, 'stepped') && ~isempty(opts.stepped), o.stepped = logical(opts.stepped); end
+o.tl = [];                                            % transfer-matrix result (tim.app.processTwoLoad)
+if isfield(opts, 'transferMatrix') && isstruct(opts.transferMatrix) && ~isempty(opts.transferMatrix)
+    o.tl = opts.transferMatrix;
+end
 end

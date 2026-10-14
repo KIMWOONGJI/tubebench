@@ -258,7 +258,7 @@ classdef TestTwoLoad < matlab.unittest.TestCase
             out = tim.app.runTwoLoad(s, struct('specimen', 'porous 1', 'prompt', @(varargin) [], ...
                 'report', @note));
             function note(q), steps{end+1} = q.kind; end
-            tc.verifyEqual(steps, {'load', 'load', 'load', 'result'});
+            tc.verifyEqual(steps, {'load', 'load', 'load', 'saving', 'result'});
             tc.verifyEqual({out.loads.role}, {'A', 'B', 'A2'});
             for i = 1:3
                 L = out.loads(i);

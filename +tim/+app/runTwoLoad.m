@@ -24,7 +24,8 @@ function out = runTwoLoad(session, opts)
 %           simulation - nothing (the rig mounts the load); hardware - the
 %           message in the command window, Enter to go on
 %   opts.report(q)   q.kind 'load' after every load (role, label, folder, res,
-%           meas, k, n), 'result' at the end (tl, folder)
+%           meas, k, n, load, cfg), 'saving' before the figures and the pair
+%           folder are written (text), 'result' at the end (tl, folder)
 %   opts.specimen    name for the folders and the metadata ('' = none)
 %   opts.save        false: nothing is written (tests); default true
 %   opts.figures     @(res, meas) -> struct of figures for a load folder
@@ -117,7 +118,7 @@ for k = 1:n
     end
     loads(end+1) = struct('role', st.role, 'load', st.load, 'meas', m, 'res', res, 'folder', folder, 'cfg', c); %#ok<AGROW>
     report(struct('kind', 'load', 'role', st.role, 'label', st.desc.label, 'folder', folder, 'res', res, ...
-        'meas', m, 'k', k, 'n', n));
+        'meas', m, 'k', k, 'n', n, 'load', st.load, 'cfg', c));
     if ~m.integrityOk
         session.log('Warning: load %s has data integrity problems - repeat the sequence at a lower level.', st.role);
     end
@@ -130,6 +131,9 @@ if ~isempty(tl.level.text), session.log('%s.', capital(tl.level.text)); end
 for w = reshape(tl.checks.warnings, 1, []), session.log('Warning: %s.', w{1}); end
 for e = reshape(tl.checks.errors, 1, []), session.log('Error: %s - no transfer matrix.', e{1}); end
 folder = '';
+if doSave
+    report(struct('kind', 'saving', 'text', 'drawing and saving the figures of the loads and the pair folder ...'));
+end
 if doSave && ~isempty(figFcn) && cfg.output.exportFigures
     for i = 1:numel(loads)
         figs = figFcn(loads(i).res, loads(i).meas);
