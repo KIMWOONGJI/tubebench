@@ -144,6 +144,41 @@ switch key
     case 'interchange12'
         t.ko = '묶음 안에서 ch1과 ch2 마이크를 서로 맞바꾼 뒤 Enter를 누르세요… ';
         t.en = 'Interchange the ch1 and ch2 microphones in the bundle, then press Enter… ';
+    % ---- two-load measurement (WO-005, tim.app.runTwoLoad): the termination of
+    % each load (distance of its face behind M4 as text, e.g. '291 mm')
+    case 'tlMount_absorber_tubeEnd'
+        t.ko = '연장관 안에 흡음재, end cap 닫음 (종단 면: M4에서 %s)';
+        t.en = 'the extension tube with the absorber inside, the end cap on (face %s behind M4)';
+    case 'tlMount_rigid_tubeEnd'
+        t.ko = '흡음재를 뺀 빈 연장관, end cap을 닫고 밀폐 (종단 면: M4에서 %s)';
+        t.en = 'the extension tube empty (absorber removed), the end cap on and sealed (face %s behind M4)';
+    case 'tlMount_open_tubeEnd'
+        t.ko = '흡음재를 뺀 빈 연장관, end cap 없음: 관이 M4에서 %s 지점에서 열림';
+        t.en = 'the extension tube empty (absorber removed), the end cap off: the tube open %s behind M4';
+    case 'tlMount_rigid_joint'
+        t.ko = '연장관을 분리하고 joint 플랜지에 강체 마개를 밀폐해 장착 (종단 면: M4에서 %s)';
+        t.en = 'the extension tube removed, a rigid cap sealed on the joint flange (face %s behind M4)';
+    case 'tlMount_open_joint'
+        t.ko = '연장관을 분리하고 joint를 열어 둠 (관 끝: M4에서 %s)';
+        t.en = 'the extension tube removed, the joint left open (%s behind M4)';
+    case 'tlFirst'             % load name (A), its label, its mount text
+        t.ko = ['종단 %s: %s – %s. 이 상태로 장착되어 있는지 확인하세요. 모든 종단 측정 동안 시편 구간과 마이크는 ' ...
+            '그대로 둡니다.'];
+        t.en = ['Load %s: %s – %s. Check that the tube is terminated so. The specimen section and the microphones ' ...
+            'stay untouched for all loads.'];
+    case 'tlSwap'              % load name (B, A again), its label, its mount text
+        t.ko = '종단 %s: %s – %s. 종단을 이렇게 바꾸세요. 시편 구간과 마이크는 건드리지 마세요.';
+        t.en = 'Load %s: %s – %s. Change the termination to this; do not touch the specimen section or the microphones.';
+    case 'tlRepeatName'
+        t.ko = 'A (반복)'; t.en = 'A (repeat)';
+    case 'tlStepHeader'        % step n, number of steps N
+        t.ko = '두 종단 측정 단계 %d / %d'; t.en = 'Two-load step %d of %d';
+    case 'tlDone'              % label of the load mounted at the end
+        t.ko = '두 종단 측정 완료. 지금 장착된 종단: %s.'; t.en = 'Two-load measurement complete. Mounted now: %s.';
+    case 'tlMeasureButton'
+        t.ko = '측정'; t.en = 'Measure';
+    case 'tlAbortButton'
+        t.ko = '측정 중단'; t.en = 'Abort';
     otherwise
         error('tim:msg:key', 'Unknown message key "%s".', key);
 end

@@ -8,8 +8,16 @@ function tm = transferMatrix(method, varargin)
 %       positions). With P = [pL_a pL_b; uL_a uL_b] and Q = [pR_a pR_b; uR_a uR_b]:
 %           T = P * inv(Q)
 %       The column scaling of each load cancels, so relative pressures can be
-%       used. The condition number of Q is returned: if the two loads are not
-%       sufficiently different (Q nearly singular) T is not determined.
+%       used. The condition number of Q is returned (condQ): Q with the
+%       velocity row multiplied by Zc and each column scaled to unit length,
+%       because the scale of a load (generator level, reference microphone)
+%       is arbitrary and must not change it. condQ = cot(theta/2) for the
+%       angle theta between the two boundary states: 1 for orthogonal states
+%       (a rigid and an open termination at the same place), Inf for equal
+%       loads (T not determined); errors of the measured states grow up to
+%       condQ times in T (WO-005; limit analysis.condQMax). A line without
+%       data in either load gives NaN; identical states give condQ = Inf.
+%       T is NaN on both.
 %
 %   tm = tim.acoustics.transferMatrix('oneLoadSymmetric', res)
 %       Single-load method, valid ONLY if the sample is reciprocal
@@ -40,14 +48,18 @@ switch method
             error('tim:tm:grid', 'Both loads must share the same frequency grid.');
         end
         Nf = numel(a.f);
-        T = zeros(Nf, 4); condQ = zeros(Nf, 1);
+        T = nan(Nf, 4); condQ = nan(Nf, 1);
         for i = 1:Nf
             P = [a.boundary.pL(i), b.boundary.pL(i); a.boundary.uL(i), b.boundary.uL(i)];
             Q = [a.boundary.pR(i), b.boundary.pR(i); a.boundary.uR(i), b.boundary.uR(i)];
-            % Normalise velocity rows by Zc so cond(Q) is dimensionless
-            Zc = a.Zc(i);
-            Qn = Q .* [1; Zc];
+            if ~all(isfinite([P(:); Q(:)])), continue; end      % a line without data in one load
+            % velocity row times Zc (both rows in pressure units), then every
+            % column (load) to unit length: cond(Q) is dimensionless and does
+            % not depend on the arbitrary scale of each load
+            Qn = Q .* [1; a.Zc(i)];
+            Qn = Qn ./ vecnorm(Qn);
             condQ(i) = cond(Qn);
+            if ~isfinite(condQ(i)) || condQ(i) > 1e12, condQ(i) = Inf; continue; end   % identical states
             Ti = P / Q;
             T(i, :) = [Ti(1,1), Ti(1,2), Ti(2,1), Ti(2,2)];
         end

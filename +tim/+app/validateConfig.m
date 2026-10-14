@@ -137,6 +137,47 @@ if isfield(cfg.analysis, 'bandMode')
         error('tim:config:bandMode', 'Analysis band (analysis.bandMode) must be ''fixed'' or ''geometry''.');
     end
 end
+% transfer-matrix limits (WO-005, tim.app.processTwoLoad)
+lims = {'condQMax', 'Condition limit of the two loads (analysis.condQMax) must be a number of at least 1.', @(v) v >= 1; ...
+    'reciprocityTol', 'Reciprocity tolerance (analysis.reciprocityTol) must be greater than 0.', @(v) v > 0; ...
+    'repeatTol', 'Tolerance of the load A repeat (analysis.repeatTol) must be greater than 0.', @(v) v > 0};
+for i = 1:size(lims, 1)
+    if isfield(cfg.analysis, lims{i, 1})
+        v = cfg.analysis.(lims{i, 1});
+        if ~(isnumeric(v) && isscalar(v) && ~isnan(v) && lims{i, 3}(v))
+            error('tim:config:transferMatrix', '%s', lims{i, 2});
+        end
+    end
+end
+% measurement method and termination loads (WO-005)
+if isfield(cfg, 'measurement')
+    ms = cfg.measurement;
+    mt = ms.method;
+    if ~((ischar(mt) || (isstring(mt) && isscalar(mt))) && any(strcmp(char(mt), {'oneLoad', 'oneLoadSymmetric', 'twoLoad'})))
+        error('tim:config:method', ['Measurement method (measurement.method) must be ''oneLoad'', ' ...
+            '''oneLoadSymmetric'' or ''twoLoad''.']);
+    end
+    dA = tim.app.describeLoad(ms.loadA);         % errors tim:config:termination
+    dB = tim.app.describeLoad(ms.loadB);
+    if strcmp(char(mt), 'twoLoad') && strcmp(dA.tag, dB.tag)
+        error('tim:config:termination', ['Load A and load B are both "%s": the two-load method needs two different ' ...
+            'terminations (measurement.loadA, measurement.loadB).'], dA.label);
+    end
+    if ~(isscalar(ms.repeatLoadA) && (islogical(ms.repeatLoadA) || isnumeric(ms.repeatLoadA)))
+        error('tim:config:measurement', 'Repeat of load A (measurement.repeatLoadA) must be true or false.');
+    end
+    if ~(isnumeric(ms.loadBLevel_dB) && isscalar(ms.loadBLevel_dB) && ms.loadBLevel_dB <= 0 && ms.loadBLevel_dB >= -40)
+        error('tim:config:measurement', ['Level of load B (measurement.loadBLevel_dB) must lie between -40 and 0 dB: ' ...
+            'load B may only be measured at the level of load A or lower.']);
+    end
+    positive = {'levelStepWarn_dB', 'maxTemperatureDiff_C', 'maxMinutesBetween'};
+    for i = 1:numel(positive)
+        v = ms.(positive{i});
+        if ~(isnumeric(v) && isscalar(v) && v > 0)
+            error('tim:config:measurement', 'measurement.%s must be greater than 0.', positive{i});
+        end
+    end
+end
 [cfg, band] = tim.app.analysisBand(cfg);
 if band.outside
     report{end+1} = sprintf(['Analysis band %g–%g Hz (analysis.fMin, analysis.fMax) extends beyond the ASTM ' ...
