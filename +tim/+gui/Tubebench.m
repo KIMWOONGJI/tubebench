@@ -5,7 +5,7 @@ classdef Tubebench < handle
     %   app = tim.gui.Tubebench('config/user_config.json');
     %   app = tim.gui.Tubebench(file, 'Visible', 'off')  % hidden window (automated tests)
     %   app = tim.gui.Tubebench(file, 'Deferred', false) % visible, every view built before it appears
-    %   app.openMeasurement('data/20261009_111602_sweep_foam')  % show a saved measurement
+    %   app.openMeasurement('data/20261009_111602_oneload_sweep_foam')  % show a saved measurement
     %   app.ensureBuilt('all')                         % wait until every view is prepared
     %
     %   Progressive start-up (visible window): a small start window

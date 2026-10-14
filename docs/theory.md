@@ -108,7 +108,7 @@ empirical attenuation-only approximation; (2) the attenuation of both is the sam
 about 47 % at `|Z_t|/(ρc) = 0.05` - the quantity this tube is built for. `'iso10534'` is kept for
 comparisons and ISO-conformant absorption reports.
 
-*First lab data (empty 75 mm section, 20261009_192503_sweep, CAL-20261009-191631, T entered
+*First lab data (empty 75 mm section, 20261009_192503_oneload_sweep, CAL-20261009-191631, T entered
 20 °C, CAD geometry; termination-independent one-load transfer matrix):*
 
 | Model | `|τ/τ_exp| − 1` | phase error rms | median | > 2.5 kHz |

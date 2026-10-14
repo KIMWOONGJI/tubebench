@@ -20,6 +20,11 @@ Hardware sessions so far, all from this PC via the instruments' link-local Ether
   drivers"). In the afternoon, the owner's check of 1.2.1 (WO-003, steps 1-4, all passed; section
   "Hardware check of 1.2.1"), run from the worktree `tubebench-wo003`.
 
+Folder names: on 2026-10-14 the one-load measurement folders saved before 1.4.0 were renamed to
+the 1.4.0 naming. The method was added after the time stamp, for example `20261010_234354_sweep_cyl75`
+became `20261010_234354_oneload_sweep_cyl75`. This document uses the new names. The list of old
+and new names is in `data/RENAMED_2026-10-14.txt`. No file inside a folder was changed.
+
 ## Instruments found
 
 | Instrument | Identification (read from the device) |
@@ -161,12 +166,12 @@ values (s1 29, L1 41, d 75, L2 41, s2 29 mm, not yet checked with calipers).
 | Time | Run | Result |
 |---|---|---|
 | 10-09 19:16 | switching calibration `CAL-20261009-191631`, empty 75 mm section, sweep 80–5500 Hz | C_k valid on 88–90 % of the lines 120–4500 Hz; automatic empty-tube check **passed**: \|τ\| error 0.007, τ phase error 1.35° rms, R consistency 0.0196 (limit 0.02), 1869 lines |
-| 10-09 19:20 | `data/20261009_192503_sweep`, empty 75 mm section, 80–5500 Hz | integrity OK; 1860 of 2191 lines valid (R: 1918); termination not anechoic (τ, TL masked); evaluated in theory.md ("First lab data") |
-| 10-09 20:15 | `data/20261009_201658_sweep`, 80–5500 Hz | integrity OK; d entered as 53.3 mm (M2–M3 135.3 mm instead of 157 mm), so the calibration's empty-tube check does not apply (warning in the result); what was mounted is not recorded in the folder |
+| 10-09 19:20 | `data/20261009_192503_oneload_sweep`, empty 75 mm section, 80–5500 Hz | integrity OK; 1860 of 2191 lines valid (R: 1918); termination not anechoic (τ, TL masked); evaluated in theory.md ("First lab data") |
+| 10-09 20:15 | `data/20261009_201658_oneload_sweep`, 80–5500 Hz | integrity OK; d entered as 53.3 mm (M2–M3 135.3 mm instead of 157 mm), so the calibration's empty-tube check does not apply (warning in the result); what was mounted is not recorded in the folder |
 | 10-10 21:26 | switching calibration `CAL-20261010-212544`, empty 75 mm section, sweep 80–5500 Hz | C_k valid on 96–97 % of the lines; automatic empty-tube check **passed**: \|τ\| error 0.007, τ phase error 0.80° rms, R consistency 0.012, 2031 lines |
-| 10-10 21:34 | `data/20261010_234024_sweep` (saved 23:40), no specimen name, d = 75 mm, 80–5500 Hz | integrity OK; 2096 of 2191 lines valid (R: 2125) |
-| 10-10 23:43 | `data/20261010_234354_sweep_cyl75`, specimen "cyl75", 80–7300 Hz | integrity OK; 2045 lines valid (R: 2104) |
-| 10-10 23:52 | `data/20261010_235332_sweep_metasil-cell1`, specimen "metasil-cell1", d entered as 53.3 mm, 80–7300 Hz | integrity OK; 1591 lines valid (R: 1858); same port-distance warning as 10-09 20:15 |
+| 10-10 21:34 | `data/20261010_234024_oneload_sweep` (saved 23:40), no specimen name, d = 75 mm, 80–5500 Hz | integrity OK; 2096 of 2191 lines valid (R: 2125) |
+| 10-10 23:43 | `data/20261010_234354_oneload_sweep_cyl75`, specimen "cyl75", 80–7300 Hz | integrity OK; 2045 lines valid (R: 2104) |
+| 10-10 23:52 | `data/20261010_235332_oneload_sweep_metasil-cell1`, specimen "metasil-cell1", d entered as 53.3 mm, 80–7300 Hz | integrity OK; 1591 lines valid (R: 1858); same port-distance warning as 10-09 20:15 |
 
 These runs exercised the excitation, acquisition, calibration and processing chain on the real
 instruments. They are not the formal Tests C, D, E (H7) or G: the consistency of the calibration
@@ -281,7 +286,7 @@ TCP state of the generator connection was logged from Windows.
 | 1-2 reconnect, lab file loads | **HW-VERIFIED** | 2026-10-12 12:0x: ping 1.5 / 6 ms, LAN-XI REST 200 in Idle; `loadConfig` without a warning (`keysight33220a`, `lanxi`, BNC, maxVpp 2, sweep 80–5500 Hz), `validateConfig` without a line (also with 'instruments') |
 | 3 connect and identify, output off | **HW-VERIFIED** | 12:04-12:06: identities as expected; `isOutputOn` false, output LED off during a 10 s hold (owner); a second connect / close without "not in state Idle", module in Idle afterwards; front panel responds after close (no "Rmt" annunciator on a LAN socket) |
 | 4 window: instruments in use, identities | **HW-VERIFIED** | 12:10: "In use" before Connect (owner); "Connected - all checks passed", 10 checklist steps, TEDS on 4 of 4, channel setup 16.3 s, signal check OK on all four channels; "In use" and the Instruments table show model, serial and firmware without "(simulated)" |
-| 5 short measurement at an approved level (≤ 0.2 Vpp), sweep gate at both ends | **HW-VERIFIED** | 12:29, 0.05 Vpp, `data/20261012_123025_sweep_hwcheck-step5`: integrity OK on all four channels; `gateEnds` {gate, gate}, no warning; sweep found at 1.489 s, 5.006 s long (matched peak ratio 713); output off about 0.09 s after the sweep end, the start-frequency tone in between outside the gate; Time signals note "Grey: not analysed (before 1.49 s and after 6.49 s …)"; LED on only during the sweep (owner) |
+| 5 short measurement at an approved level (≤ 0.2 Vpp), sweep gate at both ends | **HW-VERIFIED** | 12:29, 0.05 Vpp, `data/20261012_123025_oneload_sweep_hwcheck-step5`: integrity OK on all four channels; `gateEnds` {gate, gate}, no warning; sweep found at 1.489 s, 5.006 s long (matched peak ratio 713); output off about 0.09 s after the sweep end, the start-frequency tone in between outside the gate; Time signals note "Grey: not analysed (before 1.49 s and after 6.49 s …)"; LED on only during the sweep (owner) |
 | 6 Stop during a measurement (D24: output off before the LAN-XI stop) | **HW-VERIFIED** | 12:38, Stop in repetition 2: SCPI `OUTP OFF` 12:38:12.267, REST `PUT /rest/rec/measurements/stop` 12:38:12.710 (D24 order); the messages as expected, `OUTP?` 0, partial data in `data/emergency/`; LED off at once (owner). 14:02:47 Stop, 14:03:34 the next measurement started without reconnecting and ran normally |
 | 7 output-off read-back | **HW-VERIFIED** | no "not confirmed off" after a normal end or a Stop; `OUTP?` 0 and the LED off. (The "not confirmed off" messages of observation 1 came from a dropped connection, not from a read-back mismatch.) |
 | 8 closing (idle, during a measurement) | **HW-VERIFIED** | 14:04:57 closed while idle (the PC closed the generator socket); 14:07:05 closed in repetition 2: "Closing: window close requested while busy - STOP requested first.", the repetition stopped at once (partial data 14:07:06). At the next Connect (14:08:40) the output read back off and the checklist step "LAN-XI recorder state Idle" read "Idle". The session log in the MATLAB command window shows both closings: "Closing: Generator output off (confirmed)." and "Closing: Instruments disconnected." (14:04:56-59 and 14:07:08-09). At the idle closing `PUT /rest/rec/finish` timed out after the 2 s closing time-out ("shutdown step in RecorderStreaming failed"); the shutdown loop went on and the module was in Idle at the next Connect |
@@ -372,9 +377,9 @@ merged into `main` on 2026-10-12.
 These items, the fixes the check asked for and the open owner decisions are collected in
 `docs/workorder_after_hardware_check.md` (WO-003, 1.2.1).
 
-* **Reprocess the five lab folders into NEW folders** (`data/20261009_192503_sweep`,
-  `20261009_201658_sweep`, `20261010_234024_sweep`, `20261010_234354_sweep_cyl75`,
-  `20261010_235332_sweep_metasil-cell1`): since 2026-10-11 every swept-sine frequency line is
+* **Reprocess the five lab folders into NEW folders** (`data/20261009_192503_oneload_sweep`,
+  `20261009_201658_oneload_sweep`, `20261010_234024_oneload_sweep`, `20261010_234354_oneload_sweep_cyl75`,
+  `20261010_235332_oneload_sweep_metasil-cell1`): since 2026-10-11 every swept-sine frequency line is
   centred on its frequency (`docs/theory.md` section 4, step 3), which changes every saved sweep
   result slightly - measured read-only in memory on these folders: median phase change of the raw
   relative responses 3.5–6.2·10⁻⁴ rad, on the valid lines |ΔR| ≤ 6·10⁻³ and |ΔZt| ≤ 2.4·10⁻³ ρc,
@@ -392,11 +397,11 @@ These items, the fixes the check asked for and the open owner decisions are coll
 
   | Source folder | New folder | Valid lines (R) | Change on lines valid in both |
   |---|---|---|---|
-  | `20261009_192503_sweep` | `20261012_200336_sweep` | 1860 → 1884 (1918 → 1929) | \|ΔR\| ≤ 0.043 (median 0.0057), \|ΔZt\| ≤ 0.034 ρc |
-  | `20261009_201658_sweep` | `20261012_200351_sweep` | 1622 → 1634 (1721 → 1745) | \|ΔR\| ≤ 0.032 (median 0.0064), \|ΔZt\| ≤ 0.016 ρc |
-  | `20261010_234024_sweep` | `20261012_200403_sweep` | 2096 → 2096 (2125 → 2125) | \|ΔR\| ≤ 0.0021, \|ΔZt\| ≤ 5·10⁻⁴ ρc |
-  | `20261010_234354_sweep_cyl75` | `20261012_200415_sweep_cyl75` | 2045 → 2046 (2104 → 2105) | \|ΔR\| ≤ 0.0043, \|ΔZt\| ≤ 6·10⁻⁴ ρc |
-  | `20261010_235332_sweep_metasil-cell1` | `20261012_200428_sweep_metasil-cell1` | 1591 → 1591 (1858 → 1859) | \|ΔR\| ≤ 0.0046 |
+  | `20261009_192503_oneload_sweep` | `20261012_200336_oneload_sweep` | 1860 → 1884 (1918 → 1929) | \|ΔR\| ≤ 0.043 (median 0.0057), \|ΔZt\| ≤ 0.034 ρc |
+  | `20261009_201658_oneload_sweep` | `20261012_200351_oneload_sweep` | 1622 → 1634 (1721 → 1745) | \|ΔR\| ≤ 0.032 (median 0.0064), \|ΔZt\| ≤ 0.016 ρc |
+  | `20261010_234024_oneload_sweep` | `20261012_200403_oneload_sweep` | 2096 → 2096 (2125 → 2125) | \|ΔR\| ≤ 0.0021, \|ΔZt\| ≤ 5·10⁻⁴ ρc |
+  | `20261010_234354_oneload_sweep_cyl75` | `20261012_200415_oneload_sweep_cyl75` | 2045 → 2046 (2104 → 2105) | \|ΔR\| ≤ 0.0043, \|ΔZt\| ≤ 6·10⁻⁴ ρc |
+  | `20261010_235332_oneload_sweep_metasil-cell1` | `20261012_200428_oneload_sweep_metasil-cell1` | 1591 → 1591 (1858 → 1859) | \|ΔR\| ≤ 0.0046 |
 
   The three folders of 2026-10-10 change only by the centred lines. The two of 2026-10-09 change
   mostly by the calibration: lines without a valid calibration 303 → 95, so more valid lines.
