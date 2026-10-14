@@ -268,3 +268,10 @@ every load was invalid ("0 of 2308 lines valid").
   - a Start without a calibration asks first (Cancel is the default);
   - a load without a calibration reads "0 % valid: no calibration";
   - a repeat with no line valid in all three loads reads "Not compared" instead of "differs".
+- **Open end / rigid cap at the tube end** (`20261014_171136_twoload_empty75`, with the calibration):
+  - the loads differ well: condQ was 1–2 over the whole band;
+  - but the open-end load was only 8 % valid (low coherence and SNR above 300 Hz), and the rigid
+    cap 59 %, so only 139 lines were valid;
+  - the cause has not been analysed yet.
+- **Release:** merged into main as version 1.4.0 on the owner's request (2026-10-14), with the
+  hardware check of section 9 still open (`docs/hardware_status.md`: PENDING).
