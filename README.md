@@ -51,10 +51,12 @@ complete virtual tube, so every feature, the window included, also runs without 
 - **Four-microphone analysis.** Wave decomposition; reflection and transmission coefficients,
   transmission loss, thin-element transfer impedance and the two-port transfer matrix. Visco-thermal
   tube losses (Kirchhoff) by default, ISO 10534-2 attenuation as an option.
-- **Two-load transfer matrix (ASTM E2611).** Load A, load B and load A again, chosen in the window
-  (absorber, rigid cap or open end, at the tube end or the joint) and guided step by step: no
-  anechoic termination needed. The transmission loss, the anechoic and the hard-backed absorption
-  and the matrix itself, with the condition of the loads and a check that nothing moved.
+- **Two-load transfer matrix (ASTM E2611).** The window guides the operator through load A, load B
+  and load A again. The loads are chosen in the window (absorber, rigid cap or open end, at the tube
+  end or the joint), and no anechoic termination is needed. It gives the transmission loss, the
+  absorption with an anechoic and with a rigid backing, and the matrix itself, with the condition
+  number of the loads and a check that nothing moved between them. For a front-to-back symmetric
+  specimen, one load is enough.
 - **Validity per frequency line.** Lines that the tube geometry, the calibration, the signal
   quality or the termination do not support are masked, and the program says why. The analysis
   band can follow the ASTM E1050 / E2611 limits of the tube geometry.
@@ -129,6 +131,23 @@ then
 2. applies the complex switching calibration;
 3. maps the acquisition channels to the tube positions M1..M4;
 4. decomposes the waves and computes R, τ, TL, the transfer impedance and the validity masks.
+
+With two loads, every load is processed this way and saved as a measurement of its own.
+`tl = tim.app.processTwoLoad(loads, cfg)` then computes the transfer matrix T of the specimen from
+the loads, and `tim.app.runTwoLoad` runs the whole sequence from a script.
+
+**Choosing the method** (Method in the window's MEASUREMENT section):
+
+| Method | Termination | Result | Saved as |
+|---|---|---|---|
+| One load | anechoic in the band (\|R_term\| ≤ 0.1); elsewhere τ and TL are masked | R, τ, TL, Z_t | `<time>_oneload_<signal>_<specimen>` |
+| One load, symmetric | any | T, assuming a front-to-back symmetric, reciprocal specimen | `<time>_oneload-symmetric_<signal>_<specimen>` |
+| Two loads (ASTM E2611) | two different terminations, A and B (A again at the end) | T: TL, absorption with an anechoic or a rigid backing, Z_t | one folder per load and a pair folder `<time>_twoload_<specimen>` |
+
+A short absorber is anechoic only at high frequencies: in the author's tube its reflection
+falls below 0.1 only above about 3 kHz. Two loads remove that limit. An empty specimen section
+cannot show the difference: air has no reflection of its own, so its TL is near 0 dB with any
+termination.
 
 The derivations, estimators, frequency limits and validity levels are in
 [docs/theory.md](docs/theory.md).
@@ -214,11 +233,14 @@ config/                 user_config.json (lab settings), example_config.json (te
                         'simcombined': one output + four inputs on one clock, simulation only)
 +tim/+app               MeasurementSession, runCalibration, processMeasurement, useRecordedMapping,
                         analysisBand, driveEstimate, plotResults (saved figures), plotCalibration,
-                        save* / export*, loadConfig / saveConfig / defaultConfig / validateConfig /
-                        migrateConfig, outputGuard, msg (prompts en / ko), softwareVersion
+                        save* / export*, measurementName (folder names), loadConfig / saveConfig /
+                        defaultConfig / validateConfig / migrateConfig, outputGuard, msg (prompts
+                        en / ko), softwareVersion; two loads: describeLoad, terminationModel,
+                        runTwoLoad, processTwoLoad, saveTwoLoad, loadTwoLoad, peakLevel
 +tim/+plots             the views, shared by the window and the saved figures: timeSignals,
                         spectrum, transferFunctions, reflection, transmissionLoss,
-                        transferImpedance, validity, calibration; house style and helpers:
+                        transferImpedance, validity, calibration, twoLoad, transferMatrix;
+                        house style and helpers:
                         style, fitAxes, legend, masked, bandValues, octaveBands, dataTitle,
                         emptyState, thickSpecimen, viewText (titles and descriptions)
 +tim/+gui               Tubebench (uifigure window; names no instrument: lamps, checklist,
