@@ -214,7 +214,7 @@ and rigid cap as the first default.
    - the A' check passes;
    - record condQ against section 2.
 2. **Same section with B = Open end at tube end:** T of both pairs agree.
-3. **A specimen** (cyl75 or metasil-cell1) with both pairs: T agrees between the pairs, and TL is
+3. **A specimen** (e.g. metasil-cell1; "cyl75" of the earlier runs is the empty section) with both pairs: T agrees between the pairs, and TL is
    valid where the one-load TL was masked.
 4. **Levels:** the peak level of A and B, and the 10 dB warning.
 

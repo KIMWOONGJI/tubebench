@@ -21,9 +21,11 @@ Hardware sessions so far, all from this PC via the instruments' link-local Ether
   "Hardware check of 1.2.1"), run from the worktree `tubebench-wo003`.
 
 Folder names: on 2026-10-14 the one-load measurement folders saved before 1.4.0 were renamed to
-the 1.4.0 naming. The method was added after the time stamp, for example `20261010_234354_sweep_cyl75`
-became `20261010_234354_oneload_sweep_cyl75`. This document uses the new names. The list of old
-and new names is in `data/RENAMED_2026-10-14.txt`. No file inside a folder was changed.
+the 1.4.0 naming. The method was added after the time stamp, for example `20261009_192503_sweep`
+became `20261009_192503_oneload_sweep`. The specimen "cyl75" is the empty 75 mm section (owner), so
+its two folders now end in `empty75`; their files still name it "cyl75". This document uses the
+new names. The list of old and new names is in `data/RENAMED_2026-10-14.txt`. No file inside a
+folder was changed.
 
 ## Instruments found
 
@@ -170,7 +172,7 @@ values (s1 29, L1 41, d 75, L2 41, s2 29 mm, not yet checked with calipers).
 | 10-09 20:15 | `data/20261009_201658_oneload_sweep`, 80–5500 Hz | integrity OK; d entered as 53.3 mm (M2–M3 135.3 mm instead of 157 mm), so the calibration's empty-tube check does not apply (warning in the result); what was mounted is not recorded in the folder |
 | 10-10 21:26 | switching calibration `CAL-20261010-212544`, empty 75 mm section, sweep 80–5500 Hz | C_k valid on 96–97 % of the lines; automatic empty-tube check **passed**: \|τ\| error 0.007, τ phase error 0.80° rms, R consistency 0.012, 2031 lines |
 | 10-10 21:34 | `data/20261010_234024_oneload_sweep` (saved 23:40), no specimen name, d = 75 mm, 80–5500 Hz | integrity OK; 2096 of 2191 lines valid (R: 2125) |
-| 10-10 23:43 | `data/20261010_234354_oneload_sweep_cyl75`, specimen "cyl75", 80–7300 Hz | integrity OK; 2045 lines valid (R: 2104) |
+| 10-10 23:43 | `data/20261010_234354_oneload_sweep_empty75`, specimen "cyl75" (the empty 75 mm section, = empty75), 80–7300 Hz | integrity OK; 2045 lines valid (R: 2104) |
 | 10-10 23:52 | `data/20261010_235332_oneload_sweep_metasil-cell1`, specimen "metasil-cell1", d entered as 53.3 mm, 80–7300 Hz | integrity OK; 1591 lines valid (R: 1858); same port-distance warning as 10-09 20:15 |
 
 These runs exercised the excitation, acquisition, calibration and processing chain on the real
@@ -378,7 +380,7 @@ These items, the fixes the check asked for and the open owner decisions are coll
 `docs/workorder_after_hardware_check.md` (WO-003, 1.2.1).
 
 * **Reprocess the five lab folders into NEW folders** (`data/20261009_192503_oneload_sweep`,
-  `20261009_201658_oneload_sweep`, `20261010_234024_oneload_sweep`, `20261010_234354_oneload_sweep_cyl75`,
+  `20261009_201658_oneload_sweep`, `20261010_234024_oneload_sweep`, `20261010_234354_oneload_sweep_empty75`,
   `20261010_235332_oneload_sweep_metasil-cell1`): since 2026-10-11 every swept-sine frequency line is
   centred on its frequency (`docs/theory.md` section 4, step 3), which changes every saved sweep
   result slightly - measured read-only in memory on these folders: median phase change of the raw
@@ -400,7 +402,7 @@ These items, the fixes the check asked for and the open owner decisions are coll
   | `20261009_192503_oneload_sweep` | `20261012_200336_oneload_sweep` | 1860 → 1884 (1918 → 1929) | \|ΔR\| ≤ 0.043 (median 0.0057), \|ΔZt\| ≤ 0.034 ρc |
   | `20261009_201658_oneload_sweep` | `20261012_200351_oneload_sweep` | 1622 → 1634 (1721 → 1745) | \|ΔR\| ≤ 0.032 (median 0.0064), \|ΔZt\| ≤ 0.016 ρc |
   | `20261010_234024_oneload_sweep` | `20261012_200403_oneload_sweep` | 2096 → 2096 (2125 → 2125) | \|ΔR\| ≤ 0.0021, \|ΔZt\| ≤ 5·10⁻⁴ ρc |
-  | `20261010_234354_oneload_sweep_cyl75` | `20261012_200415_oneload_sweep_cyl75` | 2045 → 2046 (2104 → 2105) | \|ΔR\| ≤ 0.0043, \|ΔZt\| ≤ 6·10⁻⁴ ρc |
+  | `20261010_234354_oneload_sweep_empty75` | `20261012_200415_oneload_sweep_empty75` | 2045 → 2046 (2104 → 2105) | \|ΔR\| ≤ 0.0043, \|ΔZt\| ≤ 6·10⁻⁴ ρc |
   | `20261010_235332_oneload_sweep_metasil-cell1` | `20261012_200428_oneload_sweep_metasil-cell1` | 1591 → 1591 (1858 → 1859) | \|ΔR\| ≤ 0.0046 |
 
   The three folders of 2026-10-10 change only by the centred lines. The two of 2026-10-09 change
