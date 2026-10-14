@@ -531,12 +531,17 @@ Use it when the termination is not anechoic (the lab termination reflects: |R_te
    Termination box (default: Absorber at tube end, Rigid cap at tube end), keep **Repeat load A at
    the end** on, and leave **B level** at "same as A" unless load B overdrives the specimen (it may
    only be lowered). **Show** draws load A or load B in the model.
-2. **Start two-load measurement**. Measurement > Two-load opens. For every load the operator bar
-   names the termination and how it is mounted ("Load B: Rigid cap at tube end – the extension
-   tube empty (absorber removed), the end cap on and sealed (face 291 mm behind M4)"), the model
-   shows it glowing, and in hardware mode the program waits for **Measure** (or **Abort**). Change
-   **only the termination**: the specimen section and the microphones stay untouched. In simulation
-   the virtual tube changes the termination by itself.
+2. **Start two-load measurement**. Without a calibration (CALIBRATION reads "No calibration")
+   the window asks first: no line of any load would be valid, and neither T nor the repeat of load
+   A could be judged during the run (**Cancel** is the default; the raw data of a run started
+   anyway can be reprocessed later with a calibration). Measurement > Two-load opens. For every
+   load the operator bar names the termination and how it is mounted ("Load B: Rigid cap at tube
+   end – the extension tube empty (absorber removed), the end cap on and sealed (face 291 mm
+   behind M4)"), the model shows it glowing, and in hardware mode the program waits for
+   **Measure** (or **Abort**). While the load is measured the window shows Measurement > Time
+   signals (live), then returns to Two-load. Change **only the termination**: the specimen section
+   and the microphones stay untouched. In simulation the virtual tube changes the termination by
+   itself.
 3. Every load is processed and **saved at once** in a folder of its own
    (`…_sweep_<specimen>_loadA_absorber-end`, `…_loadB_rigid-end`, `…_loadA2_absorber-end`); a Stop
    or an error keeps the loads measured so far. After the last load the figures of the loads are
@@ -712,12 +717,13 @@ line with the tolerance `analysis.repeatTol` = 0.05 (the median decides). T does
 the termination, so a re-packed absorber does not count as a change; a moved specimen or
 microphone does. The right column holds the **Loads** table (load, termination, share of the band
 valid in that load, peak level in the tube, temperature) and the **operator steps and the
-quality of every load** (valid share, peak level, saved folder; the last row: the transfer
-matrix, the figures and the pair folder). **Show load** (header) picks the load whose measurement
+quality of every load** (valid share, peak level, saved folder; "0 % valid: no calibration"
+without one; the last row: the transfer matrix, the figures and the pair folder). **Show load** (header) picks the load whose measurement
 (Time signals, Spectrum, Transfer functions) and own results (|R_term|, the validity rows of that
 load) the other views show; the transfer matrix stays. The header note warns when the loads could
-not be combined (another calibration, geometry, mapping or signal), when the repeat of load A
-differs, when load B is 10 dB or more above load A (`measurement.levelStepWarn_dB`: a rigid cap
+not be combined (another calibration, geometry, mapping or signal), when no line is valid
+because there is no calibration, when the repeat of load A differs (where no line is valid in all
+three loads the repeat graph reads "Not compared" instead), when load B is 10 dB or more above load A (`measurement.levelStepWarn_dB`: a rigid cap
 raises the level at the tube resonances, check that the specimen is linear), and when the loads
 are more than 1 K or 30 min apart.
 

@@ -248,3 +248,23 @@ and rigid cap as the first default.
   - the material properties of a homogeneous layer from T (k_s, Z_s; ASTM E2611);
   - the two-source method;
   - a least-squares T from three loads.
+
+## 12. First hardware run (2026-10-14, step 1 of section 9)
+
+`empty75`, A = absorber at the tube end, B = rigid cap at the tube end, A′; pair folder
+`20261014_163315_twoload_empty75`. The window had **no calibration** loaded, so every line of
+every load was invalid ("0 of 2308 lines valid").
+
+- **Offline reprocess with `CAL-20261010-212544`** (geometry and microphones match):
+  - every load is 88–89 % valid;
+  - pair (A, B): 445 of 2191 lines valid. Above 250 Hz TL from T is 0 ± 0.5 dB and T is within
+    3–8 % of the air column; below 250 Hz it is −0.5 to −1 dB.
+  - in every load M1–M4 fit one plane-wave field within 1–5 %, so nothing moved.
+- **Load B was not a sealed rigid cap.** Its |R_term| was 0.4–0.65, where an ideal cap gives
+  0.90–0.98. Above 1.3 kHz it matched the absorber, so condQ went above 10 (16–40). The cause is
+  open (absorber remains, cap seal, joint); step 1 is to be repeated.
+- **Owner feedback, changed on `wo-005-fb`:**
+  - each load shows Time signals while it is measured, then returns to Two-load;
+  - a Start without a calibration asks first (Cancel is the default);
+  - a load without a calibration reads "0 % valid: no calibration";
+  - a repeat with no line valid in all three loads reads "Not compared" instead of "differs".

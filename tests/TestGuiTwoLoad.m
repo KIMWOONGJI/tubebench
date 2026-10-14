@@ -124,7 +124,14 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             tc.verifyEqual(app.Session.Termination, struct('kind', 'absorber', 'place', 'tubeEnd'), ...
                 'the calibration records the absorber');
             h.method.Value = 'twoLoad'; feval(h.method.ValueChangedFcn, h.method, []);
+            % the time signals while a load is measured, then the Two-load view
+            % again (owner 2026-10-14)
+            shown = {};
+            app.TestHook = @(p) recordTab(p);
             feval(h.start.ButtonPushedFcn, h.start, []);
+            app.TestHook = [];
+            tc.verifyEqual(shown, repmat({h.waveTab}, 1, 3), 'Time signal view while each load is measured');
+            tc.verifyEqual(h.measTabs.SelectedTab, h.twoLoadTab, 'the Two-load view at the end');
             % the sequence
             tc.verifyEqual(app.TwList.Keys, {'A', 'B', 'A2', 'result'});
             % (load B 6 dB lower with pressure nodes of the rigid cap at M3 / M4:
@@ -188,6 +195,27 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             feval(h.start.ButtonPushedFcn, h.start, []);
             tc.verifyEmpty(app.LastTM); tc.verifyEmpty(app.LastLoads);
             tc.verifyEqual(h.axTL.Legend.String{1}, ['TL = ' char(8722) '20 log_{10}|\tau|']);
+            clear cleanup
+
+            function recordTab(p)
+                if strcmp(p, 'twoload:measuring'), shown{end + 1} = h.measTabs.SelectedTab; end
+            end
+        end
+
+        function noCalibrationAskedBeforeStart(tc)
+            % owner 2026-10-14: a whole run was made without a calibration (0 %
+            % valid everywhere). The window asks first; Cancel (the default, also
+            % of a hidden window) starts nothing
+            app = tim.gui.Tubebench(tc.config(), 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            tc.assertEmpty(app.Session.Calibration);
+            h.method.Value = 'twoLoad'; feval(h.method.ValueChangedFcn, h.method, []);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            tc.verifyEmpty(app.LastLoads, 'nothing measured');
+            tc.verifyEmpty(dir(fullfile(tc.tmp, 'data', '*_sweep_*')), 'nothing saved');
+            tc.verifyTrue(any(contains(h.log.Value, 'Two-load measurement not started: no calibration loaded.')));
             clear cleanup
         end
 

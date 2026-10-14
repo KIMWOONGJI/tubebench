@@ -3708,6 +3708,22 @@ classdef Tubebench < handle
                 error('tim:gui:input', ['Two loads: load A and load B are both "%s". Choose two different ' ...
                     'terminations in Setup > Tube setup (Termination).'], dA.label);
             end
+            % no calibration: every line of every load is invalid (owner 2026-10-14:
+            % a whole A -> B -> A' run was made so) - asked before anything starts
+            if isempty(app.currentCalibration())
+                go = 'Start without calibration';
+                sel = app.ask(['No calibration is loaded (CALIBRATION: Load calibration… or Run switching ' ...
+                    'calibration…). Without one, no frequency line of any load is valid, and neither T nor the ' ...
+                    'repeat of load A can be judged during the run.' newline newline 'The raw data are saved ' ...
+                    'and can be reprocessed later: load a calibration, open the pair folder (File > Open ' ...
+                    'measurement…) and press Reprocess.'], 'Two-load measurement', {go, 'Cancel'}, 2, 2, 'warning');
+                if ~strcmp(sel, go)
+                    app.log('Two-load measurement not started: no calibration loaded.');
+                    return
+                end
+                app.log(['Two-load measurement started WITHOUT a calibration (operator): no line is valid ' ...
+                    'until the pair is reprocessed with one.']);
+            end
             app.rememberLoads();
             rep = ''; if ms.repeatLoadA, rep = ', load A repeated at the end'; end
             app.log('Start: two-load measurement of "%s" (%s): load A "%s", load B "%s"%s (started by the operator).', ...
@@ -3753,6 +3769,10 @@ classdef Tubebench < handle
                 end
             end
             app.TwList.set(key, 'run', sprintf('measuring (%s) ...', app.signalName(app.Session.Cfg.excitation.mode)));
+            % the live time signals while the load is measured; back to the
+            % Two-load view when it is done (twReport; owner 2026-10-14)
+            app.showTab(app.H.waveTab);
+            app.testPoint('twoload:measuring');
             app.prepareLive();
         end
 
@@ -3768,6 +3788,7 @@ classdef Tubebench < handle
                     if ~q.meas.integrityOk || frac < 0.5, st = 'fail'; elseif frac < 0.9, st = 'warn'; end
                     [~, fn] = fileparts(q.folder);
                     txt = sprintf('%.0f %% valid · peak %.0f dB', 100 * frac, pk);
+                    if ~q.res.calibration.applied, txt = sprintf('0 %% valid: no calibration · peak %.0f dB', pk); end
                     if ~isempty(fn), txt = [txt ' · saved ' fn]; end
                     if ~q.meas.integrityOk, txt = ['data integrity failed – ' txt]; end
                     app.TwList.set(app.twKey(q.k), st, txt);
@@ -3778,6 +3799,7 @@ classdef Tubebench < handle
                     app.Saved = true; app.SavedDir = q.folder;
                     app.refreshViews({'wave', 'spec', 'tf'});
                     app.setResultStatus();
+                    app.showTab(app.H.twoLoadTab);       % the load measured: back from the time signals
                 case 'saving'
                     app.TwList.set('result', 'run', q.text);
                 case 'result'
@@ -3788,6 +3810,9 @@ classdef Tubebench < handle
                         st = 'warn';
                     end
                     txt = tm.valid.summary;
+                    if ~isempty(app.LastLoads) && ~app.LastLoads(1).res.calibration.applied
+                        txt = ['no calibration: ' txt ' – load one and Reprocess'];
+                    end
                     if ~isempty(tm.checks.errors), txt = ['not combined: ' tm.checks.errors{1}]; end
                     [~, fn] = fileparts(q.folder);
                     if ~isempty(fn), txt = [txt ' · saved ' fn]; end

@@ -224,6 +224,32 @@ classdef TestTwoLoad < matlab.unittest.TestCase
             tc.verifySubstring(strjoin(tl.warnings, ' '), 'may have moved');
         end
 
+        function repeatNotComparedIsNotADifference(tc)
+            % no line valid in all three loads: the repeat is "not compared",
+            % never "differs"; without a calibration the view names it (first
+            % hardware run, 2026-10-14)
+            ab = {struct('kind', 'absorber', 'place', 'tubeEnd'), struct('kind', 'rigid', 'place', 'tubeEnd'), ...
+                struct('kind', 'absorber', 'place', 'tubeEnd')};
+            rA = tc.load(tc.porous, struct('R', 0.05, 'x', 0.436), 'version', 'none');
+            rB = tc.load(tc.porous, struct('R', 1, 'x', 0.436), 'version', 'none');
+            tl = tim.app.processTwoLoad(tc.loads({'A', 'B', 'A2'}, {rA, rB, noValidLine(rA)}, ab), ...
+                tim.app.defaultConfig());
+            tc.verifyTrue(tl.repeat.performed);
+            tc.verifyTrue(isnan(tl.repeat.median));
+            tc.verifySubstring(tl.repeat.text, 'not evaluated');
+            fg = figure('Visible', 'off'); cleanup = onCleanup(@() close(fg));
+            ax = [subplot(2, 1, 1, 'Parent', fg), subplot(2, 1, 2, 'Parent', fg)];
+            info = tim.plots.twoLoad(ax, tl);
+            tc.verifyFalse(contains(info.note, 'repeat differs'), info.note);
+            tc.verifyNotEmpty(findobj(ax(2), 'Tag', 'timEmptyState'), 'not compared');
+            % no calibration: no line valid in any load, and the note says why
+            tl = tim.app.processTwoLoad(tc.loads({'A', 'B'}, {noValidLine(rA), noValidLine(rB)}, ab(1:2)), ...
+                tim.app.defaultConfig());
+            info = tim.plots.twoLoad(ax, tl);
+            tc.verifySubstring(info.note, 'No calibration: no valid frequency line');
+            clear cleanup
+        end
+
         function loadsAndTerminations(tc)
             % decision 2: kind x place, the absorber only at the tube end; the
             % virtual terminations at the CAD distances behind M4
@@ -348,4 +374,9 @@ function T = cascade(Zt, kd, Zc)
 % thin series screen at the front face, then an air gap of length d: asymmetric
 Ta = [cos(kd), 1j * Zc .* sin(kd), 1j * sin(kd) ./ Zc, cos(kd)];
 T = [Ta(:, 1) + Zt .* Ta(:, 3), Ta(:, 2) + Zt .* Ta(:, 4), Ta(:, 3), Ta(:, 4)];
+end
+
+function r = noValidLine(r)
+% a load with no valid line (as without a calibration)
+r.analysis.valid.valid(:) = false;
 end

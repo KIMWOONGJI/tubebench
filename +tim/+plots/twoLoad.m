@@ -101,6 +101,9 @@ if ~isempty(ax2)
         top = r.tol * 2; if ~isempty(y), top = max(top, min(prctile90(y) * 1.5, 1)); end
         set(gr, 'YLimInclude', 'off');
         tim.plots.fitAxes(ax2, 'XRange', band, 'YRange', [0 top]);
+        if ~isfinite(r.median)
+            tim.plots.emptyState(ax2, 'Not compared: no line valid in all three loads');
+        end
     else
         tim.plots.fitAxes(ax2, 'XRange', band, 'YRange', [0 0.1], 'YStep', 0.02);
         tim.plots.emptyState(ax2, 'Load A not repeated (Repeat load A at the end: off)');
@@ -109,10 +112,15 @@ end
 parts = {};
 if ~isempty(tl.checks.errors)
     parts{end + 1} = ['Not combined: ' tl.checks.errors{1}];
+elseif v.nValid == 0 && isfield(tl, 'calibrationVersion') && strcmp(tl.calibrationVersion, 'none')
+    parts{end + 1} = 'No calibration: no valid frequency line - load a calibration and Reprocess.';
 elseif v.nValid == 0
     parts{end + 1} = 'No valid frequency line - see Validity.';
 end
-if r.performed && ~r.ok, parts{end + 1} = 'Load A repeat differs - did the specimen or a microphone move?'; end
+% the repeat was compared only where all three loads are valid (median finite)
+if r.performed && ~r.ok && isfinite(r.median)
+    parts{end + 1} = 'Load A repeat differs - did the specimen or a microphone move?';
+end
 if tl.level.warn, parts{end + 1} = sprintf('Load B %+.0f dB above load A', tl.level.stepB_dB); end
 if ~isempty(tl.checks.warnings), parts{end + 1} = tl.checks.warnings{1}; end
 info.note = joinNotes(parts);
