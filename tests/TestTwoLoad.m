@@ -99,6 +99,45 @@ classdef TestTwoLoad < matlab.unittest.TestCase
             tc.verifyGreaterThan(median(tl.thin.T21Zc), 0.1);
         end
 
+        function savedFiguresWithATransferMatrix(tc)
+            % section 6: the same views draw the window and the saved figures - with
+            % a transfer matrix two more figures (Two-load, Transfer matrix), and TL,
+            % reflection, impedance and validity show T first; without one nothing
+            % changes (seven figures)
+            ab = {struct('kind', 'absorber', 'place', 'tubeEnd'), struct('kind', 'rigid', 'place', 'tubeEnd')};
+            rA = tc.load(tc.porous, struct('R', 0.05, 'x', 0.436));
+            rB = tc.load(tc.porous, struct('R', 1, 'x', 0.436));
+            tl = tim.app.processTwoLoad(tc.loads({'A', 'B'}, {rA, rB}, ab), tim.app.defaultConfig());
+            f = tim.app.plotResults(rA, [], struct('Visible', 'off', 'transferMatrix', tl));
+            tc.addTeardown(@() structfun(@(h) delete(h), f));
+            tc.verifyEqual(fieldnames(f).', {'waveforms', 'spectrum', 'transfer', 'twoLoad', 'reflection', ...
+                'transmissionLoss', 'impedance', 'validity', 'transferMatrix'});
+            ti = getappdata(f.transmissionLoss, 'timViewInfo');
+            tc.verifyEqual(ti.summary.columns(1:3), {'Band [Hz]', 'TL from T [dB]', 'TL from τ [dB]'});
+            tc.verifySubstring(ti.note, 'TL from T (two loads)');
+            ri = getappdata(f.reflection, 'timViewInfo');
+            tc.verifyEqual(ri.summary.columns, {'Band [Hz]', '|R_a|', '|τ_a|', 'α_d', 'α_h'});
+            vi = getappdata(f.validity, 'timViewInfo');
+            tc.verifyTrue(any(strcmp(vi.summary.data(:, 1), 'Valid T')));
+            zi = getappdata(f.impedance, 'timViewInfo');
+            tc.verifySubstring(zi.note, 'Not a thin element', 'the 75 mm porous layer');
+            mi = getappdata(f.transferMatrix, 'timViewInfo');
+            tc.verifyEqual(mi.summary.columns, {'Band [Hz]', '|T11|', '|T12|/Zc', '|Zc T21|', '|T22|'});
+            wi = getappdata(f.twoLoad, 'timViewInfo');
+            tc.verifyEqual(wi.summary.data(:, 2).', {'Absorber at tube end', 'Rigid cap at tube end'});
+            g = tim.app.plotResults(rA, [], struct('Visible', 'off'));
+            tc.addTeardown(@() structfun(@(h) delete(h), g));
+            tc.verifyNumElements(fieldnames(g), 7, 'no transfer matrix: as before');
+            % empty states of the new views
+            ax = axes(figure('Visible', 'off')); tc.addTeardown(@() delete(ancestor(ax, 'figure')));
+            ax(2) = axes(ancestor(ax, 'figure'));
+            e = tim.plots.twoLoad(ax, []);
+            tc.verifyEmpty(e.summary.data);
+            e = tim.plots.transferMatrix(ax, []);
+            tc.verifyNumElements(findobj(ax(1), 'Tag', 'timEmptyState'), 1);
+            tc.verifyEqual(e.note, '');
+        end
+
         function oneLoadSymmetricIsAnAssumption(tc)
             % decision 1: exact for a symmetric reciprocal specimen, wrong for an
             % asymmetric one - and marked as an assumption

@@ -49,9 +49,12 @@ complete virtual tube, so every feature, the window included, also runs without 
   calibration → measurement → save. Every step has its own view (header, graphs, summary table),
   and the Formula tab shows every equation with its source.
 - **Four-microphone analysis.** Wave decomposition; reflection and transmission coefficients,
-  transmission loss, thin-element transfer impedance and the two-port transfer matrix (two-load /
-  symmetric one-load, scripts). Visco-thermal tube losses (Kirchhoff) by default, ISO 10534-2
-  attenuation as an option.
+  transmission loss, thin-element transfer impedance and the two-port transfer matrix. Visco-thermal
+  tube losses (Kirchhoff) by default, ISO 10534-2 attenuation as an option.
+- **Two-load transfer matrix (ASTM E2611).** Load A, load B and load A again, chosen in the window
+  (absorber, rigid cap or open end, at the tube end or the joint) and guided step by step: no
+  anechoic termination needed. The transmission loss, the anechoic and the hard-backed absorption
+  and the matrix itself, with the condition of the loads and a check that nothing moved.
 - **Validity per frequency line.** Lines that the tube geometry, the calibration, the signal
   quality or the termination do not support are masked, and the program says why. The analysis
   band can follow the ASTM E1050 / E2611 limits of the tube geometry.
@@ -161,6 +164,7 @@ real instruments.
 | Instrument communication: 33220A SCPI, LAN-XI REST, recorder cycle, binary stream, TEDS | ✅ verified on the instruments |
 | Swept-sine measurements in the tube, sine excitation on the bench, microphone chain, switching calibration with its empty-tube check, measurement workflow in the window | ✅ done on the instruments (2026-10-08 to 2026-10-12) |
 | Instrument interface (1.2.0), connection check (1.2.1), generator load at the amplifier input (1.3.0) | ✅ owner's hardware checks passed (2026-10-12 / 2026-10-13) |
+| Two-load transfer matrix in the window (1.4.0, in progress on branch `wo-005`) | software ✅ (simulation); ⏳ owner's hardware check |
 | Noise excitation on the instrument, channel-to-port identification, formal validation (Tests A–G) | ⏳ pending |
 | Tube geometry of the lab configuration | ⏳ CAD design values; caliper check pending |
 

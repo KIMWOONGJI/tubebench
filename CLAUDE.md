@@ -91,8 +91,12 @@ The analysis uses only the relative responses between channels.
 3. The columns are reordered from **DAQ channel to tube position** using `cfg.mics(c).position`
    (Reprocess of an opened measurement: the recorded mapping by default, `tim.app.useRecordedMapping`).
 4. `tim.acoustics.analyzeFourMic` runs the wave decomposition and computes R, τ, TL, the transfer
-   impedance and the validity masks. `tim.acoustics.transferMatrix` gives the two-port matrix
-   (scripts only).
+   impedance and the validity masks. `tim.acoustics.transferMatrix` gives the two-port matrix;
+   the two-load method (WO-005, Method "Two loads") measures load A, load B and load A again with
+   operator prompts (`tim.app.runTwoLoad`: every load saved at once, then a pair folder) and
+   combines them (`tim.app.processTwoLoad`: T, condQ with unit columns, anechoic and hard-backed
+   values, the repeat check through T). The termination of every measurement is recorded
+   (`MeasurementSession.setTermination`); in simulation the virtual rig gets it.
 
 `meas` holds raw volts and is never modified. The axial coordinate x increases from the
 loudspeaker towards the termination. The positions are ordered M1..M4, with M1 nearest the

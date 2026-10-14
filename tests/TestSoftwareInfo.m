@@ -60,7 +60,8 @@ classdef TestSoftwareInfo < matlab.unittest.TestCase
             full = run_tests('all', 'select'); full = {full.Name};
             fast = run_tests('fast', 'select'); fast = {fast.Name};
             apps = full(endsWith(lower(full), 'appsimulationworkflow'));
-            tc.verifyEqual(sort(apps), sort({'TestGui/appSimulationWorkflow', 'TestGui/combinedDeviceAppSimulationWorkflow'}));
+            tc.verifyEqual(sort(apps), sort({'TestGui/appSimulationWorkflow', 'TestGui/combinedDeviceAppSimulationWorkflow', ...
+                'TestGuiTwoLoad/twoLoadAppSimulationWorkflow'}));
             tc.verifyEmpty(intersect(fast, apps), 'no hidden-window app run in the fast suite');
             tc.verifyFalse(any(startsWith(fast, 'TestEndToEnd')), 'no TestEndToEnd in the fast suite');
             tc.verifyEqual(sort(fast), sort(full(~startsWith(full, 'TestEndToEnd') & ~ismember(full, apps))), ...

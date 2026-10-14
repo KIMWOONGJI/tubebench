@@ -3,7 +3,8 @@ function results = run_tests(which, action)
 %
 %   run_tests            % all tests
 %   run_tests('fast')    % skip TestEndToEnd and the hidden-window app simulations
-%                        % (TestGui/appSimulationWorkflow, TestGui/combinedDeviceAppSimulationWorkflow)
+%                        % (TestGui/appSimulationWorkflow, TestGui/combinedDeviceAppSimulationWorkflow,
+%                        % TestGuiTwoLoad/twoLoadAppSimulationWorkflow)
 %   results = run_tests(...)
 %   suite = run_tests(which, 'select')   % the selected tests only, not run (tests/TestSoftwareInfo)
 %

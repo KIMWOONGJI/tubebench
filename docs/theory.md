@@ -251,19 +251,35 @@ of the wavenumber (temperature, humidity, loss model) give an **absolute** error
 When `|Z_t|/(ρc)` is below about 0.2, log temperature and humidity and keep the inter-pair phase
 residual of Test C small.
 
-### B. Two-port transfer matrix (scripts only)
+### B. Two-port transfer matrix
 
 `[p_L; u_L] = T [p_R; u_R]` has four unknown complex elements per frequency. One excitation state
 gives one vector equation, i.e. two scalar equations. A complete `T` therefore needs **two
 independent acoustic states** (ASTM E2611 [3]; Song and Bolton [8]): two terminations (two-load
-method) or two source positions. The GUI does not compute `T`; use `tim.acoustics.transferMatrix`
-from a script.
+method) or two source positions. The window measures it with Method "Two loads" (1.4.0, WO-005:
+`tim.app.runTwoLoad`, `tim.app.processTwoLoad`); scripts use `tim.acoustics.transferMatrix`.
 
 * **Two-load** (`transferMatrix('twoLoad', resA, resB)`):
   `T = P·Q⁻¹`, `P = [p_L⁽¹⁾ p_L⁽²⁾; u_L⁽¹⁾ u_L⁽²⁾]`, `Q = [p_R⁽¹⁾ p_R⁽²⁾; u_R⁽¹⁾ u_R⁽²⁾]` for loads (1)
-  and (2). The column scaling of each load cancels, so relative pressures can be used. `cond(Q)`
-  (with the velocity row multiplied by `Z_c`) is reported. If the loads are too similar, `T` is
-  undetermined.
+  and (2). The column scaling of each load cancels, so relative pressures can be used. If the
+  loads are too similar, `T` is undetermined. **condQ** (this program): the condition number of `Q`
+  with the velocity row multiplied by `Z_c` and then **every column scaled to unit length**, since
+  the scale of a load (generator level, reference microphone, a resonance in front of the reference
+  microphone) is arbitrary and must not change it. With θ the angle between the two boundary states
+  `[p_R; Z_c u_R]`, `condQ = cot(θ/2)`: 1 for orthogonal states, ∞ for equal loads; errors of the
+  measured states grow up to condQ times in `T`. Up to 1.3.2 only the velocity row was scaled. A
+  line is valid when every load used is valid (both microphone pairs, `valid.valid`) and
+  `condQ ≤ analysis.condQMax` = 10 (this program). For a rigid cap (`R = 1`) and an open end
+  (`R ≈ −1`) at the same plane the states are nearly orthogonal (condQ 1.0–2.4 in the lab band);
+  for the lab absorber against a rigid cap at the tube end the lab data give condQ ≤ 11
+  (`docs/workorder_two_load.md`, section 2).
+* **Repeat of load A** (this program): with A → B → A′, `T(A,B)` and `T(A′,B)` are compared,
+  `d = ‖T̃(A,B) − T̃(A′,B)‖ / ‖T̃(A,B)‖` per line with `T̃ = [T11, T12/Z_c; Z_c·T21, T22]`
+  (Frobenius norm); the median over the lines valid in all loads must not exceed
+  `analysis.repeatTol` = 0.05. `T` does not depend on the termination, so a termination mounted
+  again a little differently (a re-packed absorber) does not count; a moved specimen or microphone
+  does. The value is a draft from simulation (no change: median 0.004–0.014); it is set from the
+  first hardware measurement of an empty section (WO-005 section 9).
 * **One-load, symmetric** (`transferMatrix('oneLoadSymmetric', res)`; [3], [8], [9]): valid
   **only** if the specimen is reciprocal (`det T = 1`) **and** symmetric (`T11 = T22`). Then, with
   `q = p_L u_R + p_R u_L`: `T11 = T22 = (p_R u_R + p_L u_L)/q`, `T12 = (p_L² − p_R²)/q`,
@@ -277,8 +293,24 @@ cross-sections, [3], [10]):
     TL  = −20·log10|τ_a|
 
 `τ_a` is the transmitted wave at the rear face over the incident wave at the front face for an
-anechoic termination; it differs from the ASTM E2611 `t` only by the phase `e^{−jkd}`.
-Diagnostics: `reciprocityError = |det T − 1|`, `symmetryError = |T11 − T22| / (|T11| + |T22|)`.
+anechoic termination; it differs from the ASTM E2611 `t` only by the phase `e^{−jkd}`. The window
+also gives `α_a = 1 − |R_a|²` and the dissipation `1 − |R_a|² − |τ_a|²`.
+
+The specimen **backed by a rigid wall** at its rear face (`u_R = 0`; [3], [9]):
+
+    Z_h = T11 / T21,   R_h = (T11 − Z_c·T21) / (T11 + Z_c·T21),   α_h = 1 − |R_h|²
+
+**Thin element by `T`** (this program): a thin series element has `T = [1, Z_t; 0, 1]`, so `T12`
+is its `Z_t` where `|Z_c·T21|` and `|T22 − 1|` are small. The Transfer impedance view colours `T12`
+where both are at most `analysis.velocityMismatchMax` = 0.10. Unlike the velocity mismatch `δ_u`
+of one load (section 3A), this does not depend on the termination: `u_L − u_R = T21·p_R +
+(T22 − 1)·u_R`, and near a pressure maximum at the rear face (a rigid termination) a small `T21`
+gives a large `δ_u`.
+
+Diagnostics: `reciprocityError = |det T − 1|` (flagged above `analysis.reciprocityTol` = 0.1,
+a quality indicator, not a mask; a passive linear specimen without flow is reciprocal [8]),
+`symmetryError = |T11 − T22| / (|T11| + |T22|)` (zero for a symmetric specimen: it tells whether
+the one-load method would apply).
 
 ## 4. Swept-sine estimator without generator synchronisation
 

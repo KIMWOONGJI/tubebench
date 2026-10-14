@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.4.0 |
-| Status | **in progress**, branch `wo-005` (worktree `tubebench-wo005`), started 2026-10-14. `main` keeps 1.3.2 until the hardware check (section 9) and the owner's approval |
+| Status | **software built** (sections 3-8, 2026-10-14, branch `wo-005`, worktree `tubebench-wo005`; section 11). **Next:** the owner's hardware check (section 9), then version 1.4.0 and the merge. `main` keeps 1.3.2 until then |
 | Requested by | the owner (Woongji Kim), 2026-10-13 and 2026-10-14, after the review of the anechoic criterion: the lab termination reflects (\|R_term\| 0.85 at 125 Hz, 0.25 at 4 kHz), so τ, α_d and TL_τ are masked in the whole band, and the thin-element Z_t does not apply to the thick lab specimens |
 | Rules | as in CLAUDE.md; hardware results only from real measurements with the owner present; raw data are never overwritten |
 | Decisions | owner, 2026-10-14, all listed in section 1 |
@@ -221,3 +221,30 @@ and rigid cap as the first default.
 ## 10. Open points
 
 - The A' tolerance is drafted from simulation, then set from step 1 of section 9.
+
+## 11. Implementation (2026-10-14)
+
+- **Commits** on `wo-005`: the work order, the analysis and the sequence (`processTwoLoad`,
+  `runTwoLoad`, `saveTwoLoad`, `loadTwoLoad`, `describeLoad`, `terminationModel`, the session's
+  `setTermination`), then the window and the saved figures, then the documents.
+- **Choices made while building** (open to the owner's review):
+  - **Background-noise button:** it reads "Background noise" so that it fits beside the Method list.
+  - **Saving time:** the data of every load are saved at once. The figures of the loads and of the
+    pair folder are drawn after the last load, so the operator does not wait between the loads. In
+    the hidden-window test this took about a minute (three loads × 7 figures + 9). Dropping the
+    figures of the load folders would halve it.
+  - **Calibration termination:** the switching calibration records the absorber as the termination
+    of its sweeps (its first prompt asks for it); in simulation the virtual tube gets it.
+  - **condQ change for scripts:** `tim.acoustics.transferMatrix` gives other condQ values than in
+    1.3.2 (columns of unit length). T itself is unchanged.
+  - **Repeat tolerance:** `analysis.repeatTol` = 0.05 is a draft. In the virtual lab tube the median
+    difference without any change was 0.004–0.014 (1–2 sweeps), so the real noise sets it at
+    step 1 of section 9.
+  - **One-load symmetric result:** saved with its measurement (`res.transferMatrix` in
+    `result.mat`). File > Open measurement shows it again.
+  - **Combine:** File > Combine two saved measurements (two loads)… also pairs folders saved before
+    1.4.0; their termination is then "not recorded".
+- **Not built:**
+  - the material properties of a homogeneous layer from T (k_s, Z_s; ASTM E2611);
+  - the two-source method;
+  - a least-squares T from three loads.
