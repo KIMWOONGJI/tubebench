@@ -13,8 +13,10 @@ function folder = saveMeasurement(meas, res, cfg, name, figs)
 %       fig_*.png        figures (if figs given and cfg.output.exportFigures;
 %                        other formats: cfg.output.figureFormats, e.g. 'pdf')
 %   An existing folder is NEVER overwritten: a numeric suffix is added.
+%   name: as given, or empty: the method, the signal and the specimen
+%   (tim.app.measurementName, e.g. 'oneload_sweep_foam_25mm').
 
-if nargin < 4 || isempty(name), name = meas.kind; end
+if nargin < 4 || isempty(name), name = tim.app.measurementName(meas, res); end
 if nargin < 5, figs = []; end
 name = regexprep(name, '[^\w\-]', '_');
 root = tim.app.outputDir(cfg, 'data');

@@ -130,6 +130,23 @@ cfg.excitation.stepped = struct('fStart', 120, 'fStop', 4500, 'nPoints', 40, 'sp
     'amplitudeVpp', 0.2, 'settleTime', 0.3, 'recordTime', 0.5, 'nBlocks', 4, 'repetitions', 1);
 cfg.excitation.noise = struct('amplitudeVpp', 0.2, 'duration', 20, 'nfft', 8192, 'preRoll', 1.0);
 
+% ---------------- measurement method and terminations (WO-005) ----------------
+% method: 'oneLoad' (one measurement with the termination loadA; tau, alpha_d
+% and the TL from tau need an anechoic termination) | 'oneLoadSymmetric' (the
+% transfer matrix from one measurement, valid only for a front-to-back
+% symmetric, reciprocal specimen; ASTM E2611) | 'twoLoad' (loads A and B,
+% ASTM E2611; tim.app.runTwoLoad). A load is a termination kind ('absorber',
+% 'rigid', 'open') at a place ('tubeEnd', 'joint'; the absorber only at the
+% tube end): tim.app.describeLoad. Every measurement records its termination.
+cfg.measurement = struct('method', 'oneLoad', ...
+    'loadA', struct('kind', 'absorber', 'place', 'tubeEnd'), ...  % also the termination of a one-load measurement
+    'loadB', struct('kind', 'rigid', 'place', 'tubeEnd'), ...
+    'repeatLoadA', true, ...            % A -> B -> A': T(A,B) and T(A',B) compared (nothing moved)
+    'loadBLevel_dB', 0, ...             % level of load B relative to load A [dB] (<= 0: only lower)
+    'levelStepWarn_dB', 10, ...         % warn when the peak level of load B exceeds load A by this much
+    'maxTemperatureDiff_C', 1, ...      % warn when the loads differ more in temperature
+    'maxMinutesBetween', 30);           % warn when the loads lie further apart in time
+
 % ---------------- analysis ----------------
 % lossModel: 'kirchhoff' (visco-thermal wide-tube losses, k = w/c + (1-j)k'',
 % matching Zc; default) | 'iso10534' (ISO 10534-2 attenuation only, Re k = w/c,
@@ -137,12 +154,17 @@ cfg.excitation.noise = struct('amplitudeVpp', 0.2, 'duration', 20, 'nfft', 8192,
 % bandMode: 'fixed' (fMin / fMax as set) | 'geometry' (fMin / fMax = the ASTM
 % E1050 / E2611 limits of the tube, lowerFraction..upperFraction x c/s and
 % 0.58 c/D, following the geometry and the temperature; tim.app.analysisBand)
+% Transfer matrix (WO-005, tim.app.processTwoLoad): condQMax limits the
+% condition number of the two loads' boundary states (columns scaled to unit
+% length); reciprocityTol flags |det T - 1|; repeatTol limits the median
+% difference of T(A,B) and T(A',B) relative to |T| (the repeat of load A).
 cfg.analysis = struct('refChannel', 1, 'fMin', 120, 'fMax', 4500, 'bandMode', 'fixed', 'df', 2, ...
     'lossModel', 'kirchhoff', 'velocityRef', 'mean', 'condMax', 40, ...
     'phaseUncertainty_rad', 0.002, 'maxPhaseSensitivity', 0.05, ...
     'coherenceMin', 0.98, 'snrMin_dB', 20, 'validatedBands', zeros(0, 2), ...
     'lowerFraction', 0.01, 'upperFraction', 0.40, 'passivityTol', 0.05, ...
-    'velocityMismatchMax', 0.10, 'anechoicRmax', 0.1);
+    'velocityMismatchMax', 0.10, 'anechoicRmax', 0.1, ...
+    'condQMax', 10, 'reciprocityTol', 0.1, 'repeatTol', 0.05);
 
 % ---------------- calibration ----------------
 cfg.calibration = struct('file', '', ...      % path of the complex calibration MAT file

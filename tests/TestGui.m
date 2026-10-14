@@ -814,7 +814,7 @@ classdef TestGui < matlab.unittest.TestCase
             for n = {'mode','connect','disconnect','exMode','fStart','fStop','dur','amp','reps', ...
                     'ampModel','ampGain','genLoad','spkZ','spkP','ampAt','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
                     'temp','pres','loadCal','runCal','save','reprocess','status','drive','drivePath','driveMax','spkState','genState','fLimits','calLabel', ...
-                    'specimen','resultStatus','durEst','instr','ampRms','genLoadLabel'}
+                    'specimen','resultStatus','durEst','instr','ampRms','genLoadLabel','method'}
                 tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
             end
         end
@@ -1458,16 +1458,17 @@ classdef TestGui < matlab.unittest.TestCase
             top = findall(app.Fig, 'Type', 'uimenu', 'Parent', app.Fig);
             tc.verifyEqual(sort({top.Text}), {'File', 'Help'});
             file = top(strcmp({top.Text}, 'File'));
-            tc.verifyEqual(flip({file.Children.Text}), {'Open measurement…', 'Load configuration…', ...
+            tc.verifyEqual(flip({file.Children.Text}), {'Open measurement…', ...
+                'Combine two saved measurements (two loads)…', 'Load configuration…', ...
                 'Save configuration…', 'Exit'}, 'File menu');
             tc.verifyEmpty(findall(app.Fig, 'Type', 'uihyperlink'), 'no footer link any more');
             tc.verifyEqual(app.H.formulaTab.Title, 'Formula');
             % user request 2026-10-09: tabs grouped by the workflow (major tab > sub tab)
             tc.verifyEqual({app.H.tabs.Children.Title}, {'Setup', 'Calibration', 'Measurement', 'Results', 'Formula'});
             tc.verifyEqual({app.H.setupTabs.Children.Title}, {'Connection', 'Tube setup'});
-            tc.verifyEqual({app.H.measTabs.Children.Title}, {'Time signals', 'Spectrum', 'Transfer functions'});
+            tc.verifyEqual({app.H.measTabs.Children.Title}, {'Time signals', 'Spectrum', 'Transfer functions', 'Two-load'});
             tc.verifyEqual({app.H.resTabs.Children.Title}, {'Reflection and transmission', 'Transmission loss', ...
-                'Transfer impedance', 'Validity'});
+                'Transfer impedance', 'Validity', 'Transfer matrix'});
             nAbout = @() numel(findall(groot, 'Type', 'figure', 'Name', 'About tubebench'));
             n0 = nAbout();                     % About windows of other app instances (e.g. one the user has open)
             feval(app.H.mAbout.MenuSelectedFcn, app.H.mAbout, []);
@@ -1514,7 +1515,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyNumElements(app.ConnList.States, 9);
             tc.verifyEqual({app.H.tabs.Children.Title}, {'Setup', 'Calibration', 'Measurement', 'Results', 'Formula'});
             tc.verifyEqual({app.H.resTabs.Children.Title}, {'Reflection and transmission', 'Transmission loss', ...
-                'Transfer impedance', 'Validity'});
+                'Transfer impedance', 'Validity', 'Transfer matrix'});
             ph = app.H.placeholder;
             tc.verifyEqual(sort(fieldnames(ph)).', sort(app.Parts));
             tc.verifyEqual(ph.zt.Text, 'Preparing the view…');

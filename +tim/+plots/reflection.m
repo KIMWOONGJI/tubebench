@@ -21,7 +21,12 @@ function info = reflection(ax, res, opts)
 %   opts (all optional): band [fMin fMax] (default res.analysis.options.fRange,
 %   else [120 4500]), simulation, emptyText, stepped (default from res.kind),
 %   anechoicRmax (only used when the result does not carry the value of its
-%   own validity masks, res.analysis.options.anechoicRmax).
+%   own validity masks, res.analysis.options.anechoicRmax), transferMatrix
+%   (a result of tim.app.processTwoLoad, WO-005: the curves come from T
+%   instead - |R_a|, |tau_a| and alpha_d of the specimen with an anechoic
+%   termination, alpha_h = 1 - |R_h|^2 backed by a rigid wall at its rear
+%   face (dashed) - masked with the validity of T, plus |R_term| of the load
+%   shown; bottom axes: the angle of R_a; table Band | |R_a| | |τ_a| | α_d | α_h).
 %
 %   info.summary  octave bands: Band [Hz] | |R| | |τ| | α_d  (mean over the
 %                 VALID frequency lines of each band, '–' when there is
@@ -53,6 +58,10 @@ end
 
 a = o.a; f = a.f; v = a.valid;
 mo = struct('stepped', o.stepped);
+if ~isempty(o.tl)
+    info = transferMatrixCurves(ax1, ax2, a, o, B, mo, info);
+    return
+end
 [hR, gR] = tim.plots.masked(ax1, f, abs(a.R), v.validR, P.q.first, mo);
 [hT, gT] = tim.plots.masked(ax1, f, abs(a.tau), v.validTau, P.q.second, mo);
 [hA, gA] = tim.plots.masked(ax1, f, a.power.alpha, v.validTau, P.q.third, mo);
@@ -87,6 +96,55 @@ info.note = resultNote(res, a, f(miss));
 end
 
 % ---------------------------------------------------------------------------
+function info = transferMatrixCurves(ax1, ax2, a, o, B, mo, info)
+% with a transfer-matrix result (WO-005): the specimen with an anechoic
+% termination (R_a, tau_a, alpha_d) and backed by a rigid wall at its rear face
+% (alpha_h = 1 - |R_h|^2), masked with the validity of T; |R_term| of the load
+% shown (dotted) as the diagnostic of its termination
+P = tim.gui.palette(); mn = char(8722); tl = o.tl; ok = tl.valid.valid; f = tl.f;
+[hR, gR] = tim.plots.masked(ax1, f, abs(tl.anechoic.R), ok, P.q.first, mo);
+[hT, gT] = tim.plots.masked(ax1, f, abs(tl.anechoic.tau), ok, P.q.second, mo);
+[hA, gA] = tim.plots.masked(ax1, f, tl.anechoic.dissipation, ok, P.q.third, mo);
+md = mo; md.lineStyle = '--';
+[hH, gH] = tim.plots.masked(ax1, f, tl.hard.alpha, ok, P.q.third, md);
+v = a.valid; okRt = v.measured & v.geometryOK & v.qualityOK;
+[hRt, gRt] = tim.plots.masked(ax1, a.f, abs(a.Rterm), okRt, P.q.ref, ...
+    struct('stepped', o.stepped, 'lineStyle', ':', 'lineWidth', 1.4));
+uistack([gRt; gH; gA; gT; gR], 'bottom');
+title(ax1, tim.plots.dataTitle(tl, struct('simulation', o.simulation)), 'Interpreter', 'none');
+info.lines = [hR hT hA hH hRt];
+tim.plots.legend(ax1, info.lines, {'|R_a|', '|\tau_a|', ['\alpha_d = 1 ' mn ' |R_a|^2 ' mn ' |\tau_a|^2'], ...
+    ['\alpha_h = 1 ' mn ' |R_h|^2 (rigid backing)'], '|R_{term}| (this load)'});
+xr = o.band;
+if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
+if ~isempty(ax2)
+    [fp, ph, okp] = breakWraps(f, rad2deg(angle(tl.anechoic.R)), ok);
+    tim.plots.masked(ax2, fp, ph, okp, P.q.first, mo);
+    ylabel(ax2, '\angle R_a [\circ]');
+    linkaxes([ax1 ax2], 'x');
+    tim.plots.fitAxes(ax2, 'XRange', xr, 'YRange', [-180 180], 'YStep', 90);
+end
+tim.plots.fitAxes(ax1, 'XRange', xr, 'YRange', [0 1], 'YStep', 0.2);
+centres = B.centres;
+[~, ~, tR] = tim.plots.bandValues(f, abs(tl.anechoic.R), ok, centres, '%.2f');
+[~, ~, tT] = tim.plots.bandValues(f, abs(tl.anechoic.tau), ok, centres, '%.2f');
+[~, ~, tA] = tim.plots.bandValues(f, tl.anechoic.dissipation, ok, centres, '%.2f');
+[~, ~, tH] = tim.plots.bandValues(f, tl.hard.alpha, ok, centres, '%.2f');
+note = ['From the transfer matrix: the specimen with an anechoic termination (R_a, τ_a, α_d) and backed by a ' ...
+    'rigid wall at its rear face (α_h). Mean over the valid frequency lines of each octave band; ' char(8211) ...
+    ' = no valid frequency line.'];
+if ~isempty(B.note), note = [note ' ' B.note]; end
+info.summary = struct('title', 'Octave bands', 'columns', {{'Band [Hz]', '|R_a|', '|τ_a|', 'α_d', 'α_h'}}, ...
+    'data', {[B.labels, tR, tT, tA, tH]}, 'note', note);
+if ~isempty(tl.checks.errors)
+    info.note = ['Two loads not combined: ' tl.checks.errors{1}];
+elseif strcmp(tl.method, 'oneLoadSymmetric')
+    info.note = 'From one load: assumes a symmetric, reciprocal specimen - not valid for an asymmetric specimen';
+elseif ~any(ok)
+    info.note = 'No valid frequency line of the transfer matrix (grey curves) - see Validity';
+end
+end
+
 function s = bandSummary(B, cells)
 note = ['Mean over the valid frequency lines of each octave band (centre/√2 … centre·√2); ' char(8211) ...
         ' = no valid frequency line. |τ| and α_d need an anechoic termination (|R_term| below the limit).'];
@@ -113,6 +171,10 @@ o.anechoicRmax = 0.1;
 if isfield(opts, 'anechoicRmax') && ~isempty(opts.anechoicRmax), o.anechoicRmax = opts.anechoicRmax; end
 if ~isempty(o.a) && isfield(o.a, 'options') && isfield(o.a.options, 'anechoicRmax')
     o.anechoicRmax = o.a.options.anechoicRmax;      % the limit the masks of this result used
+end
+o.tl = [];                                            % transfer-matrix result (tim.app.processTwoLoad)
+if isfield(opts, 'transferMatrix') && isstruct(opts.transferMatrix) && ~isempty(opts.transferMatrix)
+    o.tl = opts.transferMatrix;
 end
 end
 

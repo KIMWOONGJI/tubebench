@@ -67,6 +67,11 @@ if isfinite(dSec) && dSec > 0, secTxt = sprintf(' (%g mm)', round(1e3 * dSec, 3)
 verify = ~isfield(cfg.calibration, 'verifyEmptySection') || cfg.calibration.verifyEmptySection;
 session.beginOperation();                       % STOP between steps stays pending
 opGuard = onCleanup(@() session.endOperation());
+% the absorbing termination the first prompt asks for (WO-005): recorded with
+% every calibration sweep; in simulation the virtual rig gets it. It stays the
+% session's termination afterwards (it is mounted); the window sets its own
+% choice again before every measurement
+session.setTermination(struct('kind', 'absorber', 'place', 'tubeEnd'));
 home0 = zeros(1, 4); home0([cfg.mics.channel]) = [cfg.mics.position];
 if strcmp(cfg.mode, 'simulation') && ~isempty(session.Rig)
     % the virtual microphones go back to their measurement ports on every

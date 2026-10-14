@@ -43,14 +43,17 @@
 6. Thin-element `Z_t`: negligible thickness and approximately continuous velocity. This is checked
    (`velocityMismatch`), never enforced. The views hide `Z_t` and the TL from `Z_t` when
    `Re(k)·d > 1` in the analysis band (d = specimen thickness).
-7. One-load transfer matrix: reciprocal and symmetric specimen (stated assumption). The two-load
-   method needs only linearity, plus two sufficiently different loads.
+7. One-load transfer matrix: reciprocal and symmetric specimen (stated assumption; the window says
+   "symmetric specimen ASSUMED"). The two-load method needs only linearity, the same specimen state
+   for both loads (checked by the repeat of load A through T, a 5 % median limit drafted from
+   simulation) and two sufficiently different loads (condQ ≤ 10, a limit of this program).
 8. `R`, `τ` and the dissipation coefficient `α_d = 1 − |R|² − |τ|²` are the **as-mounted** values:
    specimen plus the actual downstream termination. They equal the specimen's anechoic-backed
    values only for an anechoic termination (`|R_term|` ≈ 0); `R` of a specimen that transmits nothing
    is intrinsic. `τ`, `α_d` and `TL_τ` are therefore valid only for `|R_term|` ≤ 0.1
    (`anechoicRmax`). `R` is computed from the upstream pair M1/M2 alone and has no termination
-   condition. Termination-independent values: `τ_a` and `R_a` from the transfer matrix (scripts).
+   condition. Termination-independent values: `τ_a` and `R_a` from the transfer matrix (Method Two
+   loads, 1.4.0).
 
 **Instrumentation**
 
@@ -88,7 +91,10 @@
 * `|R_term|` > 0.1 makes `τ`, `α_d` and `TL_τ` invalid. `R` stays valid, but it is the as-mounted
   value, which with a reflecting termination differs from the anechoic-backed `R` of a transmitting
   specimen (up to about 30 % at `|R_term|` = 0.1 for a thin screen `Z_t = 0.5ρc`). For reflecting
-  terminations use the two-load transfer matrix (`τ_a`, `R_a`).
+  terminations use the two-load transfer matrix (`τ_a`, `R_a`; Method Two loads). A rigid termination
+  raises the sound pressure at the tube resonances (estimated +10–20 dB, not yet measured): a
+  specimen that is not linear at that level gives inconsistent loads; the window warns when load B
+  is 10 dB or more above load A and lets load B be measured at a lower level.
 * Thin elements of low impedance (`|Z_t|/(ρc)` below about 0.2) are sensitive to the inter-pair
   phase residual of the calibration and to errors in `c` (temperature, humidity); no validity mask
   covers this (assumption 4).
@@ -99,7 +105,7 @@
   statements.
 * GUI: a programmatic `uifigure` application. No `.mlapp` file is provided, because App Designer
   binary files cannot be produced reliably from source. The GUI is optional and less flexible
-  than the scripts (for example, the two-load transfer matrix is scripted only).
+  than the scripts (for example, random noise excitation is available from scripts only).
 * Simulation: the virtual rig models the loudspeaker as an ideal incident-wave source, with no
   source reflection or tube resonances on the upstream side. That is sufficient for estimator and
   decomposition tests, but not a model of the real tube. The virtual tube (`tim.sim.tubeModel`)

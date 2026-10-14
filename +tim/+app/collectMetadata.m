@@ -13,7 +13,9 @@ function md = collectMetadata(session)
 %   both. Without a connected instrument: the configured driver and settings
 %   with an empty identity. Readers of the newer fields (driver, identity,
 %   integrity.channelFaults) check isfield: measurements saved before 1.2.0
-%   lack them.
+%   lack them. md.termination (kind, place, label, faceBehindM4_m) is the
+%   termination load of the session (1.4.0, WO-005); older measurements have
+%   none.
 c = session.Cfg;
 md = struct();
 md.timestamp = char(datetime('now', 'TimeZone', 'local'), 'yyyy-MM-dd''T''HH:mm:ss.SSSZ');
@@ -35,6 +37,13 @@ md.mics = session.Mics;
 md.geometry = c.geometry;
 md.environment = c.environment;
 md.excitation = c.excitation;
+% the termination mounted during the measurement (WO-005): as selected in the
+% window (Setup > Tube setup) or set by the two-load sequence
+if isprop(session, 'Termination') && ~isempty(session.Termination)
+    d = tim.app.describeLoad(session.Termination, c);
+    md.termination = struct('kind', d.kind, 'place', d.place, 'label', d.label, ...
+        'faceBehindM4_m', d.distance_m);
+end
 md.analysis = c.analysis;
 md.calibrationVersion = 'none';
 if ~isempty(session.Calibration), md.calibrationVersion = session.Calibration.version; end

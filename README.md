@@ -16,8 +16,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/MATLAB-R2022b-e16737" alt="MATLAB R2022b">
   <img src="https://img.shields.io/badge/toolbox-Signal%20Processing-lightgrey" alt="Signal Processing Toolbox">
-  <img src="https://img.shields.io/badge/version-1.3.2-informational" alt="Version 1.3.2">
-  <img src="https://img.shields.io/badge/tests-367-brightgreen" alt="367 automated tests">
+  <img src="https://img.shields.io/badge/version-1.4.0-informational" alt="Version 1.4.0">
+  <img src="https://img.shields.io/badge/tests-386-brightgreen" alt="386 automated tests">
   <img src="https://img.shields.io/badge/method-ASTM%20E2611-555555" alt="ASTM E2611">
 </p>
 
@@ -49,9 +49,14 @@ complete virtual tube, so every feature, the window included, also runs without 
   calibration → measurement → save. Every step has its own view (header, graphs, summary table),
   and the Formula tab shows every equation with its source.
 - **Four-microphone analysis.** Wave decomposition; reflection and transmission coefficients,
-  transmission loss, thin-element transfer impedance and the two-port transfer matrix (two-load /
-  symmetric one-load, scripts). Visco-thermal tube losses (Kirchhoff) by default, ISO 10534-2
-  attenuation as an option.
+  transmission loss, thin-element transfer impedance and the two-port transfer matrix. Visco-thermal
+  tube losses (Kirchhoff) by default, ISO 10534-2 attenuation as an option.
+- **Two-load transfer matrix (ASTM E2611).** The window guides the operator through load A, load B
+  and load A again. The loads are chosen in the window (absorber, rigid cap or open end, at the tube
+  end or the joint), and no anechoic termination is needed. It gives the transmission loss, the
+  absorption with an anechoic and with a rigid backing, and the matrix itself, with the condition
+  number of the loads and a check that nothing moved between them. For a front-to-back symmetric
+  specimen, one load is enough.
 - **Validity per frequency line.** Lines that the tube geometry, the calibration, the signal
   quality or the termination do not support are masked, and the program says why. The analysis
   band can follow the ASTM E1050 / E2611 limits of the tube geometry.
@@ -127,6 +132,23 @@ then
 3. maps the acquisition channels to the tube positions M1..M4;
 4. decomposes the waves and computes R, τ, TL, the transfer impedance and the validity masks.
 
+With two loads, every load is processed this way and saved as a measurement of its own.
+`tl = tim.app.processTwoLoad(loads, cfg)` then computes the transfer matrix T of the specimen from
+the loads, and `tim.app.runTwoLoad` runs the whole sequence from a script.
+
+**Choosing the method** (Method in the window's MEASUREMENT section):
+
+| Method | Termination | Result | Saved as |
+|---|---|---|---|
+| One load | anechoic in the band (\|R_term\| ≤ 0.1); elsewhere τ and TL are masked | R, τ, TL, Z_t | `<time>_oneload_<signal>_<specimen>` |
+| One load, symmetric | any | T, assuming a front-to-back symmetric, reciprocal specimen | `<time>_oneload-symmetric_<signal>_<specimen>` |
+| Two loads (ASTM E2611) | two different terminations, A and B (A again at the end) | T: TL, absorption with an anechoic or a rigid backing, Z_t | one folder per load and a pair folder `<time>_twoload_<specimen>` |
+
+A short absorber is anechoic only at high frequencies: in the author's tube its reflection
+falls below 0.1 only above about 3 kHz. Two loads remove that limit. An empty specimen section
+cannot show the difference: air has no reflection of its own, so its TL is near 0 dB with any
+termination.
+
 The derivations, estimators, frequency limits and validity levels are in
 [docs/theory.md](docs/theory.md).
 
@@ -151,16 +173,17 @@ the skill `/add-instrument` runs the procedure.
 
 ## Project status
 
-Version **1.3.2** (2026-10-13). The automated tests verify the software's behaviour, not physical
+Version **1.4.0** (2026-10-14). The automated tests verify the software's behaviour, not physical
 accuracy; [docs/hardware_status.md](docs/hardware_status.md) lists what has been verified on the
 real instruments.
 
 | Area | Status |
 |---|---|
-| Software | ✅ complete; 367 automated tests in 23 classes (simulation and recorded hardware fixtures) |
+| Software | ✅ complete; 386 automated tests in 25 classes (simulation and recorded hardware fixtures) |
 | Instrument communication: 33220A SCPI, LAN-XI REST, recorder cycle, binary stream, TEDS | ✅ verified on the instruments |
 | Swept-sine measurements in the tube, sine excitation on the bench, microphone chain, switching calibration with its empty-tube check, measurement workflow in the window | ✅ done on the instruments (2026-10-08 to 2026-10-12) |
 | Instrument interface (1.2.0), connection check (1.2.1), generator load at the amplifier input (1.3.0) | ✅ owner's hardware checks passed (2026-10-12 / 2026-10-13) |
+| Two-load transfer matrix in the window (1.4.0) | software ✅ (simulation); ⏳ hardware check started 2026-10-14 (empty section), not passed yet |
 | Noise excitation on the instrument, channel-to-port identification, formal validation (Tests A–G) | ⏳ pending |
 | Tube geometry of the lab configuration | ⏳ CAD design values; caliper check pending |
 
@@ -210,11 +233,14 @@ config/                 user_config.json (lab settings), example_config.json (te
                         'simcombined': one output + four inputs on one clock, simulation only)
 +tim/+app               MeasurementSession, runCalibration, processMeasurement, useRecordedMapping,
                         analysisBand, driveEstimate, plotResults (saved figures), plotCalibration,
-                        save* / export*, loadConfig / saveConfig / defaultConfig / validateConfig /
-                        migrateConfig, outputGuard, msg (prompts en / ko), softwareVersion
+                        save* / export*, measurementName (folder names), loadConfig / saveConfig /
+                        defaultConfig / validateConfig / migrateConfig, outputGuard, msg (prompts
+                        en / ko), softwareVersion; two loads: describeLoad, terminationModel,
+                        runTwoLoad, processTwoLoad, saveTwoLoad, loadTwoLoad, peakLevel
 +tim/+plots             the views, shared by the window and the saved figures: timeSignals,
                         spectrum, transferFunctions, reflection, transmissionLoss,
-                        transferImpedance, validity, calibration; house style and helpers:
+                        transferImpedance, validity, calibration, twoLoad, transferMatrix;
+                        house style and helpers:
                         style, fitAxes, legend, masked, bandValues, octaveBands, dataTitle,
                         emptyState, thickSpecimen, viewText (titles and descriptions)
 +tim/+gui               Tubebench (uifigure window; names no instrument: lamps, checklist,
@@ -256,7 +282,7 @@ If tubebench helps your work, please cite it:
   author  = {Kim, Woongji},
   title   = {tubebench: four-microphone impedance-tube measurements in MATLAB},
   year    = {2026},
-  version = {1.3.2},
+  version = {1.4.0},
   url     = {https://github.com/kimwoongji/tubebench},
   license = {MIT}
 }

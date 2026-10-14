@@ -34,8 +34,8 @@ It closes by itself when the main window appears; closing it earlier does not st
 
 The main window can be used at once: the menus, the control panel, the Messages pane, every tab
 and the view Setup > Connection are ready. The other views are prepared in the background, one
-after the other (Tube setup, Calibration, Time signals, Spectrum, Transfer functions, the four
-Results views, Formula). The Messages pane shows "Preparing the views in the background…" and,
+after the other (Tube setup, Calibration, Time signals, Spectrum, Transfer functions, Two-load,
+the five Results views, Formula). The Messages pane shows "Preparing the views in the background…" and,
 about 20–25 s later, "All views ready (… s after the start)".
 
 * A view that is not prepared yet shows "Preparing the view…". Opening it prepares it at once
@@ -64,8 +64,8 @@ The window title is "tubebench". It opens as a normal window as large as the scr
   |---|---|
   | Setup | Connection, Tube setup |
   | Calibration | – |
-  | Measurement | Time signals, Spectrum, Transfer functions |
-  | Results | Reflection and transmission, Transmission loss, Transfer impedance, Validity |
+  | Measurement | Time signals, Spectrum, Transfer functions, Two-load |
+  | Results | Reflection and transmission, Transmission loss, Transfer impedance, Validity, Transfer matrix |
   | Formula | – |
 
 * the **Messages** pane below the views: every action, result and warning with its time. Warnings
@@ -110,7 +110,7 @@ The same style is used in the window and in the saved figures:
 * **Connect always switches the generator output off**, and it stays off while you configure.
 * The output can be switched on only inside a measurement that you started: **Start
   measurement** or a step of the switching calibration. It is switched off as soon as the
-  excitation ends and locked again after the measurement. **Measure background noise** and the
+  excitation ends and locked again after the measurement. **Background noise** and the
   signal check of Connect never drive the loudspeaker.
 * **Amplitude limit** (`generator.maxVpp`): the largest **open-circuit voltage** at the generator
   terminals, whatever the load setting (since 1.3.0; with an amplifier input of R ohm the
@@ -170,7 +170,7 @@ The same style is used in the window and in the saved figures:
   results are still computed, the message pane lists the problem and a "Data integrity" warning
   appears.
 * **Unsaved measurement**: before an unsaved measurement is replaced or lost (Start measurement,
-  Measure background noise, File > Open measurement…, File > Load configuration…, closing the
+  Background noise, File > Open measurement…, File > Load configuration…, closing the
   window), a dialog asks
   "… anyway? The measurement is then lost." with the action and Cancel.
 * **Closing the window** (the window's X or File > Exit): a "Closing" dialog appears at once and
@@ -409,26 +409,45 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   counts: it is stored in the metadata (`metadata.specimen`) and becomes part of the data folder
   name when the measurement is saved (section 12). A later change of the field does not rename a
   measurement that has already been started. A background-noise record carries no specimen name.
-* **Start measurement** (green): measures with the selected signal. In hardware mode it asks before
-  the loudspeaker is driven (section 3). The Time signals view shows the four channels live.
-* **Stop** (red): stops the running connection, measurement, background-noise recording or
-  switching calibration; the generator output is switched off at once. Disabled otherwise.
-* **Measure background noise**: 2 s without excitation (background noise of every channel); then
-  the Spectrum view opens.
+* **Method** (1.4.0, WO-005):
+  * **One load** (default): one measurement with the termination chosen in Setup > Tube setup.
+    τ, α_d and the TL from τ need an anechoic termination.
+  * **One load, symmetric**: the same measurement, plus the transfer matrix from this one load
+    (ASTM E2611 one-load method). It is valid **only** for a front-to-back symmetric, reciprocal
+    specimen; the views say "symmetric specimen ASSUMED".
+  * **Two loads**: the specimen is measured with load A, load B and (Repeat load A, the default)
+    load A again, as chosen in Setup > Tube setup (section 6). The transfer matrix of the specimen
+    follows (ASTM E2611 two-load method); it does not need an anechoic termination. Choosing
+    "Two loads" opens Setup > Tube setup.
+  The method is not remembered between sessions; it starts as the configuration says
+  (`measurement.method`, default one load).
+* **Background noise**: 2 s without excitation (background noise of every channel); then the
+  Spectrum view opens. (It shares the row with Method: the control panel keeps its height.)
+* **Start measurement** (green; "Start two-load measurement" with two loads): measures with the
+  selected signal. In hardware mode it asks before the loudspeaker is driven (section 3). The Time
+  signals view shows the four channels live. Every measurement records its termination
+  (`metadata.termination`).
+* **Stop** (red): stops the running connection, measurement (also a two-load sequence: the loads
+  measured so far stay saved), background-noise recording or switching calibration; the generator
+  output is switched off at once. Disabled otherwise.
 
 ### RESULTS
 
 * **Last result**: "No measurement"; "Swept sine 11:15:37 – not saved" (red) after a measurement;
   "Saved: `<folder>`" (green, the tooltip gives the full path) after Save measurement;
-  "Opened: `<folder>`" (green) after File > Open measurement….
+  "Opened: `<folder>`" (green) after File > Open measurement…. After a two-load measurement every
+  load is already saved and the line names the pair folder ("Saved: `…_twoload_<specimen>`"); after
+  Reprocess or File > Combine… it reads "Two-load result – not saved".
 * **Save measurement**: raw data, results, configuration, metadata, CSV files and figures into a
   new folder under `data\` (section 12). A background-noise record, or a measurement that could
   not be processed, is saved with its raw data and the figures of its time signals and spectrum.
   A "Saving the measurement" dialog (same style as the "Closing" dialog) shows the steps and a
-  progress bar; a save takes about 10–15 s, most of it the PNG figures.
+  progress bar; a save takes about 10–15 s, most of it the PNG figures. With a transfer matrix of
+  two loads it writes a **new pair folder** (section 12); the load folders are not touched.
 * **Reprocess**: computes the results of the last measurement again with the current IMPEDANCE TUBE
   fields (geometry, temperature, pressure) and the active calibration, e.g. after correcting a
-  distance or loading another calibration. Save measurement again to keep the new results (a new
+  distance or loading another calibration; with a transfer matrix of two loads every load, then the
+  transfer matrix. Save measurement again to keep the new results (a new
   folder; the first one is not changed). This also works for a measurement opened with File > Open
   measurement…. Channel-to-port assignment (which DAQ channel is in which port M1–M4): a new
   measurement is processed with the configuration's, the one of the connection. For a measurement
@@ -454,7 +473,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 |---|---|
 | Operating mode, Connect | not connected (also after a failed or stopped connection) |
 | Disconnect | connected |
-| Start measurement, Measure background noise, Run switching calibration… | the connection is complete (status "Ready …" or "Connected … – a check failed") |
+| Start measurement, Background noise, Run switching calibration… | the connection is complete (status "Ready …" or "Connected … – a check failed") |
 | Stop | only while Connect, a measurement, the background-noise recording or the switching calibration runs |
 | Save measurement | a measurement or a background-noise record exists |
 | Reprocess | a measurement exists (not for background noise) |
@@ -480,7 +499,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 5. Set the **EXCITATION**: Signal, frequency range (wider than the analysis band, e.g. 80–5500 Hz),
    sweep duration or number of steps, repetitions, a low Amplitude, the Amplifier and its gain, the
    loudspeaker data. Read the estimated loudspeaker drive and the expected duration.
-6. Optional: **Measure background noise** and check the Spectrum view.
+6. Optional: **Background noise** and check the Spectrum view.
 7. **Calibration**: Load calibration… (an existing `CAL-*.mat` that fits the set-up), or Run
    switching calibration… (`calibration_procedure.md`; 12 operator steps, about 5 min of sweeps
    with the default settings). The Calibration line must show the version and "✓ Test E".
@@ -502,6 +521,39 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 
 In simulation mode there is no excitation dialog, and during the switching calibration the
 virtual microphones are moved by the program; everything else is the same.
+
+### Two loads (transfer matrix, ASTM E2611)
+
+Use it when the termination is not anechoic (the lab termination reflects: |R_term| 0.85 at
+125 Hz, 0.25 at 4 kHz) or for a thick specimen. Steps 1–8 as above, then:
+
+1. **Method**: Two loads. Setup > Tube setup opens: choose **Load A** and **Load B** in the
+   Termination box (default: Absorber at tube end, Rigid cap at tube end), keep **Repeat load A at
+   the end** on, and leave **B level** at "same as A" unless load B overdrives the specimen (it may
+   only be lowered). **Show** draws load A or load B in the model.
+2. **Start two-load measurement**. Without a calibration (CALIBRATION reads "No calibration")
+   the window asks first: no line of any load would be valid, and neither T nor the repeat of load
+   A could be judged during the run (**Cancel** is the default; the raw data of a run started
+   anyway can be reprocessed later with a calibration). Measurement > Two-load opens. For every
+   load the operator bar names the termination and how it is mounted ("Load B: Rigid cap at tube
+   end – the extension tube empty (absorber removed), the end cap on and sealed (face 291 mm
+   behind M4)"), the model shows it glowing, and in hardware mode the program waits for
+   **Measure** (or **Abort**). While the load is measured the window shows Measurement > Time
+   signals (live), then returns to Two-load. Change **only the termination**: the specimen section
+   and the microphones stay untouched. In simulation the virtual tube changes the termination by
+   itself.
+3. Every load is processed and **saved at once** in a folder of its own
+   (`…_sweep_<specimen>_loadA_absorber-end`, `…_loadB_rigid-end`, `…_loadA2_absorber-end`); a Stop
+   or an error keeps the loads measured so far. After the last load the figures of the loads are
+   written and the transfer matrix is saved in a **pair folder** (`…_twoload_<specimen>`; about a
+   minute with the figures).
+4. Check Measurement > Two-load (condQ of the two loads, the repeat of load A, the loads table) and
+   the Results views, which now show the transfer matrix first (section 6).
+
+The window remembers load A, load B and the repeat of the last two-load Start for each
+configuration file (MATLAB preferences of the Windows user, so the lab file and the virtual tube do
+not overwrite each other); without a record the configuration's loads apply. The method itself is
+not remembered.
 
 ## 6. The views
 
@@ -554,6 +606,20 @@ lengths (grey) follow every change of a field at once; the viewpoint is kept.
   geometric validity range, cut-on frequency of the (1,1) mode, analysis band.
 * Without L1, d and L2 the header note says that the model is schematic and the specimen results
   are disabled.
+* **Termination** box (1.4.0, above the Geometry table): the termination of the tube, a **kind**
+  (Absorber, Rigid cap, Open end) **at** a **place** (Tube end: the end cap, 291 mm behind M4;
+  Joint: the joint of the downstream tube with the extension tube removed, 41 mm behind M4; the
+  absorber only at the tube end, so its place is fixed). One load: one row "Termination"; Two
+  loads: **Load A**, **Load B**, **Repeat load A at the end** and **B level**. Any two different
+  terminations can be paired; ASTM E2611 and Brüel & Kjær use an open and an approximately
+  anechoic termination. A grey line below says what is mounted and where; two equal loads are
+  named in red (Start refuses them). The 3D model draws the chosen termination: the absorber, the
+  empty extension tube with the end cap, without it (open end), or the extension removed with a
+  cap on the joint flange or open, with the label and the dimension "M4 – termination" of that
+  termination. With two loads **Show** (header) switches between load A and load B.
+  Estimated conditioning in the lab tube (absorber measured on 2026-10-12/13, ideal rigid cap or
+  open end): rigid cap at the tube end condQ ≤ 11 in the whole band; a rigid cap at the joint or an
+  open end loses part of 250–1000 Hz to condQ > 10 (`workorder_two_load.md` section 2).
 
 The part sizes come from the `tubeDrawing` section of the configuration (CAD values: flanges and
 specimen section Ø65 mm, tube body Ø45 mm, flanges 9 mm with 6 × M4, bore end 95 mm before M1,
@@ -639,7 +705,35 @@ in the analysis band that meet both limits (`analysis.coherenceMin`, `analysis.s
 header note says "NOT calibrated" without a calibration and counts the frequency lines without a
 value (outside the calibrated range).
 
+### Measurement > Two-load
+
+The view of the two-load measurement (1.4.0), built like the Calibration view: the **operator
+bar** at the top ("**Two-load step 2 of 3:** Load B: …"; yellow with **Measure** and **Abort**
+while the program waits in hardware mode), the 3D model with the termination to mount glowing,
+and at the bottom side by side **cond(Q)** (the condition number of the two loads' states at the
+rear face of the specimen, black where both loads are valid, the limit `analysis.condQMax` = 10
+dashed: lines above it are not valid) and the **repeat of load A**, |T(A,B) − T(A′,B)| / |T| per
+line with the tolerance `analysis.repeatTol` = 0.05 (the median decides). T does not depend on
+the termination, so a re-packed absorber does not count as a change; a moved specimen or
+microphone does. The right column holds the **Loads** table (load, termination, share of the band
+valid in that load, peak level in the tube, temperature) and the **operator steps and the
+quality of every load** (valid share, peak level, saved folder; "0 % valid: no calibration"
+without one; the last row: the transfer matrix, the figures and the pair folder). **Show load** (header) picks the load whose measurement
+(Time signals, Spectrum, Transfer functions) and own results (|R_term|, the validity rows of that
+load) the other views show; the transfer matrix stays. The header note warns when the loads could
+not be combined (another calibration, geometry, mapping or signal), when no line is valid
+because there is no calibration, when the repeat of load A differs (where no line is valid in all
+three loads the repeat graph reads "Not compared" instead), when load B is 10 dB or more above load A (`measurement.levelStepWarn_dB`: a rigid cap
+raises the level at the tube resonances, check that the specimen is linear), and when the loads
+are more than 1 K or 30 min apart.
+
 ### Results > Reflection and transmission
+
+With a transfer matrix (two loads, or one load of a symmetric specimen) the top graph shows the
+specimen with an **anechoic termination**, from T: |R_a|, |τ_a|, α_d = 1 − |R_a|² − |τ_a|², and
+dashed α_h = 1 − |R_h|², the absorption of the specimen **backed by a rigid wall** at its rear
+face; |R_term| of the load shown stays as the diagnostic of its termination. The bottom graph
+shows the phase of R_a, the table |R_a|, |τ_a|, α_d, α_h. Without one:
 
 Top graph: |R| at the specimen front face (mask `validR`), |τ| from the front face to the rear face
 and the dissipation coefficient α_d = 1 − |R|² − |τ|² (both mask `validTau`), |R_term| of the
@@ -664,6 +758,10 @@ section 3A). For a thick specimen (k·d > 1 in the analysis band) the TL from Z_
 the note says why. Without L1, d and L2 the graph stays empty with the message "Specimen face
 positions unknown (L1, d, L2): the transmission loss is not available." Summary **Octave bands**:
 energy mean over the valid lines, TL = −10 log10(mean |τ|²).
+With a transfer matrix the first, black curve is the **TL from T** (the specimen with an anechoic
+termination, independent of the actual one; legend "TL from T (two loads)" or "… (one load,
+symmetric specimen assumed)"), masked with the validity of T; the TL from τ of the load shown
+follows dashed, and the table ("Octave bands: TL [dB]") gets a first column "from T".
 
 ### Results > Transfer impedance
 
@@ -675,6 +773,10 @@ not applicable: d = 75 mm (k·d up to 6.2)" and a pointer to Transmission loss a
 transmission. This is the case for the 75 mm lab specimen section. Summary **Octave bands**: mean
 Re and Im over the valid lines; the note gives ρc. Without L1, d and L2 the view says that the
 specimen face positions are unknown.
+With a transfer matrix the graphs show its series element T12 / (ρc), coloured where T is valid
+and the specimen is a thin element **by T itself** (|Z_c·T21| and |T22 − 1| at most
+`analysis.velocityMismatchMax` = 0.10; independent of the termination, unlike δ_u), grey
+elsewhere; for a thick specimen the note says "Not a thin element … see Transfer matrix".
 
 ### Results > Validity
 
@@ -693,6 +795,19 @@ they fail at M1/M2 (row "Valid R"); "Passive" rejects R only for |R| > 1 + `pass
 mode cut-on and a missing calibration affect all results. When no line is valid
 for τ, TL and Z_t but R is valid, the header note says so ("… R valid on N lines (upstream pair
 M1/M2)."); without L1, d and L2 it says that R, τ, TL and Z_t are not available.
+With a transfer matrix a third group of rows follows below a second separator: "Both loads
+valid", "Loads differ (cond(Q) ≤ 10)", **"Valid T"**, "Reciprocal (|det T − 1| ≤ 0.1)" and "Load A
+repeat (≤ 0.05)" (the last two report only).
+
+### Results > Transfer matrix
+
+The transfer matrix of the specimen, [p_front; u_front] = T [p_rear; u_rear] (1.4.0), with the
+elements in tube units: |T11|, |T12|/Z_c, |Z_c·T21|, |T22| (top, logarithmic) and their phases
+(bottom). The diagonal elements share a colour (T11 solid, T22 dashed: on top of each other for a
+symmetric specimen), the off-diagonal ones another (T12/Z_c solid, Z_c·T21 dashed: zero for a thin
+series element). Grey: not valid. The header note gives the median reciprocity error |det T − 1|
+and symmetry error over the valid lines; for one load it says that T11 = T22 and det T = 1 are
+assumed. Summary **Octave bands**: the mean magnitudes of the four elements.
 
 ### Formula
 
@@ -700,7 +815,7 @@ Every equation used by the program, with the default thresholds read from the co
 and symbols; 1 transfer functions (swept sine, stepped sine, random noise); 2 switching
 calibration; 3 plane-wave decomposition; 4 pressure and particle velocity at the specimen faces;
 5 reflection, transmission and dissipation; 6 transfer impedance; 7 transmission loss; 8 transfer
-matrix (scripts only); 9 air properties and tube losses; 10 geometric validity range; 11 validity
+matrix (two loads, one load of a symmetric specimen); 9 air properties and tube losses; 10 geometric validity range; 11 validity
 criteria; 12 units and level references; 13 references (standards and literature). Every section
 ends with a grey "Sources:" line: the standards and papers it follows, cited as [n] of section 13,
 and what is this program's own choice (for example the sweep gate, the SNR estimators and every
@@ -708,7 +823,19 @@ validity threshold). The derivations are in `theory.md`, whose reference list is
 
 ## 7. Menus
 
-* **File**: Open measurement…, Load configuration…, Save configuration…, Exit.
+* **File**: Open measurement…, Combine two saved measurements (two loads)…, Load configuration…,
+  Save configuration…, Exit.
+  * *Open measurement…* on a **two-load pair folder** (select `result.mat` or `twoload.json` in a
+    `…_twoload_…` folder) opens its loads (from the load folders named in `twoload.json`; a
+    `raw.mat` that changed since, by its SHA-256, is reported) with their saved results and the
+    saved transfer matrix; Last result reads "Opened: `<pair folder>`", **Show load** picks a load,
+    Reprocess reprocesses every load and Save measurement writes a new pair folder.
+  * *Combine two saved measurements (two loads)…* asks for `raw.mat` of load A, then of load B
+    (two measurements of the same specimen with different terminations, also older ones): both are
+    reprocessed with the IMPEDANCE TUBE fields and the active calibration, then the transfer matrix.
+    The termination of each is taken from its metadata (folders saved before 1.4.0: "not
+    recorded"). Last result reads "Two-load result – not saved"; Save measurement writes a pair
+    folder. From a script: `app.combineMeasurements(folderA, folderB)`.
   * *Open measurement…* shows a measurement saved by Save measurement again: select `raw.mat` (or
     `result.mat`) in its folder under `data\`. Every view shows the saved data and results (the
     results are not recomputed), drawn with the analysis band and the coherence and |R_term|
@@ -881,6 +1008,12 @@ still be opened and reprocessed; Connect then reports the error.
 | `analysis.condMax`, `phaseUncertainty_rad`, `maxPhaseSensitivity` | 40, 0.002, 0.05 | geometry limits of the decomposition |
 | `analysis.lowerFraction`, `upperFraction` | 0.01, 0.40 | spacing limits 0.01·c/s < f < 0.40·c/s |
 | `analysis.passivityTol`, `velocityMismatchMax`, `anechoicRmax` | 0.05, 0.10, 0.1 | passivity, thin-element and anechoic-termination limits |
+| `analysis.condQMax`, `reciprocityTol`, `repeatTol` | 10, 0.1, 0.05 | transfer matrix (1.4.0): largest condition number of the two loads (columns of unit length); \|det T − 1\| flagged above it (report only); the median difference of T(A,B) and T(A′,B) relative to \|T\| (the repeat of load A) |
+| `measurement.method` | `"oneLoad"` | `"oneLoad"`, `"oneLoadSymmetric"` (T from one load, symmetric specimen assumed) or `"twoLoad"` (field Method) |
+| `measurement.loadA`, `loadB` | absorber at `tubeEnd`; rigid at `tubeEnd` | termination of load A (also of a one-load measurement) and load B: `kind` `"absorber"`, `"rigid"` or `"open"` and `place` `"tubeEnd"` or `"joint"` (the absorber only at the tube end); Setup > Tube setup |
+| `measurement.repeatLoadA` | true | load A again at the end (A → B → A′) |
+| `measurement.loadBLevel_dB` | 0 | level of load B relative to load A, −40 … 0 dB (only lower) |
+| `measurement.levelStepWarn_dB`, `maxTemperatureDiff_C`, `maxMinutesBetween` | 10, 1, 30 | warnings: load B so much louder than load A (peak level), the loads more than 1 K or 30 min apart |
 | `analysis.validatedBands` | empty | experimentally validated bands (`validation_procedure.md`) |
 | `calibration.file` | `""` | calibration loaded at Connect |
 | `calibration.positions` | [1 2] | calibration ports a and b |
@@ -954,20 +1087,27 @@ amplifier input impedance is reported too.
 * The near-singularity criterion (k·s close to π) is tested separately for each pair.
 * For a thick specimen (the 75 mm lab specimen section: k·d up to about 6 at 4.5 kHz) the
   thin-element Z_t has no meaning. Use R, τ and the TL from τ (anechoic termination), or the
-  transfer matrix (two loads, scripts only).
+  transfer matrix (Method Two loads).
 
-Transfer matrix (scripts only; needs two measurements of the same specimen with **different
-terminations**):
+**Transfer matrix** (Method Two loads, or One load, symmetric; `tim.app.processTwoLoad`, result
+`tm`, in the pair folder's `result.mat` as `tl`):
 
-```matlab
-resA = tim.app.processMeasurement(measA, cfg, cal);   % e.g. anechoic termination
-resB = tim.app.processMeasurement(measB, cfg, cal);   % e.g. rigid / open termination
-tm = tim.acoustics.transferMatrix('twoLoad', resA.analysis, resB.analysis);
-% tm.T11..T22, tm.condQ (check!), tm.TL_dB, tm.tau_anechoic, tm.reciprocityError
-```
+| Field | Meaning |
+|---|---|
+| `T.T11`, `T12`, `T21`, `T22`, `T.detT` | the transfer matrix, [p_L; u_L] = T [p_R; u_R] |
+| `condQ` | condition number of the two loads' boundary states (columns of unit length; 1 = independent) |
+| `anechoic.tau`, `TL_dB`, `R`, `alpha`, `dissipation`, `Zs` | the specimen with an anechoic termination: τ_a, TL, R_a, α = 1 − \|R_a\|², 1 − \|R_a\|² − \|τ_a\|², surface impedance |
+| `hard.R`, `alpha`, `Zs` | the specimen backed by a rigid wall at its rear face (u_R = 0) |
+| `thin.Zt`, `T21Zc`, `T22dev` | series impedance T12; \|Z_c·T21\| and \|T22 − 1\| (a thin element: both 0) |
+| `reciprocityError`, `symmetryError` | \|det T − 1\|, \|T11 − T22\| / (\|T11\| + \|T22\|) |
+| `valid.valid` (`base`, `loadsDiffer`, `notReciprocal`, `summary`) | every load used valid (both pairs) and condQ ≤ `condQMax`; reciprocity is a flag only |
+| `checks.errors`, `checks.warnings` | the loads cannot be combined (another calibration, geometry, mapping, signal; equal terminations); temperature and time apart |
+| `repeat` (`diff`, `median`, `p90`, `ok`, `text`) | T(A,B) against T(A′,B) |
+| `level` (`peak_dB`, `stepB_dB`, `warn`) | peak level in the tube per load, load B over load A |
+| `loads` | per load: role, termination, folder, time, temperature, peak level, valid share |
 
-`transferMatrix('oneLoadSymmetric', res)` is available **only** for specimens that are known to be
-reciprocal and symmetric.
+The one-load method (`method` `"oneLoadSymmetric"`) is valid **only** for specimens that are known
+to be reciprocal and symmetric; its `reciprocityError` and `symmetryError` are zero by assumption.
 
 **Levels of trust**: *in the analysis band* → *geometry criteria met* → *quality criteria met*
 (coherence, SNR, calibration) → *valid* (also passive) → *validated* (inside the experimentally
@@ -1002,6 +1142,18 @@ s.close();
   new confirmation.
 * The switching calibration from a script prints every step in the command window and waits for
   Enter (`calibration_procedure.md`).
+* `s.setTermination(struct('kind', 'rigid', 'place', 'tubeEnd'))` records the termination mounted
+  now with every following measurement (`metadata.termination`; in simulation the virtual tube
+  gets it). The calibration sets the absorber.
+* Two loads from a script (each load saved at once, then the pair folder; the prompts in the
+  command window, Enter to go on):
+
+  ```matlab
+  out = tim.app.runTwoLoad(s, struct('specimen', 'cell1'));   % loads of s.Cfg.measurement
+  out.tl.anechoic.TL_dB, out.tl.valid.valid, out.folder       % (opts.cfg: another configuration)
+  p = tim.app.loadTwoLoad(out.folder);                        % reopen; loadTwoLoad({fA, fB}) pairs folders
+  tm = tim.app.processTwoLoad(p.loads, cfg);                  % after reprocessing p.loads(i).res
+  ```
 
 Processing can be repeated offline at any time, e.g. with corrected geometry or another
 calibration:
@@ -1021,12 +1173,20 @@ the warning "Microphone mapping of the configuration … differs …" to `res2.d
 
 ## 12. Stored data
 
-**Save measurement** writes a new folder `data\<yyyyMMdd_HHmmss>_<signal>_<specimen>\`, e.g.
-`20261009_111602_sweep_foam_25mm` (`<yyyyMMdd_HHmmss>` = the time of saving; the measurement time
-is in `metadata.json` and `README.txt`; `<signal>` = sweep, stepped or background; `<specimen>` =
-the name entered at Start measurement, characters other than letters, digits, `_` and `-` become
-`_`; without a name, and always for background noise, the folder ends with the signal). Folders are
-never overwritten; a suffix `_2`, `_3`, … is added if needed.
+**Save measurement** writes a new folder `data\<yyyyMMdd_HHmmss>_<method>_<signal>_<specimen>\`,
+e.g. `20261009_111602_oneload_sweep_foam_25mm`:
+
+* `<yyyyMMdd_HHmmss>` is the time of saving; the measurement time is in `metadata.json` and
+  `README.txt`.
+* `<method>` names the method like the pair folder of two loads (`…_twoload_<specimen>`, below):
+  `oneload` (one load), or `oneload-symmetric` (one load, with the transfer matrix of a symmetric
+  specimen assumed). Background noise is saved as `…_background` without method, signal or name.
+  Folders saved before 1.4.0 have no method (`…_sweep_<specimen>`).
+* `<signal>` is sweep or stepped.
+* `<specimen>` is the name entered at Start measurement. Characters other than letters, digits,
+  `_` and `-` become `_`. Without a name the folder ends with the signal.
+
+Folders are never overwritten; a suffix `_2`, `_3`, … is added if needed.
 
 | File | Content |
 |---|---|
@@ -1048,6 +1208,21 @@ figures. A background-noise record, or a measurement that could not be processed
 without results and CSV files, with the figures it has in the window: `fig_waveforms` and
 `fig_spectrum`. The calibration view is drawn by `tim.app.plotCalibration(cal)`; it is not saved
 with a measurement.
+
+**Two loads** (1.4.0): every load is an ordinary measurement folder as above
+(`…_<signal>_<specimen>_loadA_absorber-end`, `…_loadB_rigid-end`, `…_loadA2_absorber-end`, their
+`metadata.json` with `termination` and `twoLoad` (group, role)), and the transfer matrix is in a
+pair folder `data\<yyyyMMdd_HHmmss>_twoload_<specimen>\`:
+
+| File | Content |
+|---|---|
+| `twoload.json` | method, specimen, the loads (role, termination, the name of the load folder in the same data folder, the SHA-256 of its `raw.mat`), the limits, the summary, the repeat of load A, the levels, errors and warnings, software and commit |
+| `result.mat` | `tl` (the transfer-matrix result, section 10) and `info` (= `twoload.json`) |
+| `results.csv` | per frequency line: T (re, im), condQ, TL, \|τ\|, R_a, α (anechoic), the dissipation, R_h, α (rigid backing), Z_t = T12, \|Z_c·T21\|, \|T22 − 1\|, the reciprocity and symmetry errors, the repeat difference and the masks |
+| `fig_*.png` | the figures of load A with the transfer matrix: also `fig_twoLoad` and `fig_transferMatrix` |
+| `README.txt` | method, software, the note that the raw data are in the load folders |
+
+A one-load symmetric result is saved with its measurement (`result.mat`: `res.transferMatrix`).
 
 A saved folder is shown again in the window with **File > Open measurement…** (section 7), or
 from a script with `app.openMeasurement(folder)`; without the window: `load(fullfile(folder,

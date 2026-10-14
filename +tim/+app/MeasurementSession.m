@@ -48,6 +48,8 @@ classdef MeasurementSession < handle
         LostRole char = ''       % role whose connection checkConnection found lost ('source' | 'acquisition')
         Connected logical = false
         Prepared logical = false
+        Termination = []         % termination load mounted now (tim.app.describeLoad: kind, place);
+                                 % setTermination; recorded with every measurement (metadata.termination)
     end
     properties
         Calibration = []
@@ -87,6 +89,9 @@ classdef MeasurementSession < handle
             tim.app.validateConfig(cfg, 'instruments');
             obj.Cfg = cfg;
             obj.Mics = tim.app.MeasurementSession.micsByChannel(cfg.mics);
+            if isfield(cfg, 'measurement') && isfield(cfg.measurement, 'loadA')
+                obj.Termination = cfg.measurement.loadA;    % the configured termination until setTermination
+            end
             if ~isempty(cfg.calibration.file)
                 % a relative path is relative to the project root, as in the
                 % window (tim.app.resolvePath), not to MATLAB's current folder
@@ -112,6 +117,9 @@ classdef MeasurementSession < handle
                 if strcmp(c.mode, 'simulation')
                     obj.Rig = tim.sim.SimulatedRig(c);
                     ctx.rig = obj.Rig;
+                    if ~isempty(obj.Termination) && ~strcmp(char(obj.Termination.kind), 'absorber')
+                        obj.Rig.Termination = tim.app.terminationModel(c, obj.Termination);   % the selected load
+                    end
                 end
                 obj.Gen = tim.instr.create('source', c, ctx);
                 obj.Daq = tim.instr.create('acquisition', c, ctx, obj.Gen);
@@ -562,6 +570,23 @@ classdef MeasurementSession < handle
                 obj.log('Simulation: empty specimen section mounted in the virtual tube.');
             else
                 obj.log('Simulation: virtual specimen "%s" mounted.', sample.type);
+            end
+        end
+
+        function prev = setTermination(obj, load)
+            %SETTERMINATION The termination load mounted now (WO-005): recorded
+            %   with every following measurement (metadata.termination). In
+            %   simulation the virtual rig gets that termination
+            %   (tim.app.terminationModel). Returns the previous load.
+            d = tim.app.describeLoad(load, obj.Cfg);      % checks kind and place
+            prev = obj.Termination;
+            obj.Termination = struct('kind', d.kind, 'place', d.place);
+            if ~isempty(obj.Rig)
+                t = tim.app.terminationModel(obj.Cfg, obj.Termination);
+                if ~isequal(obj.Rig.Termination, t)
+                    obj.Rig.Termination = t;          % setter marks the FIR for re-design
+                    obj.log('Simulation: termination "%s" mounted in the virtual tube.', d.label);
+                end
             end
         end
 

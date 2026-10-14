@@ -23,6 +23,45 @@ classdef TestTube3D < matlab.unittest.TestCase
     end
 
     methods (Test)
+        function terminationsDrawn(tc)
+            % WO-005: the model follows the termination load - the absorber, the
+            % empty extension with the end cap, without it (open end), or at the
+            % joint the extension removed, with a cap on the flange or open; the
+            % label and the dimension M4 - termination follow; the load to mount
+            % glows (two-load sequence)
+            [g, td] = tc.lab();
+            ext = @(ax) max(arrayfun(@(o) max(o.XData(:)), findobj(ax, 'Tag', 'tube')));   % end of the tube parts
+            L = {'absorber', 'tubeEnd', true,  true,  'absorbing termination', 291, 145 + 291
+                 'rigid',    'tubeEnd', false, true,  'rigid end cap',         291, 145 + 291
+                 'open',     'tubeEnd', false, false, 'open end',              291, 145 + 291
+                 'rigid',    'joint',   false, true,  'rigid cap at the joint', 41, 145 + 41
+                 'open',     'joint',   false, false, 'open at the joint',      41, 145 + 41};
+            for i = 1:size(L, 1)
+                ld = struct('kind', L{i, 1}, 'place', L{i, 2});
+                M = tim.gui.drawTube3D(tc.ax, g, td, 1:4, struct('termination', ld));
+                id = sprintf('%s at %s', L{i, 1}, L{i, 2});
+                tc.verifyEqual(~isempty(findobj(tc.ax, 'Tag', 'absorber')), L{i, 3}, [id ': absorber']);
+                tc.verifyEqual(~isempty(findobj(tc.ax, 'Tag', 'endCap')), L{i, 4}, [id ': cap']);
+                lab = findobj(tc.ax, 'Tag', 'endLabel'); s = cellstr(lab.String);
+                tc.verifyEqual(s{1}, L{i, 5}, id);
+                dd = findobj(tc.ax, 'Tag', 'dim_down', 'Type', 'text');
+                tc.verifySubstring(strjoin(cellstr(dd.String), ' '), sprintf('termination: %g mm', L{i, 6}), id);
+                tc.verifyEqual(ext(tc.ax), L{i, 7}, 'AbsTol', 1e-6, [id ': the tube ends at the termination']);
+                tc.verifyEmpty(findobj(tc.ax, 'Tag', 'termGlow'), [id ': no glow unless asked']);
+                tc.verifyEmpty(M.glow);
+            end
+            M = tim.gui.drawTube3D(tc.ax, g, td, 1:4, struct('termination', struct('kind', 'rigid', 'place', 'joint'), ...
+                'highlightTermination', true));
+            tc.verifyNumElements(M.glow, 1, 'the termination to mount glows');
+            tc.verifyEqual(M.glow.Tag, 'termGlow');
+            % without a load: as before (extension, end cap, no absorber without its length)
+            tim.gui.drawTube3D(tc.ax, g, td, 1:4);
+            tc.verifyEmpty(findobj(tc.ax, 'Tag', 'absorber'));
+            tc.verifyNotEmpty(findobj(tc.ax, 'Tag', 'endCap'));
+            lab = findobj(tc.ax, 'Tag', 'endLabel');
+            tc.verifyEqual(cellstr(lab.String), {'termination'; '(absorber side)'});
+        end
+
         function returnedStruct(tc)
             % fields used by Tubebench (calibration animation, labels, glow)
             [g, td] = tc.lab();

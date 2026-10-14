@@ -24,6 +24,11 @@ function out = tubeModel(f, geom, env, sample, termination, opts)
 %                   sits behind the termination (e.g. behind a rigid plug)
 %                   and receives NO sound, p = 0 (out.behindTermination).
 %                   The standing wave is not continued past the plug.
+%   termination.model : (optional) 'unflangedOpenEnd' replaces R by the open
+%                   end of the tube at termination.x (WO-005, an estimate:
+%                   |R| = exp(-(k a)^2 / 2), phase of a reflection at
+%                   0.6133 a beyond the end, a = D/2). Struct fields only,
+%                   so the termination stays JSON-encodable in the metadata.
 %   opts.lossModel : passed to wavenumber ('kirchhoff' default; use the
 %                    analysis setting cfg.analysis.lossModel)
 %   opts.incident  : complex amplitude of the incident wave at xFront (1)
@@ -76,7 +81,19 @@ switch sample.type
 end
 
 % Downstream: p = C e^{-jk(x-xR)} + D e^{jk(x-xR)}, with D/C fixed by termination
-Rt = evalParam(termination.R, f);
+if isfield(termination, 'model') && ~isempty(termination.model)
+    switch termination.model
+        case 'unflangedOpenEnd'
+            % open pipe end without flange (low-frequency estimate, Levine and
+            % Schwinger): |R| falls as the end radiates, end correction 0.6133 a
+            a = geom.diameter / 2;
+            Rt = -exp(-(real(k) * a).^2 / 2) .* exp(-2j * k * 0.6133 * a);
+        otherwise
+            error('tim:sim:termination', 'Unknown termination model "%s".', termination.model);
+    end
+else
+    Rt = evalParam(termination.R, f);
+end
 Lt = termination.x - xR;                      % distance rear face -> termination
 DoverC = Rt .* exp(-2j * k * Lt);             % reflection referred to the rear face
 % Choose C = 1 first, then scale everything so incident amplitude at xF = opts.incident

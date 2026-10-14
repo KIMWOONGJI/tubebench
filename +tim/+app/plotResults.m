@@ -21,6 +21,12 @@ function figs = plotResults(res, meas, opts)
 %     transmissionLoss   Transmission loss             tim.plots.transmissionLoss (1)
 %     impedance          Transfer impedance            tim.plots.transferImpedance (2)
 %     validity           Validity                      tim.plots.validity (1)
+%     twoLoad            Two-load                      tim.plots.twoLoad (2)         } only with
+%     transferMatrix     Transfer matrix               tim.plots.transferMatrix (2)  } opts.transferMatrix
+%   (field order: waveforms, spectrum, transfer, twoLoad, reflection, ...,
+%   validity, transferMatrix). opts.transferMatrix (a result of
+%   tim.app.processTwoLoad, WO-005) is also passed to the result views: TL,
+%   reflection, impedance and validity then show the transfer matrix first.
 %
 %   Header title and description: tim.plots.viewText (the texts of the GUI
 %   view pages).
@@ -32,7 +38,7 @@ function figs = plotResults(res, meas, opts)
 %   data: 'SIMULATION' in the titles of the views and a red 'SIMULATED DATA'
 %   mark in the header); every other field (band, emptyText, ...) is passed
 %   to the views. res or meas may be [] (the views show their empty state).
-%   Default views: all seven; a measurement WITHOUT a result (res = [] and
+%   Default views: all seven (nine with a transfer matrix); a measurement WITHOUT a result (res = [] and
 %   meas given: background noise, or processing failed) gets only the views
 %   the GUI shows for it, 'waveforms' and 'spectrum':
 %     figs = tim.app.plotResults([], meas, struct('Visible', 'off'))
@@ -50,6 +56,11 @@ if nargin < 3 || isempty(opts), opts = struct(); end
 vis = 'on'; if isfield(opts, 'Visible'), vis = opts.Visible; end
 sz = [1200 700]; if isfield(opts, 'Size') && numel(opts.Size) == 2, sz = double(opts.Size(:).'); end
 views = tim.plots.viewText();                         % all keys (= figs fields), in view order
+tl = [];                                              % transfer-matrix result (WO-005)
+if isfield(opts, 'transferMatrix') && isstruct(opts.transferMatrix) && ~isempty(opts.transferMatrix)
+    tl = opts.transferMatrix;
+end
+if isempty(tl), views = setdiff(views, {'twoLoad', 'transferMatrix'}, 'stable'); end   % only with T
 if isempty(res) && ~isempty(meas), views = {'waveforms', 'spectrum'}; end   % as the GUI shows it
 if isfield(opts, 'Views') && ~isempty(opts.Views)
     want = cellstr(opts.Views);
@@ -76,10 +87,12 @@ V = {
     'waveforms',        [1 1 1 1], @(ax) tim.plots.timeSignals(ax, meas, vw)
     'spectrum',         1,         @(ax) tim.plots.spectrum(ax, meas, res, vo)
     'transfer',         [1 1 1],   @(ax) tim.plots.transferFunctions(ax, res, vo)
+    'twoLoad',          [1 1],     @(ax) tim.plots.twoLoad(ax, tl, vo)
     'reflection',       [2 1],     @(ax) tim.plots.reflection(ax, res, vo)
     'transmissionLoss', 1,         @(ax) tim.plots.transmissionLoss(ax, res, vo)
     'impedance',        [1 1],     @(ax) tim.plots.transferImpedance(ax, res, vo)
     'validity',         1,         @(ax) tim.plots.validity(ax, res, vo)
+    'transferMatrix',   [1 1],     @(ax) tim.plots.transferMatrix(ax, tl, vo)
     };
 V = V(ismember(V(:, 1), views), :);
 figs = struct();
