@@ -173,7 +173,6 @@ classdef Tubebench < handle
             app.startStep('Building the control panel…', 0.06);
             app.buildCore();                  % step: Connection view
             app.startStep('Filling in the settings…', 0.62);
-            if show, app.applyRememberedLoads(); end      % the loads of the last two-load Start (WO-005)
             app.refreshFromCfg();
             if ~app.Deferred
                 for p = app.Parts, app.ensureBuilt(p{1}, 'sync'); end   % every view now (hidden: tests)
@@ -803,12 +802,12 @@ classdef Tubebench < handle
             % the loudspeaker also with an amplifier, its Vrms, and three lines
             % with the path, the loudspeaker check and the criterion of the maximum)
             r = r + 1; rg = app.rowGrid(left, r, ex);
-            app.label(rg, 'Amplifier', ['Power amplifier between the generator and the loudspeaker. Type the model of ' ...
-                'your amplifier into the list and press Enter to add it.']);
-            h.ampModel = uidropdown(rg, 'Editable', 'on', 'Items', {'none (direct drive)', 'power amplifier'}, ...
-                'Tooltip', ['Select an entry, or type the model of your power amplifier and press Enter: it is added ' ...
-                'to the list and saved with the configuration (File > Save configuration).'], ...
-                'ValueChangedFcn', @(~, ~) app.onAmpModel(true));
+            % a list like Signal, not typed (owner decision 2026-10-30); further
+            % models come from amplifier.knownModels of the configuration
+            app.label(rg, 'Amplifier', ['Power amplifier between the generator and the loudspeaker: none (direct drive) ' ...
+                'or an amplifier of the list.']);
+            h.ampModel = uidropdown(rg, 'Items', {'none (direct drive)', 'power amplifier'}, ...
+                'ValueChangedFcn', @(~, ~) app.onAmpModel(true));   % tooltip: chainEnable
             h.ampModel.Layout.Column = [2 4];
             r = r + 1; rg = app.rowGrid(left, r, {ex{1}, 50, 90, '1x'});   % a short gain, room for the input list
             gainTip = ['Voltage gain of the power amplifier as a factor (Vout / Vin): 20 dB = ×10, 26 dB = ×20, ' ...
@@ -3209,16 +3208,13 @@ classdef Tubebench < handle
         end
 
         function onAmpModel(app, changed)
-            % direct drive -> gain fixed to x1 and the generator load High Z; a
-            % typed model is added to the list; choosing an amplifier asks for its
-            % gain (power check) and offers its input impedance, which also sets
-            % the generator load (WO-004). The programmed generator level stays.
+            % direct drive -> gain fixed to x1 and the generator load High Z;
+            % choosing an amplifier asks for its gain (power check) and offers its
+            % input impedance, which also sets the generator load (WO-004). The
+            % programmed generator level stays.
             h = app.H; P = tim.gui.palette();
             gen0 = app.programmedVpk();                       % before the change
             v = h.ampModel.Value;
-            if ~isempty(v) && ~any(strcmp(h.ampModel.Items, v))
-                h.ampModel.Items{end+1} = v;
-            end
             direct = startsWith(lower(v), 'none');
             if direct
                 h.ampGain.Value = 1; app.GainEntered = true;
@@ -3261,11 +3257,22 @@ classdef Tubebench < handle
         function chainEnable(app)
             % amplifier gain, amplifier input / generator load and the level
             % reference follow the amplifier and the connection (all locked while
-            % an action runs); the level at the loudspeaker needs the gain
+            % an action runs); the level at the loudspeaker needs the gain. The
+            % amplifier is fixed while connected like its input (owner decision
+            % 2026-10-30): another amplifier may need another generator load,
+            % which is sent only at Connect.
             h = app.H;
             onoff = @(tf) matlab.lang.OnOffSwitchState(tf);
             direct = startsWith(lower(h.ampModel.Value), 'none');
             free = ~app.Busy;
+            h.ampModel.Enable = onoff(isempty(app.Session) && free);
+            if ~isempty(app.Session)
+                h.ampModel.Tooltip = ['Fixed while connected - Disconnect to change the amplifier: its input impedance ' ...
+                    'is the generator''s load setting, sent at Connect. The gain can be changed while connected.'];
+            else
+                h.ampModel.Tooltip = ['Choose none (direct drive) or an amplifier. The list is not typed: further ' ...
+                    'models are amplifier.knownModels in the configuration file.'];
+            end
             h.ampGain.Enable = onoff(~direct && free);
             h.ampAt.Enable = onoff(free && (direct || app.GainEntered));
             h.genLoad.Enable = onoff(~direct && isempty(app.Session) && free);
@@ -3654,45 +3661,6 @@ classdef Tubebench < handle
             if strcmp(ms.method, 'twoLoad') && app.isBuilt('tube') && strcmp(app.H.termShow.Value, 'B'), d = ms.loadB; end
         end
 
-        function k = prefKey(app)
-            % the remembered loads belong to the configuration file (the lab and the
-            % virtual tube do not overwrite each other)
-            f = ''; if isfield(app.Cfg, 'configFile') && ~isempty(app.Cfg.configFile), f = app.Cfg.configFile; end
-            [~, n] = fileparts(char(f)); if isempty(n), n = 'default'; end
-            k = matlab.lang.makeValidName(['loads_' lower(n)]);
-        end
-
-        function applyRememberedLoads(app)
-            % load A, load B and the repeat of the last two-load Start with this
-            % configuration file (MATLAB preferences of the Windows user; owner
-            % decision 2026-10-14). Visible windows only: a hidden one (tests)
-            % neither reads nor writes them. The method is not remembered.
-            try
-                k = app.prefKey();
-                if ~ispref('tubebench', k), return; end
-                r = getpref('tubebench', k);
-                ms = app.Cfg.measurement;
-                tim.app.describeLoad(r.loadA); tim.app.describeLoad(r.loadB);     % a damaged record is ignored
-                ms.loadA = struct('kind', char(r.loadA.kind), 'place', char(r.loadA.place));
-                ms.loadB = struct('kind', char(r.loadB.kind), 'place', char(r.loadB.place));
-                ms.repeatLoadA = logical(r.repeatLoadA);
-                app.Cfg.measurement = ms;
-                app.log('Terminations of the last two-load measurement with this configuration: load A "%s", load B "%s".', ...
-                    tim.app.describeLoad(ms.loadA).label, tim.app.describeLoad(ms.loadB).label);
-            catch
-            end
-        end
-
-        function rememberLoads(app)
-            if ~strcmp(app.Fig.Visible, 'on'), return; end        % a hidden window (tests) writes nothing
-            try
-                ms = app.Cfg.measurement;
-                setpref('tubebench', app.prefKey(), struct('loadA', ms.loadA, 'loadB', ms.loadB, ...
-                    'repeatLoadA', logical(ms.repeatLoadA)));
-            catch
-            end
-        end
-
         %% ------------------------------------------------ two-load measurement
         function doTwoLoad(app)
             % A -> B (-> A') with the operator bar of the Two-load view, every load
@@ -3724,7 +3692,6 @@ classdef Tubebench < handle
                 app.log(['Two-load measurement started WITHOUT a calibration (operator): no line is valid ' ...
                     'until the pair is reprocessed with one.']);
             end
-            app.rememberLoads();
             rep = ''; if ms.repeatLoadA, rep = ', load A repeated at the end'; end
             app.log('Start: two-load measurement of "%s" (%s): load A "%s", load B "%s"%s (started by the operator).', ...
                 app.specimenName(), app.signalName(app.Cfg.excitation.mode), dA.label, dB.label, rep);

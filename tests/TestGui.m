@@ -1106,6 +1106,9 @@ classdef TestGui < matlab.unittest.TestCase
             feval(h.runCal.ButtonPushedFcn, h.runCal, []);
             tc.verifyGreaterThan(count(), n, 'Run switching calibration refused as well');
             tc.verifyEmpty(app.Session.Calibration, 'no calibration ran');
+            % while connected the amplifier is fixed, its gain can be entered (owner decision 2026-10-30)
+            tc.verifyEqual(char(h.ampModel.Enable), 'off', 'the amplifier is fixed while connected');
+            tc.verifyEqual(char(h.ampGain.Enable), 'on', 'the gain can be entered while connected');
             h.ampGain.Value = 10;
             feval(h.ampGain.ValueChangedFcn, h.ampGain, struct('PreviousValue', 0));
             tc.verifyTrue(app.GainEntered);
@@ -1145,6 +1148,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifySameHandle(h.spkZ.Parent, h.spkP.Parent, 'impedance and power limit on one row');
             tc.verifyTrue(all(ismember({'none (direct drive)', 'power amplifier'}, h.ampModel.Items)), ...
                 'an amplifier can be chosen without typing');
+            tc.verifyEqual(char(h.ampModel.Editable), 'off', 'a list like Signal, not typed (owner decision 2026-10-30)');
             % direct drive: the generator load High Z, locked
             tc.verifyEqual(h.genLoad.Value, 'High Z');
             tc.verifyEqual(char(h.genLoad.Enable), 'off', 'direct drive: High Z');
@@ -1238,11 +1242,21 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(app.LastMeas.metadata.drive.Vspk_rms, 0.01 / sqrt(2), 'RelTol', 1e-9);
             h.ampAt.Value = 'loudspeaker';
             feval(h.ampAt.ValueChangedFcn, h.ampAt, struct('PreviousValue', 'generator'));
+            % the amplifier is fixed while connected like its input: another
+            % amplifier may need another generator load, sent only at Connect
+            % (owner decision 2026-10-30)
+            tc.verifyEqual(char(h.ampModel.Enable), 'off', 'the amplifier is fixed while connected');
+            tc.verifySubstring(h.ampModel.Tooltip, 'Disconnect to change the amplifier');
+            feval(h.disconnect.ButtonPushedFcn, h.disconnect, []);
+            tc.assertEmpty(app.Session);
+            tc.verifyEqual(char(h.ampModel.Enable), 'on', 'free again after Disconnect');
+            tc.verifySubstring(h.ampModel.Tooltip, 'Choose none (direct drive) or an amplifier');
             % choosing an amplifier shows the same generator level as the generator's
             h.ampModel.Value = 'power amplifier';
             feval(h.ampModel.ValueChangedFcn, h.ampModel, struct('PreviousValue', 'none (direct drive)'));
             tc.verifyEqual(h.ampAt.Value, 'generator');
             tc.verifyEqual(h.amp.Value, 0.01 * 58 / 8, 'RelTol', 1e-9);
+            tc.verifyEqual(char(h.genLoad.Enable), 'on', 'its input can be entered before the next Connect');
         end
 
         function connectRefusedBeforeTheSessionExists(tc)

@@ -89,32 +89,11 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             tc.verifyEqual(app.TwList.Keys, {'A', 'B', 'result'});
         end
 
-        function hiddenWindowNeverRemembersLoads(tc)
-            % decision 3: the loads of the last two-load Start are MATLAB
-            % preferences per configuration file - a hidden window (tests) neither
-            % reads nor writes them
-            file = tc.config();
-            [~, n] = fileparts(file);
-            key = matlab.lang.makeValidName(['loads_' lower(n)]);
-            had = ispref('tubebench', key); old = [];
-            if had, old = getpref('tubebench', key); end
-            tc.addTeardown(@() restorePref(key, had, old));
-            setpref('tubebench', key, struct('loadA', struct('kind', 'rigid', 'place', 'joint'), ...
-                'loadB', struct('kind', 'open', 'place', 'joint'), 'repeatLoadA', false));
-            app = tim.gui.Tubebench(file, 'Visible', 'off');
-            tc.addTeardown(@() delete(app));
-            tc.verifyEqual(app.Cfg.measurement.loadA, struct('kind', 'absorber', 'place', 'tubeEnd'), 'not read');
-            tc.verifyTrue(app.Cfg.measurement.repeatLoadA);
-        end
-
         function twoLoadAppSimulationWorkflow(tc)
             % hidden app window: connect, calibration, Method "Two loads" (load B
             % 6 dB lower), Start: A -> B -> A' with the step list, every load and the
             % pair saved; the result views; Show load; Reprocess; Save; Open; Combine
             file = tc.config({'measurement', 'loadBLevel_dB'}, -6);
-            [~, n] = fileparts(file);
-            key = matlab.lang.makeValidName(['loads_' lower(n)]);
-            had = ispref('tubebench', key);
             app = tim.gui.Tubebench(file, 'Visible', 'off');
             cleanup = onCleanup(@() delete(app));
             h = app.H;
@@ -153,7 +132,6 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             tc.verifyEqual(tm.method, 'twoLoad');
             tc.verifyGreaterThan(tm.valid.nValid, 0.5 * tm.valid.nBand);
             tc.verifyTrue(tm.repeat.performed && tm.repeat.ok, tm.repeat.text);
-            tc.verifyFalse(ispref('tubebench', key) && ~had, 'hidden window: the loads not remembered');
             % the views
             tc.verifyEqual(h.twShow.ItemsData, {'A', 'B', 'A2'});
             tc.verifyEqual(h.twShow.Enable, matlab.lang.OnOffSwitchState.on);
@@ -250,13 +228,4 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             clear cleanup
         end
     end
-end
-
-function restorePref(k, had, v)
-% the owner's remembered loads as before the test
-if had
-    setpref('tubebench', k, v);
-elseif ispref('tubebench', k)
-    rmpref('tubebench', k);
-end
 end
