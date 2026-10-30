@@ -806,9 +806,7 @@ classdef Tubebench < handle
             app.label(rg, 'Amplifier', ['Power amplifier between the generator and the loudspeaker. Type the model of ' ...
                 'your amplifier into the list and press Enter to add it.']);
             h.ampModel = uidropdown(rg, 'Editable', 'on', 'Items', {'none (direct drive)', 'power amplifier'}, ...
-                'Tooltip', ['Select an entry, or type the model of your power amplifier and press Enter: it is added ' ...
-                'to the list and saved with the configuration (File > Save configuration).'], ...
-                'ValueChangedFcn', @(~, ~) app.onAmpModel(true));
+                'ValueChangedFcn', @(~, ~) app.onAmpModel(true));   % tooltip: chainEnable
             h.ampModel.Layout.Column = [2 4];
             r = r + 1; rg = app.rowGrid(left, r, {ex{1}, 50, 90, '1x'});   % a short gain, room for the input list
             gainTip = ['Voltage gain of the power amplifier as a factor (Vout / Vin): 20 dB = ×10, 26 dB = ×20, ' ...
@@ -3261,11 +3259,22 @@ classdef Tubebench < handle
         function chainEnable(app)
             % amplifier gain, amplifier input / generator load and the level
             % reference follow the amplifier and the connection (all locked while
-            % an action runs); the level at the loudspeaker needs the gain
+            % an action runs); the level at the loudspeaker needs the gain. The
+            % amplifier is fixed while connected like its input (owner decision
+            % 2026-10-30): another amplifier may need another generator load,
+            % which is sent only at Connect.
             h = app.H;
             onoff = @(tf) matlab.lang.OnOffSwitchState(tf);
             direct = startsWith(lower(h.ampModel.Value), 'none');
             free = ~app.Busy;
+            h.ampModel.Enable = onoff(isempty(app.Session) && free);
+            if ~isempty(app.Session)
+                h.ampModel.Tooltip = ['Fixed while connected - Disconnect to change the amplifier: its input impedance ' ...
+                    'is the generator''s load setting, sent at Connect. The gain can be changed while connected.'];
+            else
+                h.ampModel.Tooltip = ['Select an entry, or type the model of your power amplifier and press Enter: it ' ...
+                    'is added to the list and saved with the configuration (File > Save configuration).'];
+            end
             h.ampGain.Enable = onoff(~direct && free);
             h.ampAt.Enable = onoff(free && (direct || app.GainEntered));
             h.genLoad.Enable = onoff(~direct && isempty(app.Session) && free);

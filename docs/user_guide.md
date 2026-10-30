@@ -311,7 +311,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Frequency [Hz] … to … | start and stop frequency, at most the usable band of the instruments (LAN-XI: 0.45 × sample rate, i.e. 7372.8 Hz at 16384 S/s; the tooltip states the limit) |
 | Sweep duration [s] | duration of one sweep, within the sweep times of the generator (33220A: 0.001–500 s); for the stepped sine the field is **Number of steps** (1–400) |
 | Repetitions | number of repetitions, averaged (1–100) |
-| Amplifier | "none (direct drive)", "power amplifier", or the model of your amplifier: type it into the list and press Enter; it is added to the list and saved with the configuration (File > Save configuration…) |
+| Amplifier | "none (direct drive)", "power amplifier", or the model of your amplifier: type it into the list and press Enter; it is added to the list and saved with the configuration (File > Save configuration…). **Fixed while connected**, like Amp input: another amplifier may need another generator load, which is sent only at Connect. To change it: Disconnect, choose the amplifier, enter its gain and Amp input, Connect |
 | Amplifier gain [×] | voltage gain of the amplifier (Vout/Vin) as a plain number: 20 dB = ×10, 26 dB = ×20, 40 dB = ×100 (the tooltip gives the conversion; do not enter the dB value: a 40 dB amplifier entered as ×40 would get 2.5 × the shown loudspeaker voltage) |
 | Amp input [Ω] / Generator load | with an amplifier: its **input impedance** from the data sheet - a list with High Z, 50, 600 and 10000, or type a value (e.g. 2200) and press Enter. It is also the generator's **load setting** (`OUTP:LOAD`), sent at Connect, so the programmed level is the voltage at the amplifier input (High Z, or above the 33220A's 10 kΩ: the open-circuit voltage). Fixed while connected. In direct drive the label reads **Generator load** and the list is fixed at High Z. See "Generator output load" below |
 | Loudspeaker [Ω] | nominal (rated) impedance of the loudspeaker |
@@ -477,7 +477,8 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Stop | only while Connect, a measurement, the background-noise recording or the switching calibration runs |
 | Save measurement | a measurement or a background-noise record exists |
 | Reprocess | a measurement exists (not for background noise) |
-| Amplifier gain [×] | an amplifier other than "none (direct drive)" is chosen |
+| Amplifier | not connected |
+| Amplifier gain [×] | an amplifier other than "none (direct drive)" is chosen (also while connected) |
 | Amp input [Ω] | an amplifier is chosen and the window is not connected (direct drive: Generator load, fixed at High Z) |
 | Speaker / Generator / Amp input [Vpk] (the list) | direct drive, or an amplifier whose gain is entered |
 | everything else, menus | no action running |
