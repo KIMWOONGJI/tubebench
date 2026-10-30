@@ -24,7 +24,9 @@
    - Any pair with A ≠ B is allowed. Defaults: A = Absorber at tube end, B = Rigid cap at tube end.
    - The labels carry no "(default)" or "(ASTM)" mark. The ASTM E2611 / Brüel & Kjær example (open
      and approximately anechoic) is named in the tooltip and the user guide.
-3. **Remembered choice.**
+3. **Remembered choice.** *Removed 2026-10-30 (owner decision): a remembered load A of Open end
+   became the termination of the next one-load measurements. The window now always starts with the
+   configuration's loads (A = Absorber at tube end).* The original decision:
    - The window remembers Load A, Load B and the repeat setting from the last two-load Start. They
      are MATLAB preferences of the Windows user, stored per configuration file (the lab and the
      virtual tube do not overwrite each other).
@@ -201,7 +203,7 @@ and rigid cap as the first default.
 - **Window:**
   - Method row, Tube setup termination box and Show toggle;
   - the sequence in a hidden window;
-  - remembered loads (not in hidden windows);
+  - remembered loads (not in hidden windows; removed 2026-10-30 with decision 3);
   - panel height unchanged;
   - new views drawn in the window and in the saved figures.
 - **Full suite** in a batch MATLAB from the worktree (one MATLAB at a time).

@@ -47,7 +47,7 @@ cfg.amplifier = struct('model', '', ...
     'gainSetting', '', ...              % free text, e.g. knob position as written on the amplifier
     'gain_dB', NaN, ...                 % = 20*log10(gainFactor), kept for the metadata
     'inputImpedance_ohm', NaN, ...      % amplifier input [ohm] (data sheet); NaN = from generator.load (INF: high-Z)
-    'knownModels', {{'none (direct drive)', 'power amplifier'}}, ...  % GUI drop-down items (typed models are added)
+    'knownModels', {{'none (direct drive)', 'power amplifier'}}, ...  % GUI drop-down items (not typed in the window)
     'confirmBeforeExcitation', true);   % ask operator before driving the loudspeaker (hardware mode)
 % Loudspeaker data: used to estimate the electrical drive (voltage, current,
 % power) from generator amplitude x amplifier gain, and to REFUSE excitation

@@ -311,7 +311,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Frequency [Hz] … to … | start and stop frequency, at most the usable band of the instruments (LAN-XI: 0.45 × sample rate, i.e. 7372.8 Hz at 16384 S/s; the tooltip states the limit) |
 | Sweep duration [s] | duration of one sweep, within the sweep times of the generator (33220A: 0.001–500 s); for the stepped sine the field is **Number of steps** (1–400) |
 | Repetitions | number of repetitions, averaged (1–100) |
-| Amplifier | "none (direct drive)", "power amplifier", or the model of your amplifier: type it into the list and press Enter; it is added to the list and saved with the configuration (File > Save configuration…). **Fixed while connected**, like Amp input: another amplifier may need another generator load, which is sent only at Connect. To change it: Disconnect, choose the amplifier, enter its gain and Amp input, Connect |
+| Amplifier | a list like Signal (not typed): "none (direct drive)", "power amplifier", and the models of `amplifier.knownModels` in the configuration file (add a model there). **Fixed while connected**, like Amp input: another amplifier may need another generator load, which is sent only at Connect. To change it: Disconnect, choose the amplifier, enter its gain and Amp input, Connect |
 | Amplifier gain [×] | voltage gain of the amplifier (Vout/Vin) as a plain number: 20 dB = ×10, 26 dB = ×20, 40 dB = ×100 (the tooltip gives the conversion; do not enter the dB value: a 40 dB amplifier entered as ×40 would get 2.5 × the shown loudspeaker voltage) |
 | Amp input [Ω] / Generator load | with an amplifier: its **input impedance** from the data sheet - a list with High Z, 50, 600 and 10000, or type a value (e.g. 2200) and press Enter. It is also the generator's **load setting** (`OUTP:LOAD`), sent at Connect, so the programmed level is the voltage at the amplifier input (High Z, or above the 33220A's 10 kΩ: the open-circuit voltage). Fixed while connected. In direct drive the label reads **Generator load** and the list is fixed at High Z. See "Generator output load" below |
 | Loudspeaker [Ω] | nominal (rated) impedance of the loudspeaker |
@@ -551,10 +551,10 @@ Use it when the termination is not anechoic (the lab termination reflects: |R_te
 4. Check Measurement > Two-load (condQ of the two loads, the repeat of load A, the loads table) and
    the Results views, which now show the transfer matrix first (section 6).
 
-The window remembers load A, load B and the repeat of the last two-load Start for each
-configuration file (MATLAB preferences of the Windows user, so the lab file and the virtual tube do
-not overwrite each other); without a record the configuration's loads apply. The method itself is
-not remembered.
+The window does not remember the terminations of an earlier session: it always starts with the
+configuration's loads (`measurement.loadA`, default Absorber at tube end, also the termination of a
+one-load measurement; `measurement.loadB`, default Rigid cap at tube end) and repeat. Choose other
+loads in Setup > Tube setup before each two-load measurement. The method is not remembered either.
 
 ## 6. The views
 
