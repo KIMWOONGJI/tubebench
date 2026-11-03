@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If tubebench helps your work, please cite it as below."
+type: software
+title: "tubebench: four-microphone impedance-tube measurements in MATLAB"
+abstract: >-
+  tubebench drives a signal generator and a multichannel acquisition module, records four
+  microphones around a specimen in an impedance tube and computes the specimen's acoustic
+  properties after ASTM E2611 (reflection and transmission coefficients, transmission loss,
+  thin-element transfer impedance and the two-port transfer matrix, also from two loads), with a
+  validity verdict for every frequency line. It includes a complete virtual tube, so every
+  feature, the window included, also runs without hardware. MATLAB R2022b and the Signal
+  Processing Toolbox.
+authors:
+  - family-names: Kim
+    given-names: Woongji
+version: 1.4.2
+date-released: 2026-11-03
+license: MIT
+repository-code: "https://github.com/kimwoongji/tubebench"
+keywords:
+  - acoustics
+  - impedance tube
+  - transmission loss
+  - transfer matrix
+  - transfer impedance
+  - ASTM E2611
+  - four-microphone method
+  - MATLAB

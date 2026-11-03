@@ -173,9 +173,10 @@ the skill `/add-instrument` runs the procedure.
 
 ## Project status
 
-Version **1.4.2** (2026-11-03). The automated tests verify the software's behaviour, not physical
-accuracy; [docs/hardware_status.md](docs/hardware_status.md) lists what has been verified on the
-real instruments.
+Version **1.4.2** (2026-11-03); the changes of every version are in [CHANGELOG.md](CHANGELOG.md).
+The automated tests verify the software's behaviour, not physical accuracy;
+[docs/hardware_status.md](docs/hardware_status.md) lists what has been verified on the real
+instruments.
 
 | Area | Status |
 |---|---|
@@ -214,6 +215,7 @@ the program was renamed). The main window is the class `tim.gui.Tubebench`.
 ```
 start_here.m            entry point (sections)        run_tests.m   automated tests
 tubebench.m, start_tubebench.bat   start the window          LICENSE   MIT
+CHANGELOG.md            changes per version           CITATION.cff  how to cite
 config/                 user_config.json (lab settings), example_config.json (template),
                         sim_thin_screen.json (virtual tube)
 +tim/+instr             instrument contract: Instrument, SignalSource, Acquisition; registry:
@@ -275,7 +277,8 @@ data/, calibration/     measurement and calibration output (never overwritten; n
 
 ## Citing
 
-If tubebench helps your work, please cite it:
+If tubebench helps your work, please cite it (GitHub's "Cite this repository" reads
+[CITATION.cff](CITATION.cff)):
 
 ```bibtex
 @software{kim_tubebench,

@@ -68,9 +68,13 @@
 3. **CITATION.cff** (title tubebench, author Woongji Kim with ORCID if available, version, date,
    licence, repository URL, a preferred-citation entry if a paper follows); a "How to cite"
    section in README; after the first GitHub release, connect the repository to Zenodo for a DOI
-   per release and add the DOI badge.
+   per release and add the DOI badge. **CITATION.cff done 2026-11-03** (version 1.4.2, no ORCID or
+   affiliation yet; README "Citing" points to it). Zenodo is not connected (owner decision
+   2026-11-03: not now; it archives only releases made after it is switched on, and an archived
+   version cannot be deleted - check the university's IP rules first).
 4. **CHANGELOG.md** from the git history (grouped per version: 1.0 bench tests, 1.1 GUI and
-   analysis review, 1.2 …); release notes per tag.
+   analysis review, 1.2 …); release notes per tag. **Done 2026-11-03**: versions 1.0.0-1.4.2 with
+   the commit of each; first tag and GitHub release v1.4.2.
 5. **Release script `tools/make_release.m`:** (a) check the working tree is clean and the tests
    pass; (b) write the commit hash and date into a build-info file that `softwareVersion` uses
    when `.git` is absent; (c) build a **toolbox package `tubebench.mltbx`** (installable from
