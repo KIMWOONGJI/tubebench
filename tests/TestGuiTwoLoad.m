@@ -66,16 +66,33 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             % the absorber again: the place goes back to the tube end
             h.termKindA.Value = 'absorber'; feval(h.termKindA.ValueChangedFcn, h.termKindA, []);
             tc.verifyEqual(app.Cfg.measurement.loadA.place, 'tubeEnd');
-            % two loads: rows A, B and the options; Show B draws load B
+            % two loads: rows A, B and the options; the model draws load A at
+            % first, then the load changed last (owner 2026-11-03: no Show selector)
             h.method.Value = 'twoLoad'; feval(h.method.ValueChangedFcn, h.method, []);
             tc.verifyEqual(h.start.Text, 'Start two-load measurement');
             tc.verifyEqual(h.termLabelA.Text, 'Load A');
             tc.verifyEqual(h.termGrid.RowHeight(2:3), {24, 22});
-            tc.verifyEqual(h.termShow.Enable, matlab.lang.OnOffSwitchState.on);
+            tc.verifyFalse(isfield(h, 'termShow'), 'no Show selector');
             tc.verifySubstring(h.termText.Text, 'B: the extension tube empty (absorber removed)');
-            h.termShow.Value = 'B'; feval(h.termShow.ValueChangedFcn, h.termShow, []);
             lab = findobj(h.axTube3D, 'Tag', 'endLabel'); s = cellstr(lab.String);
-            tc.verifyEqual(s{1}, 'rigid end cap', 'Show B: load B in the model');
+            tc.verifyEqual(s{1}, 'absorbing termination', 'load A at first');
+            h.termPlaceB.Value = 'joint'; feval(h.termPlaceB.ValueChangedFcn, h.termPlaceB, []);
+            tc.verifyEqual(app.TermShown, 'B');
+            lab = findobj(h.axTube3D, 'Tag', 'endLabel'); s = cellstr(lab.String);
+            tc.verifyEqual(s{1}, 'rigid cap at the joint', 'a changed load B is drawn');
+            h.termKindA.Value = 'open'; feval(h.termKindA.ValueChangedFcn, h.termKindA, []);
+            tc.verifyEqual(app.TermShown, 'A');
+            lab = findobj(h.axTube3D, 'Tag', 'endLabel'); s = cellstr(lab.String);
+            tc.verifyEqual(s{1}, 'open end', 'a changed load A is drawn');
+            h.termKindA.Value = 'absorber'; feval(h.termKindA.ValueChangedFcn, h.termKindA, []);
+            h.termPlaceB.Value = 'tubeEnd'; feval(h.termPlaceB.ValueChangedFcn, h.termPlaceB, []);
+            tc.verifyEqual(app.Cfg.measurement.loadA, struct('kind', 'absorber', 'place', 'tubeEnd'));
+            tc.verifyEqual(app.Cfg.measurement.loadB, struct('kind', 'rigid', 'place', 'tubeEnd'));
+            lab = findobj(h.axTube3D, 'Tag', 'endLabel'); s = cellstr(lab.String);
+            tc.verifyEqual(s{1}, 'rigid end cap', 'load B changed last');
+            h.termRepeat.Value = false; feval(h.termRepeat.ValueChangedFcn, h.termRepeat, []);
+            tc.verifyEqual(app.TermShown, 'B', 'the repeat option does not switch the model');
+            h.termRepeat.Value = true; feval(h.termRepeat.ValueChangedFcn, h.termRepeat, []);
             h.termLevelB.Value = -6; feval(h.termLevelB.ValueChangedFcn, h.termLevelB, []);
             tc.verifyEqual(app.Cfg.measurement.loadBLevel_dB, -6);
             tc.verifySubstring(h.termText.Text, 'Load B at −6 dB');

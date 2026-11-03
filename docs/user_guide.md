@@ -531,7 +531,8 @@ Use it when the termination is not anechoic (the lab termination reflects: |R_te
 1. **Method**: Two loads. Setup > Tube setup opens: choose **Load A** and **Load B** in the
    Termination box (default: Absorber at tube end, Rigid cap at tube end), keep **Repeat load A at
    the end** on, and leave **B level** at "same as A" unless load B overdrives the specimen (it may
-   only be lowered). **Show** draws load A or load B in the model.
+   only be lowered). The model draws load A at first, then the load whose kind or place was
+   changed last.
 2. **Start two-load measurement**. Without a calibration (CALIBRATION reads "No calibration")
    the window asks first: no line of any load would be valid, and neither T nor the repeat of load
    A could be judged during the run (**Cancel** is the default; the raw data of a run started
@@ -617,7 +618,9 @@ lengths (grey) follow every change of a field at once; the viewpoint is kept.
   named in red (Start refuses them). The 3D model draws the chosen termination: the absorber, the
   empty extension tube with the end cap, without it (open end), or the extension removed with a
   cap on the joint flange or open, with the label and the dimension "M4 – termination" of that
-  termination. With two loads **Show** (header) switches between load A and load B.
+  termination. With two loads it draws load A at first, then the load whose kind or place was
+  changed last in Termination, so it always shows the load just chosen (there is no separate
+  selector).
   Estimated conditioning in the lab tube (absorber measured on 2026-10-12/13, ideal rigid cap or
   open end): rigid cap at the tube end condQ ≤ 11 in the whole band; a rigid cap at the joint or an
   open end loses part of 250–1000 Hz to condQ > 10 (`workorder_two_load.md` section 2).

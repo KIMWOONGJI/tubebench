@@ -72,6 +72,8 @@ classdef Tubebench < handle
         LastTM = []             % transfer-matrix result shown (tim.app.processTwoLoad): two loads, or one
                                 % load of a symmetric specimen; [] = none (WO-005)
         LastLoads = []          % the loads of LastTM (role, load, meas, res, cfg, folder); [] = one load
+        TermShown char = 'A'    % two loads: the load the Tube setup model shows - the one last changed
+                                % in Termination (owner 2026-11-03); one load: always 'A'
         TwStep double = 0       % current / total operator steps of a two-load measurement
         TwSteps double = 0
         TwList = []             % tim.gui.Checklist of the two-load steps
@@ -1008,7 +1010,7 @@ classdef Tubebench < handle
             page = tim.gui.ViewPage(tab, 'Tube setup', ['3D model of the tube as entered in IMPEDANCE TUBE ' ...
                 '(distances between port centres and specimen faces) with the termination chosen on the right; ' ...
                 'microphones coloured by the channel in the port.'], ...
-                'SummaryTitle', 'Geometry', 'ToolWidths', {72, 52, 92, 48, 14, 104, 96, 14, 40, 84});
+                'SummaryTitle', 'Geometry', 'ToolWidths', {72, 52, 92, 48, 14, 104, 96});
             views = {'Default', 'default'; 'Side', 'side'; 'Perspective', 'perspective'; 'Top', 'top'};
             for i = 1:4
                 uibutton(page.Tools, 'Text', views{i, 1}, 'ButtonPushedFcn', @(~, ~) app.tubeView(views{i, 2}), ...
@@ -1020,11 +1022,6 @@ classdef Tubebench < handle
                 'ValueChangedFcn', @(~, ~) app.onTubeChanged());
             h.dimChk = uicheckbox(page.Tools, 'Text', 'Dimensions', 'Value', true, ...
                 'ValueChangedFcn', @(~, ~) app.onTubeChanged());
-            % two loads: which load the model shows (WO-005)
-            uilabel(page.Tools, 'Text', '');
-            h.termShowLabel = uilabel(page.Tools, 'Text', 'Show', 'HorizontalAlignment', 'right');
-            h.termShow = uidropdown(page.Tools, 'Items', {'Load A', 'Load B'}, 'ItemsData', {'A', 'B'}, ...
-                'Tooltip', 'Two loads: the termination the 3D model shows', 'ValueChangedFcn', @(~, ~) app.refreshTube());
             % the termination (WO-005, owner decision 2026-10-14): a box above the
             % geometry table - one load: its termination; two loads: load A, load B,
             % the repeat of A and the level of B. Kind and place side by side, the
@@ -1048,10 +1045,10 @@ classdef Tubebench < handle
             for k = 'AB'
                 h.(['termLabel' k]) = uilabel(gt, 'Text', ['Load ' k]);
                 h.(['termKind' k]) = uidropdown(gt, 'Items', {catL.kinds.label}, 'ItemsData', {catL.kinds.value}, ...
-                    'Tooltip', tipK, 'ValueChangedFcn', @(~, ~) app.onTermChanged());
+                    'Tooltip', tipK, 'ValueChangedFcn', @(~, ~) app.onTermChanged(k));
                 uilabel(gt, 'Text', 'at', 'HorizontalAlignment', 'center', 'FontColor', P.ui.muted);
                 h.(['termPlace' k]) = uidropdown(gt, 'Items', {catL.places.label}, 'ItemsData', {catL.places.value}, ...
-                    'Tooltip', tipP, 'ValueChangedFcn', @(~, ~) app.onTermChanged());
+                    'Tooltip', tipP, 'ValueChangedFcn', @(~, ~) app.onTermChanged(k));
             end
             go = uigridlayout(gt, [1 3], 'ColumnWidth', {'1x', 44, 84}, 'Padding', [0 0 0 0], 'ColumnSpacing', 6, ...
                 'BackgroundColor', 'w');
@@ -1070,7 +1067,7 @@ classdef Tubebench < handle
             h.termText.Layout.Row = 4; h.termText.Layout.Column = [1 4];
             if app.Busy                % locked like the other inputs (a 3D redraw would stall the stream)
                 h.secChk.Enable = 'off'; h.dimChk.Enable = 'off';
-                for c = {'termKindA', 'termPlaceA', 'termKindB', 'termPlaceB', 'termRepeat', 'termLevelB', 'termShow'}
+                for c = {'termKindA', 'termPlaceA', 'termKindB', 'termPlaceB', 'termRepeat', 'termLevelB'}
                     h.(c{1}).Enable = 'off';
                 end
             end
@@ -2606,7 +2603,7 @@ classdef Tubebench < handle
                 c = [c, {h.secChk, h.dimChk}];   % 3D redraw (~1 s) would stall the data stream
                 % the terminations (termLayout sets them again after an action: the
                 % place of an absorber stays fixed)
-                c = [c, {h.termKindA, h.termPlaceA, h.termKindB, h.termPlaceB, h.termRepeat, h.termLevelB, h.termShow}];
+                c = [c, {h.termKindA, h.termPlaceA, h.termKindB, h.termPlaceB, h.termRepeat, h.termLevelB}];
             end
         end
 
@@ -3598,9 +3595,12 @@ classdef Tubebench < handle
             app.termLayout();
         end
 
-        function onTermChanged(app)
-            % a termination field changed: the configuration, the box and the model
+        function onTermChanged(app, load)
+            % a termination field changed: the configuration, the box and the model.
+            % load 'A' / 'B': the kind or place of that load changed - with two
+            % loads the model then shows it, not the other one (TermShown)
             h = app.H; ms = app.Cfg.measurement;
+            if nargin > 1 && strcmp(ms.method, 'twoLoad'), app.TermShown = load; end
             for k = 'AB'
                 kd = h.(['termKind' k]).Value; pl = h.(['termPlace' k]).Value;
                 if strcmp(kd, 'absorber'), pl = 'tubeEnd'; h.(['termPlace' k]).Value = pl; end   % only at the tube end
@@ -3634,8 +3634,7 @@ classdef Tubebench < handle
             h.termPlaceA.Enable = onoff(free && ~strcmp(ms.loadA.kind, 'absorber'));
             h.termPlaceB.Enable = onoff(free && ~strcmp(ms.loadB.kind, 'absorber'));
             h.termRepeat.Enable = onoff(free); h.termLevelB.Enable = onoff(free);
-            h.termShow.Enable = onoff(two && free); h.termShowLabel.Enable = onoff(two);
-            if ~two, h.termShow.Value = 'A'; end
+            if ~two, app.TermShown = 'A'; end
             % what is mounted and where (English, as every window text)
             dA = tim.app.describeLoad(ms.loadA, app.Cfg); dB = tim.app.describeLoad(ms.loadB, app.Cfg);
             mt = @(d) tim.app.msg('en', ['tlMount_' d.kind '_' d.place], distText(d.distance_m));
@@ -3656,9 +3655,9 @@ classdef Tubebench < handle
 
         function d = shownTermination(app)
             % the load the Tube setup model shows: one load - its termination;
-            % two loads - load A or B (Show)
+            % two loads - load A or B, the one last changed in Termination
             ms = app.Cfg.measurement; d = ms.loadA;
-            if strcmp(ms.method, 'twoLoad') && app.isBuilt('tube') && strcmp(app.H.termShow.Value, 'B'), d = ms.loadB; end
+            if strcmp(ms.method, 'twoLoad') && strcmp(app.TermShown, 'B'), d = ms.loadB; end
         end
 
         %% ------------------------------------------------ two-load measurement
