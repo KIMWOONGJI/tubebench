@@ -9,7 +9,9 @@
 
 <p align="center">
   <strong>Four-microphone impedance-tube measurements in MATLAB</strong><br>
-  transmission loss · reflection · transfer impedance · transfer matrix
+  transmission loss · reflection · transfer impedance · transfer matrix<br>
+  <sub>by <a href="https://kimwoongji.github.io">Woongji Kim</a> ·
+  <a href="https://kimwoongji.github.io/projects/tubebench.html">project page</a></sub>
 </p>
 
 <p align="center">
@@ -26,16 +28,25 @@
   <a href="#features">Features</a> ·
   <a href="docs/user_guide.md">User guide</a> ·
   <a href="docs/theory.md">Theory</a> ·
+  <a href="#verification">Verification</a> ·
   <a href="#project-status">Status</a> ·
-  <a href="#citing">Cite</a>
+  <a href="#citing">Cite</a> ·
+  <a href="https://kimwoongji.github.io/projects/tubebench.html">Project page</a>
 </p>
 
 ---
 
+Commercial four-microphone impedance-tube systems are expensive and tied to their vendor's
+hardware, so many labs build their own tube. Run by hand across separate instruments and scripts,
+settings drift, channels get swapped and calibrations stop matching the data: instrument control
+is what turns a home-built tube into a measurement system.
+
 **tubebench** drives a signal generator and a multichannel acquisition module, records four
 microphones around a specimen in an impedance tube and computes the specimen's acoustic
 properties after ASTM E2611, with a validity verdict for every frequency line. It includes a
-complete virtual tube, so every feature, the window included, also runs without hardware.
+complete virtual tube, so every feature, the window included, also runs without hardware. The
+background, the verification and the principle are summarised on the
+[project page](https://kimwoongji.github.io/projects/tubebench.html).
 
 <p align="center">
   <img src="docs/images/tube_setup.png" alt="The tubebench window: Setup > Tube setup with the 3D model of the lab tube" width="100%">
@@ -147,10 +158,38 @@ the loads, and `tim.app.runTwoLoad` runs the whole sequence from a script.
 A short absorber is anechoic only at high frequencies: in the author's tube its reflection
 falls below 0.1 only above about 3 kHz. Two loads remove that limit. An empty specimen section
 cannot show the difference: air has no reflection of its own, so its TL is near 0 dB with any
-termination.
+termination. A reflecting specimen does (see [Verification](#verification)).
 
 The derivations, estimators, frequency limits and validity levels are in
 [docs/theory.md](docs/theory.md).
+
+## Verification
+
+To check the whole chain against an independent reference, a 3D-printed resonator cell was
+measured on the same mount with one load and with two loads (absorber at the tube end, then a rigid
+cap at the joint, then the absorber again; 2026-11-02) and compared with a 3D finite-element model
+with thermoviscous losses.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/verification_tl-dark.svg">
+    <img src="docs/images/verification_tl.svg" alt="Transmission loss of a 3D-printed resonator cell from 118 Hz to 4.7 kHz: two-load measurement, one-load measurement and 3D finite-element simulation, with a close-up of the first resonance between 250 and 550 Hz" width="100%">
+  </picture>
+  <br><sub>Transmission loss of the cell: (a) over the tube's band, (b) around the first resonance
+  (shaded in a).</sub>
+</p>
+
+- **Two loads follow the simulation:** 377 Hz and 12.9 dB at the first resonance against 377 Hz
+  and 13.4 dB; the other resonances lie within 3 % of the simulated frequencies, up to 2.4 dB lower
+  above 2 kHz.
+- **One load is biased by the termination:** with the absorbing end alone (|R_term| ≈ 0.5 near
+  400 Hz) the transmission coefficient peaks at 371 Hz and 11.0 dB, and tubebench masks τ and TL on
+  every line, because the end is not anechoic. The two-load transfer matrix removes that
+  dependence.
+- **Nothing moved:** the repeat of the first load reproduced the transfer matrix to 3 % (median);
+  1929 of 2301 frequency lines are valid in both loads.
+
+Details and the open checks are in [docs/hardware_status.md](docs/hardware_status.md).
 
 ## Supported instruments
 
@@ -184,7 +223,7 @@ instruments.
 | Instrument communication: 33220A SCPI, LAN-XI REST, recorder cycle, binary stream, TEDS | ✅ verified on the instruments |
 | Swept-sine measurements in the tube, sine excitation on the bench, microphone chain, switching calibration with its empty-tube check, measurement workflow in the window | ✅ done on the instruments (2026-10-08 to 2026-10-12) |
 | Instrument interface (1.2.0), connection check (1.2.1), generator load at the amplifier input (1.3.0) | ✅ owner's hardware checks passed (2026-10-12 / 2026-10-13) |
-| Two-load transfer matrix in the window (1.4.0) | software ✅ (simulation); ⏳ hardware check started 2026-10-14 (empty section), not passed yet |
+| Two-load transfer matrix in the window (1.4.0) | ✅ verified on the instruments against a 3D finite-element model (resonator cell, 2026-11-02; [Verification](#verification)); the empty-section checks of the work order were not repeated |
 | Noise excitation on the instrument, channel-to-port identification, formal validation (Tests A–G) | ⏳ pending |
 | Tube geometry of the lab configuration | ⏳ CAD design values; caliper check pending |
 
@@ -290,6 +329,14 @@ If tubebench helps your work, please cite it (GitHub's "Cite this repository" re
   license = {MIT}
 }
 ```
+
+## Author
+
+tubebench is developed by **Woongji Kim**. The
+[project page](https://kimwoongji.github.io/projects/tubebench.html) tells why it was built and how
+it was verified; an earlier two-microphone tube is on the
+[hardware page](https://kimwoongji.github.io/projects/hardware.html). Other projects, publications
+and the CV are at **[kimwoongji.github.io](https://kimwoongji.github.io)**.
 
 ## References
 

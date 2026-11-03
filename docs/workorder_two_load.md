@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Target version | 1.4.0 |
-| Status | **software built** (sections 3-8, 2026-10-14, branch `wo-005`, worktree `tubebench-wo005`; section 11). **Next:** the owner's hardware check (section 9), then version 1.4.0 and the merge. `main` keeps 1.3.2 until then |
+| Status | **released in 1.4.0** (2026-10-14) and **verified on the instruments** with a specimen against a 3D finite-element model (2026-11-02, section 13). Steps 1-2 of section 9 (empty section) were not repeated after the runs of section 12 |
 | Requested by | the owner (Woongji Kim), 2026-10-13 and 2026-10-14, after the review of the anechoic criterion: the lab termination reflects (\|R_term\| 0.85 at 125 Hz, 0.25 at 4 kHz), so τ, α_d and TL_τ are masked in the whole band, and the thin-element Z_t does not apply to the thick lab specimens |
 | Rules | as in CLAUDE.md; hardware results only from real measurements with the owner present; raw data are never overwritten |
 | Decisions | owner, 2026-10-14, all listed in section 1 |
@@ -277,3 +277,24 @@ every load was invalid ("0 of 2308 lines valid").
   - the cause has not been analysed yet.
 - **Release:** merged into main as version 1.4.0 on the owner's request (2026-10-14), with the
   hardware check of section 9 still open (`docs/hardware_status.md`: PENDING).
+
+## 13. Hardware verification with a specimen (2026-11-02)
+
+A 3D-printed resonator cell (`ventsil-m8-cell1`), measured with 1.4.1: A = absorber at the tube
+end, B = rigid cap at the joint, A′; pair folder `20261102_154635_twoload_ventsil-m8-cell1`.
+
+- 1929 of 2301 lines valid in both loads, all with condQ ≤ 10.
+- Repeat of load A: 0.03 (median) / 0.046 (90 %) of |T|, below the limit 0.05; the first real
+  reference for the repeat tolerance of section 10 (still the draft 0.05).
+- Level: load B 6.6 dB above load A (peak), no warning.
+- TL from T peaks at 376 Hz with 12.87 dB. The owner's 3D finite-element model with
+  thermoviscous losses gives 377 Hz and 13.4 dB; the other resonances lie within 3 % in
+  frequency, the measurement up to 2.4 dB lower above 2 kHz (owner's comparison; the figure is
+  `docs/images/verification_tl.svg`, from the project page).
+- The one-load τ of load A peaks at 370 Hz with 10.97 dB; |R_term| of the absorber is 0.48–0.53
+  at 380–420 Hz, so τ and TL from τ are masked on every line. This is step 3's "TL valid where the
+  one-load TL was masked".
+- |det T − 1| > 0.1 on 300 valid lines (reported, not a mask).
+- The owner counts this comparison as the hardware verification of the method (2026-11-03).
+  Not done: steps 1-2 of section 9 after the runs of section 12, and a second pair of loads for
+  the specimen (step 3, T of both pairs).
