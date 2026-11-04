@@ -6,7 +6,7 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
-## 1.5.1 - 2026-11-04
+## 1.5.1 - 2026-11-04 (`29504e1`)
 
 ### Added
 - EXCITATION: a **Settle [cycles] / Measure [cycles]** row for the stepped sine (greyed for the
