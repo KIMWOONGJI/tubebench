@@ -157,8 +157,10 @@
       "nPoints": 40,
       "spacing": "log",
       "amplitudeVpp": 0.2,
-      "settleTime": 0.3,
-      "recordTime": 0.5,
+      "settleTime": 0.2,
+      "settleCycles": 50,
+      "recordTime": 0.2,
+      "recordCycles": 100,
       "nBlocks": 4,
       "repetitions": 1
     },

@@ -212,16 +212,23 @@ classdef TestEndToEnd < matlab.unittest.TestCase
 
         function steppedScheduleDoesNotDrift(tc)
             % regression: step starts used to accumulate the block overshoot
-            % and the last steps ran past the end of the record
+            % and the last steps ran past the end of the record. The steps last
+            % max(time, periods / f) (owner decision 2026-11-04): longer at the
+            % low frequencies, every step at its own fixed target
             c = tc.cfg;
             c.excitation.stepped = struct('fStart', 200, 'fStop', 4000, 'nPoints', 15, 'spacing', 'log', ...
-                'amplitudeVpp', 0.2, 'settleTime', 0.1, 'recordTime', 0.15, 'nBlocks', 2, 'repetitions', 1);
+                'amplitudeVpp', 0.2, 'settleTime', 0.1, 'settleCycles', 40, 'recordTime', 0.15, 'recordCycles', 60, ...
+                'nBlocks', 2, 'repetitions', 1);
             s = tim.app.MeasurementSession(c);
             cleanup = onCleanup(@() s.close());
             s.connect(); s.prepareAcquisition();
             m = s.measure('stepped');
             ev = m.events{1}; nStep = m.settings.settleSamples + m.settings.recordSamples;
-            lag = ev.stepStart - (ev.onSample + (0:14) * nStep);
+            fs = m.fs; f = m.settings.frequencies;
+            tc.verifyEqual(m.settings.settleSamples, round(max(0.1, 40 ./ f) * fs));
+            tc.verifyEqual(m.settings.recordSamples, round(max(0.15, 60 ./ f) * fs));
+            tc.verifyGreaterThan(nStep(1), nStep(end), 'the lowest step lasts longest');
+            lag = ev.stepStart - (ev.onSample + [0 cumsum(nStep(1:end-1))]);
             tc.verifyGreaterThanOrEqual(min(lag), 0);
             tc.verifyLessThanOrEqual(max(lag), 2048);          % <= one mock block, no accumulation
             for k = 1:15

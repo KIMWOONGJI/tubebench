@@ -509,8 +509,26 @@ demonstrates the excitation independence.
 ## 5. Stepped sine
 
 `tim.dsp.sineResponse`, called per step by `tim.app.processMeasurement`. The frequency is switched
-by `FREQ` while the output stays on (phase continuous), and every step is analysed only after
-`settleTime`, over `recordTime` (`N_rec` samples).
+by `FREQ` while the output stays on (phase continuous), and every step is analysed only after its
+settling time, over its recording time (`N_rec` samples).
+
+0. **Timing of a step** (`tim.app.steppedPlan`, owner decision 2026-11-04). Both times follow the
+   frequency of the step:
+
+        T_settle(f) = max(settleTime, settleCycles / f),   T_rec(f) = max(recordTime, recordCycles / f)
+
+   Defaults 0.2 s / 50 periods and 0.2 s / 100 periods: below 250 Hz the settling, below 500 Hz the
+   recording holds the given number of periods (120 Hz: 0.42 s + 0.83 s), above that the minimum
+   time applies (40 log steps from 120 to 4500 Hz: 22 s per repetition instead of 33 s with the
+   former fixed 0.3 s + 0.5 s). The recording is chosen so that every one of the 4 blocks holds at
+   least 25 periods and the noise bandwidth of the whole record stays at or below 5 Hz. The settling
+   has to cover the decay of the tube after a frequency change, which depends on the termination
+   and the specimen more than on the frequency: about 0.15 s for 60 dB with the lab absorber at
+   125 Hz (|R_term| 0.85, round trip about 3.5 ms), but longer with a rigid cap (|R_term| near 1)
+   at every frequency. The cycle numbers and minimum times are therefore a starting point to be set
+   from a measurement of the decay (a stepped run with a long settling time, absorber and rigid
+   cap). A remaining transient shows as scatter between the blocks: lower coherence, a larger σ_H.
+   Configurations without `settleCycles` / `recordCycles` (or with 0) keep fixed times.
 
 1. **Frequency.** The generator and LAN-XI clocks differ by up to ~10⁻⁴, so the frequency seen by
    the LAN-XI module is estimated on the reference channel (mean removed, Hann window `w`):
@@ -540,8 +558,8 @@ by `FREQ` while the output stays on (phase continuous), and every step is analys
    white noise of variance σ² has `G = 2σ²/f_s`, the LS phasor error is `E|ΔY|² = 4σ²/N`, so the
    noise power of the fitted sinusoid is `E|ΔY|²/2 = G·f_s/N`. The SNR is therefore that of **one
    block**; the mean of the `n_b` blocks has `10·log10(n_b)` dB more (6.0 dB for 4 blocks). With the
-   defaults (0.5 s, 4 blocks, 16384 Hz) `N = 2048` and `f_s/N = 8 Hz`; Test B (1 s, 4 blocks) has
-   `f_s/N = 4 Hz`. `snrBroadband_dB = mean_i(|Y|²/2) / residual variance` (all frequencies) is
+   defaults (4 blocks, 16384 Hz) `N = 3413` and `f_s/N = 4.8 Hz` at 120 Hz (0.83 s), `N = 819` and
+   `f_s/N = 20 Hz` from 500 Hz up (0.2 s); Test B (1 s, 4 blocks) has `f_s/N = 4 Hz`. `snrBroadband_dB = mean_i(|Y|²/2) / residual variance` (all frequencies) is
    also returned.
    The noise level of the stepped-sine Spectrum view is `G_n,k·f_s/N` (`toneLevels.noise_dB =
    spl_dB − snr_dB`).

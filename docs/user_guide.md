@@ -375,8 +375,9 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
      circuit)"; red "Test limit … above the rated …" when the test limit exceeds the rated
      power. The tooltip lists every criterion.
 * The expected **Duration** is repetitions × (pre-roll + sweep duration + post-roll + 0.2 s) for
-  the swept sine and repetitions × (1 s + steps × (settling + recording time)) for the stepped
-  sine. The connection, the confirmation and the processing come on top.
+  the swept sine and repetitions × (1 s + the settling and recording times of all steps) for the
+  stepped sine (longer at low frequencies, see Configuration). The connection, the confirmation
+  and the processing come on top.
 
 ### CALIBRATION
 
@@ -891,7 +892,7 @@ before measuring if the code was edited. Without a `.git` folder (copied project
 | Signal | Use | Main settings (`excitation.*`) |
 |---|---|---|
 | `sweep` (swept sine, default) | broadband, fast, robust | `fStart` 80, `fStop` 5500 Hz (wider than the analysis band), `duration` 5 s, `spacing` `LOG`/`LIN`, `amplitudeVpp`, `repetitions` 4 (≥ 2 gives a meaningful coherence), `preRoll` 1 s (silence for the noise estimate), `postRoll` 1 s (ring-down) |
-| `stepped` (stepped sine) | highest SNR at chosen frequencies, cross-check | `fStart` 120, `fStop` 4500 Hz, `nPoints` 40, `spacing` `log`/`lin`, `settleTime` 0.3 s, `recordTime` 0.5 s, `nBlocks` 4, `repetitions` 1 |
+| `stepped` (stepped sine) | highest SNR at chosen frequencies, cross-check | `fStart` 120, `fStop` 4500 Hz, `nPoints` 40, `spacing` `log`/`lin`, `settleTime` 0.2 s and `settleCycles` 50, `recordTime` 0.2 s and `recordCycles` 100 (per step the larger of the time and the periods), `nBlocks` 4, `repetitions` 1 |
 | `noise` (random noise, scripts only) | 33220A built-in noise, Welch H1 | `amplitudeVpp`, `duration` 20 s, `nfft` 8192 |
 
 * The 33220A and the LAN-XI module are **not synchronised**. The sweep is triggered by software
@@ -900,7 +901,12 @@ before measuring if the code was edited. Without a `.git` folder (copied project
   and the exact sweep law do not matter (`theory.md` section 4). The sweep must lie inside the
   recording; this is checked and reported (`res.diagnostics.excitation`, `sweepLaw`).
 * Stepped sine: the first and the last step are exactly `fStart` and `fStop` (a step at 120 Hz is
-  inside the default analysis band). Each step is evaluated by a sine fit of the settled part, in
+  inside the default analysis band). Each step waits max(`settleTime`, `settleCycles`/f) after its
+  frequency change and records max(`recordTime`, `recordCycles`/f), so low frequencies get more
+  periods and high ones the minimum time (defaults 0.2 s / 50 periods and 0.2 s / 100 periods:
+  1.25 s at 120 Hz, 0.4 s from 500 Hz up; `settleCycles` / `recordCycles` 0 gives fixed times).
+  The values are a starting point; the settling a termination needs is set from a measurement
+  (`theory.md` section 5). Each step is evaluated by a sine fit of the settled part, in
   `nBlocks` blocks. The SNR of a step is the tone power over the noise power in the bandwidth of
   the fit (`theory.md` section 5); it enters the validity masks like the SNR of the sweep.
   All results are drawn with markers at the step frequencies (also in the saved figures and in
