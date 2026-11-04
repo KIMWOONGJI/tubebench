@@ -57,7 +57,7 @@ if isempty(o.a)                                       % ---- empty state
 end
 
 a = o.a; f = a.f; v = a.valid;
-mo = struct('stepped', o.stepped);
+mo = struct('stepped', o.stepped, 'outside', tim.plots.calOutside(v));   % diamonds outside the calibration range
 if ~isempty(o.tl)
     info = transferMatrixCurves(ax1, ax2, a, o, B, mo, info);
     return
@@ -69,13 +69,14 @@ end
 % (in band, geometry and quality OK - incl. the calibration), grey elsewhere
 okRt = v.measured & v.geometryOK & v.qualityOK;
 [hRt, gRt] = tim.plots.masked(ax1, f, abs(a.Rterm), okRt, P.q.ref, ...
-    struct('stepped', o.stepped, 'lineStyle', ':', 'lineWidth', 1.4));
+    struct('stepped', o.stepped, 'lineStyle', ':', 'lineWidth', 1.4, 'outside', mo.outside));
 hLim = yline(ax1, o.anechoicRmax, '--', 'Color', P.q.ref, 'LineWidth', 1);
 uistack([gRt; gA; gT; gR], 'bottom');                 % all grey curves under all coloured ones
 title(ax1, tim.plots.dataTitle(res, struct('simulation', o.simulation)), 'Interpreter', 'none');
 info.lines = [hR hT hA hRt hLim];
-tim.plots.legend(ax1, info.lines, {'|R|', '|\tau|', ['\alpha_d = 1 ' mn ' |R|^2 ' mn ' |\tau|^2'], ...
+[lh, ln] = tim.plots.withOutside(ax1, info.lines, {'|R|', '|\tau|', ['\alpha_d = 1 ' mn ' |R|^2 ' mn ' |\tau|^2'], ...
     '|R_{term}|', sprintf('|R_{term}| limit (%g)', o.anechoicRmax)});
+tim.plots.legend(ax1, lh, ln);
 xr = o.band;                                         % analysis band; stepped: every step stays visible
 if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
 if ~isempty(ax2)
@@ -102,6 +103,7 @@ function info = transferMatrixCurves(ax1, ax2, a, o, B, mo, info)
 % (alpha_h = 1 - |R_h|^2), masked with the validity of T; |R_term| of the load
 % shown (dotted) as the diagnostic of its termination
 P = tim.gui.palette(); mn = char(8722); tl = o.tl; ok = tl.valid.valid; f = tl.f;
+mo.outside = tim.plots.calOutside(tl.valid);         % diamonds: a load outside the calibration range
 [hR, gR] = tim.plots.masked(ax1, f, abs(tl.anechoic.R), ok, P.q.first, mo);
 [hT, gT] = tim.plots.masked(ax1, f, abs(tl.anechoic.tau), ok, P.q.second, mo);
 [hA, gA] = tim.plots.masked(ax1, f, tl.anechoic.dissipation, ok, P.q.third, mo);
@@ -109,12 +111,13 @@ md = mo; md.lineStyle = '--';
 [hH, gH] = tim.plots.masked(ax1, f, tl.hard.alpha, ok, P.q.third, md);
 v = a.valid; okRt = v.measured & v.geometryOK & v.qualityOK;
 [hRt, gRt] = tim.plots.masked(ax1, a.f, abs(a.Rterm), okRt, P.q.ref, ...
-    struct('stepped', o.stepped, 'lineStyle', ':', 'lineWidth', 1.4));
+    struct('stepped', o.stepped, 'lineStyle', ':', 'lineWidth', 1.4, 'outside', tim.plots.calOutside(v)));
 uistack([gRt; gH; gA; gT; gR], 'bottom');
 title(ax1, tim.plots.dataTitle(tl, struct('simulation', o.simulation)), 'Interpreter', 'none');
 info.lines = [hR hT hA hH hRt];
-tim.plots.legend(ax1, info.lines, {'|R_a|', '|\tau_a|', ['\alpha_d = 1 ' mn ' |R_a|^2 ' mn ' |\tau_a|^2'], ...
+[lh, ln] = tim.plots.withOutside(ax1, info.lines, {'|R_a|', '|\tau_a|', ['\alpha_d = 1 ' mn ' |R_a|^2 ' mn ' |\tau_a|^2'], ...
     ['\alpha_h = 1 ' mn ' |R_h|^2 (rigid backing)'], '|R_{term}| (this load)'});
+tim.plots.legend(ax1, lh, ln);
 xr = o.band;
 if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
 if ~isempty(ax2)

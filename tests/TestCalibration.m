@@ -221,9 +221,13 @@ classdef TestCalibration < matlab.unittest.TestCase
             tc.verifyEqual(Ci(:, 2), 1.05 * exp(-2j * pi * ff * 4e-4), 'AbsTol', 1e-10);
             tc.verifyEqual(abs(Ci(:, 2)), 1.05 * ones(size(ff)), 'AbsTol', 1e-12);
             tc.verifyTrue(all(v(:)));
-            % no extrapolation
-            [Ce, ve] = tim.cal.interpolateCalibration(cal, [50; 6000]);
-            tc.verifyTrue(all(isnan(Ce(:, 2))) && ~any(ve(:)));
+            % no extrapolation: outside the grid the nearest calibrated line is
+            % held, never valid (1.5.1, owner decision 2026-11-04)
+            [Ce, ve, out] = tim.cal.interpolateCalibration(cal, [50; 1000; 6000]);
+            tc.verifyEqual(Ce([1 3], 2), C([1 end], 2), 'AbsTol', 1e-12);
+            tc.verifyEqual(out, [true; false; true]);
+            tc.verifyFalse(any(ve([1 3], :), 'all'));
+            tc.verifyTrue(all(ve(2, :)));
         end
 
         function interpolationBandEdgeTolerance(tc)
@@ -238,11 +242,13 @@ classdef TestCalibration < matlab.unittest.TestCase
             [Ci, v] = tim.cal.interpolateCalibration(cal, fq);
             tc.verifyTrue(all(v(:)));
             tc.verifyEqual(Ci([1 3], 2), C([1 end], 2), 'AbsTol', 1e-12);
-            [Co, vo] = tim.cal.interpolateCalibration(cal, [120 * (1 - 1e-6); 4500 * (1 + 1e-6)]);
-            tc.verifyTrue(all(isnan(Co(:, 2))) && ~any(vo(:)));
+            [Co, vo, oo] = tim.cal.interpolateCalibration(cal, [120 * (1 - 1e-6); 4500 * (1 + 1e-6)]);
+            tc.verifyTrue(all(oo) && ~any(vo(:)), 'a real offset is outside, never valid');
+            tc.verifyEqual(Co(:, 2), C([1 end], 2), 'AbsTol', 1e-12, 'the edge factor is held');
             % the same step passes applyCalibration and the analysis band
-            [Hc, cv] = tim.cal.applyCalibration(fq, C(1, :) .* ones(3, 4), cal, 1);
+            [Hc, cv, ~, ~, out] = tim.cal.applyCalibration(fq, C(1, :) .* ones(3, 4), cal, 1);
             tc.verifyTrue(all(isfinite(Hc(:))) && cv(1));
+            tc.verifyFalse(any(out), 'within the edge tolerance: inside');
         end
 
         function applyCalibrationRoundTrip(tc)

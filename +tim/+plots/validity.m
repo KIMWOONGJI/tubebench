@@ -126,7 +126,7 @@ S = {'Measured (in band)',            'Measured (in band)',          'measured',
      'Valid thin Z_t',                'Valid thin Z_t',              'validThinZt', 'Z_t, TL from Z_t'
      'Validated (experiment)',        'Validated (experiment)',      'validated',   'report only'};
 flags = {'outsideBand', 'belowSpacingLimit', 'aboveSpacingLimit', 'aboveModeCutOn', 'nearSingularity', ...
-    'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'calInvalid', 'nonPassive', ...
+    'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'calInvalid', 'outsideCalibration', 'nonPassive', ...
     'velocityMismatch', 'terminationNotAnechoic'};
 if ~isempty(a) && isfield(a.valid, 'flags')
     flags = [flags(ismember(flags, fieldnames(a.valid.flags))), ...
@@ -185,6 +185,7 @@ switch name
     case 'lowCoherence', t = 'low coherence';
     case 'lowSNR', t = 'low SNR';
     case 'calInvalid', t = 'no valid calibration';
+    case 'outsideCalibration', t = 'outside the calibration range';
     case 'nonPassive', t = 'not passive';
     case 'velocityMismatch', t = 'velocity mismatch';
     case 'terminationNotAnechoic', t = 'termination not anechoic';
@@ -199,7 +200,7 @@ function t = flagAffects(name)
 switch name
     case 'aboveModeCutOn', t = 'all results';
     case {'outsideBand', 'belowSpacingLimit', 'aboveSpacingLimit', 'nearSingularity', ...
-            'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'calInvalid'}, t = ['|τ|, α_d, TL, Z_t ' rOnly()];
+            'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'calInvalid', 'outsideCalibration'}, t = ['|τ|, α_d, TL, Z_t ' rOnly()];
     case 'nonPassive', t = '|τ|, α_d, TL, Z_t (R: |R| > 1)';
     case 'velocityMismatch', t = 'Z_t, TL from Z_t';
     case 'terminationNotAnechoic', t = '|τ|, α_d, TL';

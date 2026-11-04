@@ -311,6 +311,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Frequency [Hz] … to … | start and stop frequency, at most the usable band of the instruments (LAN-XI: 0.45 × sample rate, i.e. 7372.8 Hz at 16384 S/s; the tooltip states the limit) |
 | Sweep duration [s] | duration of one sweep, within the sweep times of the generator (33220A: 0.001–500 s); for the stepped sine the field is **Number of steps** (1–400) |
 | Repetitions | number of repetitions, averaged (1–100) |
+| Settle [cycles] / Measure [cycles] | stepped sine only (greyed for the swept sine): the cycles every step waits after its frequency change and the cycles its sine fit uses, each at least the minimum time of the configuration (`settleTime`, `recordTime`, 0.2 s). The tooltips give the resulting times at the first and the last step; the expected Duration follows. Fewer than 4 measured cycles per block are marked in yellow. A reflecting termination (rigid cap) needs more settling than the absorber |
 | Amplifier | a list like Signal (not typed): "none (direct drive)", "power amplifier", and the models of `amplifier.knownModels` in the configuration file (add a model there). **Fixed while connected**, like Amp input: another amplifier may need another generator load, which is sent only at Connect. To change it: Disconnect, choose the amplifier, enter its gain and Amp input, Connect |
 | Amplifier gain [×] | voltage gain of the amplifier (Vout/Vin) as a plain number: 20 dB = ×10, 26 dB = ×20, 40 dB = ×100 (the tooltip gives the conversion; do not enter the dB value: a 40 dB amplifier entered as ×40 would get 2.5 × the shown loudspeaker voltage) |
 | Amp input [Ω] / Generator load | with an amplifier: its **input impedance** from the data sheet - a list with High Z, 50, 600 and 10000, or type a value (e.g. 2200) and press Enter. It is also the generator's **load setting** (`OUTP:LOAD`), sent at Connect, so the programmed level is the voltage at the amplifier input (High Z, or above the 33220A's 10 kΩ: the open-circuit voltage). Fixed while connected. In direct drive the label reads **Generator load** and the list is fixed at High Z. See "Generator output load" below |
@@ -892,7 +893,7 @@ before measuring if the code was edited. Without a `.git` folder (copied project
 | Signal | Use | Main settings (`excitation.*`) |
 |---|---|---|
 | `sweep` (swept sine, default) | broadband, fast, robust | `fStart` 80, `fStop` 5500 Hz (wider than the analysis band), `duration` 5 s, `spacing` `LOG`/`LIN`, `amplitudeVpp`, `repetitions` 4 (≥ 2 gives a meaningful coherence), `preRoll` 1 s (silence for the noise estimate), `postRoll` 1 s (ring-down) |
-| `stepped` (stepped sine) | highest SNR at chosen frequencies, cross-check | `fStart` 120, `fStop` 4500 Hz, `nPoints` 40, `spacing` `log`/`lin`, `settleTime` 0.2 s and `settleCycles` 50, `recordTime` 0.2 s and `recordCycles` 100 (per step the larger of the time and the periods), `nBlocks` 4, `repetitions` 1 |
+| `stepped` (stepped sine) | highest SNR at chosen frequencies, cross-check | `fStart` 120, `fStop` 4500 Hz, `nPoints` 40, `spacing` `log`/`lin`, `settleTime` 0.2 s and `settleCycles` 50, `recordTime` 0.2 s and `recordCycles` 100 (per step the larger of the time and the cycles), `nBlocks` 4, `repetitions` 1 |
 | `noise` (random noise, scripts only) | 33220A built-in noise, Welch H1 | `amplitudeVpp`, `duration` 20 s, `nfft` 8192 |
 
 * The 33220A and the LAN-XI module are **not synchronised**. The sweep is triggered by software
@@ -903,14 +904,17 @@ before measuring if the code was edited. Without a `.git` folder (copied project
 * Stepped sine: the first and the last step are exactly `fStart` and `fStop` (a step at 120 Hz is
   inside the default analysis band). Each step waits max(`settleTime`, `settleCycles`/f) after its
   frequency change and records max(`recordTime`, `recordCycles`/f), so low frequencies get more
-  periods and high ones the minimum time (defaults 0.2 s / 50 periods and 0.2 s / 100 periods:
+  cycles and high ones the minimum time (defaults 0.2 s / 50 cycles and 0.2 s / 100 cycles:
   1.25 s at 120 Hz, 0.4 s from 500 Hz up; `settleCycles` / `recordCycles` 0 gives fixed times).
   The values are a starting point; the settling a termination needs is set from a measurement
   (`theory.md` section 5). Each step is evaluated by a sine fit of the settled part, in
   `nBlocks` blocks. The SNR of a step is the tone power over the noise power in the bandwidth of
   the fit (`theory.md` section 5); it enters the validity masks like the SNR of the sweep.
   All results are drawn with markers at the step frequencies (also in the saved figures and in
-  `spectra.csv`: `level<c>_dB_SPL`, `noise<c>_dB_SPL`).
+  `spectra.csv`: `level<c>_dB_SPL`, `noise<c>_dB_SPL`): filled = valid, hollow circle = computed
+  but not valid, **hollow diamond = outside the frequency range of the calibration** (corrected with
+  the nearest calibrated line, for information only, never valid; flag `outsideCalibration` in
+  Validity and `results.csv`), a triangle on the axis = no value.
 * The switching calibration always uses the swept-sine settings (frequency range, duration,
   repetitions) and the Amplitude, whichever Signal is selected.
 

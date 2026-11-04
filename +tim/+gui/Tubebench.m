@@ -689,13 +689,16 @@ classdef Tubebench < handle
             % heights [px]: about 900 px -> no scrolling in the window
             % on the lab screen (1920 x 1080: about 985 px); Scrollable stays on
             % as a fallback for small screens.
-            bar = 26; rw = 24; sp = 4;
+            % 1.5.1 (owner decision 2026-11-04): a field row for the stepped-sine
+            % cycles; the section bars 26 -> 22 px and the spacers 4 -> 3 px keep
+            % the panel within 930 px
+            bar = 22; rw = 24; sp = 3;
             rowH = {bar, 26, 22, 22, 45, ...                %  1- 5 INSTRUMENTS: bar, mode + connect, status, lamps, in use (3 lines)
                 sp, bar, rw, 16, rw, 30, ...                %  6-11 IMPEDANCE TUBE: spacer, bar, D/T/p, names, distances, info
-                sp, bar, rw, rw, rw, rw, rw, rw, rw, 45, ...% 12-21 EXCITATION: spacer, bar, 7 field rows, drive check (3 lines)
-                sp, bar, 22, 28, ...                        % 22-25 CALIBRATION: spacer, bar, status, buttons
-                sp, bar, rw, rw, 36, ...                    % 26-30 MEASUREMENT: spacer, bar, specimen, method + background, start / stop
-                sp, bar, 22, 28};                           % 31-34 RESULTS: spacer, bar, status, buttons
+                sp, bar, rw, rw, rw, rw, rw, rw, rw, rw, 45, ...% 12-22 EXCITATION: spacer, bar, 8 field rows, drive check (3 lines)
+                sp, bar, 22, 28, ...                        % 23-26 CALIBRATION: spacer, bar, status, buttons
+                sp, bar, rw, rw, 36, ...                    % 27-31 MEASUREMENT: spacer, bar, specimen, method + background, start / stop
+                sp, bar, 22, 28};                           % 32-35 RESULTS: spacer, bar, status, buttons
             left = uigridlayout(g, [numel(rowH) 1], 'RowHeight', rowH, 'ColumnWidth', {'1x'}, ...
                 'Scrollable', 'on', 'RowSpacing', 4, 'Padding', [10 8 10 8], 'BackgroundColor', P.ui.panel);
             left.Layout.Row = 1; left.Layout.Column = 1;
@@ -796,6 +799,16 @@ classdef Tubebench < handle
             app.label(rg, 'Repetitions', 'Number of repetitions (averaged).');
             h.reps = uieditfield(rg, 'numeric', 'Limits', [1 100], 'RoundFractionalValues', 'on', ...
                 'ValueChangedFcn', @(~, ~) app.updateDrive());
+            % stepped sine: the cycles every step settles and is measured over
+            % (owner decision 2026-11-04, 1.5.1; at least the minimum times of the
+            % configuration); greyed for the swept sine (cycleEnable)
+            r = r + 1; rg = app.rowGrid(left, r, ex);
+            h.settleCycLabel = app.label(rg, 'Settle [cycles]');
+            h.settleCyc = uieditfield(rg, 'numeric', 'Limits', [0 1e4], 'RoundFractionalValues', 'on', ...
+                'ValueChangedFcn', @(~, ~) app.onCycles());
+            h.recordCycLabel = app.label(rg, 'Measure [cycles]');
+            h.recordCyc = uieditfield(rg, 'numeric', 'Limits', [0 1e4], 'RoundFractionalValues', 'on', ...
+                'ValueChangedFcn', @(~, ~) app.onCycles());
             % the chain from the generator to the loudspeaker, then the level
             % (owner requests 2026-10-12, WO-003: the gain as a plain number,
             % the generator load in the window, the loudspeaker's two values on
@@ -2005,6 +2018,9 @@ classdef Tubebench < handle
                 h.dur.RoundFractionalValues = 'off'; h.dur.Limits = T; h.dur.Value = min(max(s.duration, T(1)), T(2));
                 h.dur.Tooltip = sprintf('duration of one sweep [s], %g to %g s', T);
             end
+            st = ex.stepped;                   % the cycles row always shows the stepped sine's values
+            h.settleCyc.Value = cyclesOf(st, 'settleCycles'); h.recordCyc.Value = cyclesOf(st, 'recordCycles');
+            app.cycleEnable();
             app.updateDrive();
         end
 
@@ -2034,6 +2050,55 @@ classdef Tubebench < handle
                 app.log('Settings of the %s not kept: %s', app.signalName(previous), err.message);
             end
             app.excitationToUi(app.H.exMode.Value);
+        end
+
+        function onCycles(app)
+            % Settle / Measure [cycles] changed (1.5.1): the stepped sine's timing,
+            % the tooltips and the expected duration
+            h = app.H;
+            app.Cfg.excitation.stepped.settleCycles = h.settleCyc.Value;
+            app.Cfg.excitation.stepped.recordCycles = h.recordCyc.Value;
+            if strcmp(h.exMode.Value, 'stepped')
+                s = app.Cfg.excitation.stepped;
+                h.dur.Tooltip = sprintf('number of frequency steps (%s spacing); each step: %s', s.spacing, ...
+                    stepTimingText(s));
+            end
+            app.cycleEnable();
+            app.updateDrive();
+        end
+
+        function cycleEnable(app)
+            % the cycles row: for the stepped sine; greyed for the swept sine and
+            % while an action runs. The tooltips give the times at the first and
+            % the last step; fewer than 4 measured cycles per block are marked.
+            h = app.H; P = tim.gui.palette();
+            stepped = strcmp(h.exMode.Value, 'stepped');
+            set([h.settleCyc, h.recordCyc, h.settleCycLabel, h.recordCycLabel], 'Enable', ...
+                matlab.lang.OnOffSwitchState(stepped && ~app.Busy));
+            h.recordCyc.BackgroundColor = [1 1 1];
+            if ~stepped
+                tip = 'Stepped sine only: the cycles every step settles after its frequency change and is measured over.';
+                h.settleCyc.Tooltip = tip; h.recordCyc.Tooltip = tip;
+                return
+            end
+            % the steps in the fields, timed as the session will (tim.app.steppedPlan)
+            s = app.Cfg.excitation.stepped;
+            s.fStart = h.fStart.Value; s.fStop = h.fStop.Value; s.nPoints = max(1, round(h.dur.Value));
+            s.settleCycles = h.settleCyc.Value; s.recordCycles = h.recordCyc.Value;
+            p = tim.app.steppedPlan(s);
+            h.settleCyc.Tooltip = sprintf(['Cycles every step waits after its frequency change before it is measured, ' ...
+                'at least %g s (excitation.stepped.settleTime): %.2g s at %g Hz, %.2g s at %g Hz. A reflecting ' ...
+                'termination (rigid cap) needs more than the absorber.'], s.settleTime, p.settle_s(1), p.freqs(1), ...
+                p.settle_s(end), p.freqs(end));
+            h.recordCyc.Tooltip = sprintf(['Cycles of every step used for the sine fit (%d blocks), at least %g s ' ...
+                '(excitation.stepped.recordTime): %.2g s at %g Hz, %.2g s at %g Hz.'], s.nBlocks, s.recordTime, ...
+                p.record_s(1), p.freqs(1), p.record_s(end), p.freqs(end));
+            [perBlock, k] = min(p.record_s .* p.freqs / max(1, s.nBlocks));
+            if perBlock < 4
+                h.recordCyc.BackgroundColor = P.ui.attention;
+                h.recordCyc.Tooltip = sprintf('%s Only %.1f cycles per block at %g Hz: measure more cycles.', ...
+                    h.recordCyc.Tooltip, perBlock, p.freqs(k));
+            end
         end
 
         function n = signalName(~, mode)
@@ -2298,6 +2363,7 @@ classdef Tubebench < handle
                 % the frequencies and steps in the fields, timed per step as the session does
                 st = ex.stepped; st.nPoints = h.dur.Value;
                 st.fStart = h.fStart.Value; st.fStop = h.fStop.Value;
+                st.settleCycles = h.settleCyc.Value; st.recordCycles = h.recordCyc.Value;
                 T = n * tim.app.steppedPlan(st).total_s;
             else
                 sw = ex.sweep;
@@ -2327,6 +2393,9 @@ classdef Tubebench < handle
             app.Cfg.excitation.mode = h.exMode.Value;
             % f start/stop, sweep time or number of steps, repetitions of the selected signal
             app.uiToExcitation(h.exMode.Value);
+            % the stepped sine's cycles (their row is greyed for the swept sine)
+            app.Cfg.excitation.stepped.settleCycles = h.settleCyc.Value;
+            app.Cfg.excitation.stepped.recordCycles = h.recordCyc.Value;
             % GUI in Vpk (of the loudspeaker, or the generator's level: open
             % circuit / amplifier input), config / generator in Vpp of the generator
             gen = app.ampFromUi();
@@ -2599,8 +2668,8 @@ classdef Tubebench < handle
         function c = inputControls(app)
             % every field / selector of the control panel and the drawing options
             h = app.H;
-            c = {h.mode, h.exMode, h.fStart, h.fStop, h.dur, h.amp, h.reps, h.ampModel, h.ampGain, h.genLoad, ...
-                h.spkZ, h.spkP, h.ampAt, h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen, h.method};
+            c = {h.mode, h.exMode, h.fStart, h.fStop, h.dur, h.amp, h.reps, h.settleCyc, h.recordCyc, h.ampModel, ...
+                h.ampGain, h.genLoad, h.spkZ, h.spkP, h.ampAt, h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen, h.method};
             if app.isBuilt('tube')
                 c = [c, {h.secChk, h.dimChk}];   % 3D redraw (~1 s) would stall the data stream
                 % the terminations (termLayout sets them again after an action: the
@@ -2625,6 +2694,7 @@ classdef Tubebench < handle
             h.save.Enable = onoff(~isempty(app.LastMeas));
             h.reprocess.Enable = onoff(~isempty(app.LastMeas) && ~strcmp(app.LastMeas.kind, 'background'));
             app.chainEnable();
+            app.cycleEnable();
             if connected
                 h.mode.Tooltip = sprintf('connected in %s mode - Disconnect to change the mode', s.Cfg.mode);
             else
@@ -4722,13 +4792,19 @@ end
 function t = stepTimingText(s)
 % settling and recording of one stepped-sine step, as tim.app.steppedPlan times them
 p = tim.app.steppedPlan(s);
-t = sprintf('%s settling + %s recording: %.2g s per step at %g Hz, %.2g s at %g Hz', ...
+t = sprintf('%s settling + %s measurement: %.2g s per step at %g Hz, %.2g s at %g Hz', ...
     timeOrCycles(s, 'settleTime', 'settleCycles'), timeOrCycles(s, 'recordTime', 'recordCycles'), ...
     p.step_s(1), p.freqs(1), p.step_s(end), p.freqs(end));
 end
 
 function t = timeOrCycles(s, time, cycles)
-% 'max(0.2 s, 100 periods)', or '0.5 s' without cycles
+% 'max(0.2 s, 100 cycles)', or '0.5 s' without cycles
 t = sprintf('%g s', s.(time));
-if isfield(s, cycles) && s.(cycles) > 0, t = sprintf('max(%g s, %g periods)', s.(time), s.(cycles)); end
+if isfield(s, cycles) && s.(cycles) > 0, t = sprintf('max(%g s, %g cycles)', s.(time), s.(cycles)); end
+end
+
+function n = cyclesOf(st, name)
+% cycles of the stepped sine (0 = fixed times; a file before 1.5.0 has none)
+n = 0;
+if isfield(st, name) && ~isempty(st.(name)), n = double(st.(name)); end
 end

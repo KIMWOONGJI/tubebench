@@ -64,7 +64,7 @@ res.spectra = sp;
 f = sp.f(:);
 
 % ---- calibration
-[Hcal, calValid, calInfo, calValidCh] = tim.cal.applyCalibration(f, sp.H, cal, ref);
+[Hcal, calValid, calInfo, calValidCh, calOutside] = tim.cal.applyCalibration(f, sp.H, cal, ref);
 res.calibration = struct('applied', ~isempty(cal), 'info', calInfo, 'version', 'none');
 if ~isempty(cal), res.calibration.version = cal.version; end
 % calibration set-up vs this measurement (empty section, port distances, temperature, mode,
@@ -107,6 +107,7 @@ o = rmfield(a, {'refChannel', 'fMin', 'fMax', 'df'});
 o.quality = struct('coherence', cohP, 'snr_dB', snrP);
 o.calValid = calValid;
 o.calValidPos = calP;          % per position: R needs only the calibration of M1/M2 (review analysis-3)
+o.calOutside = calOutside;     % outside the calibration range: nearest calibrated line held, never valid (1.5.1)
 o.fRange = [a.fMin a.fMax];
 res.analysis = tim.acoustics.analyzeFourMic(f, Hp, cfg.geometry, cfg.environment, o);
 
