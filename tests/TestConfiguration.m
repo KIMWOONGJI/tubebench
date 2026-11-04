@@ -413,6 +413,49 @@ classdef TestConfiguration < matlab.unittest.TestCase
             tc.verifyTrue(any(contains(tim.app.validateConfig(b), 'pre-roll 0.05 s')));
         end
 
+        function steppedTimingFollowsFrequency(tc)
+            % owner decision 2026-11-04: a stepped-sine step settles
+            % max(settleTime, settleCycles/f) and records max(recordTime,
+            % recordCycles/f); without cycles the times stay fixed
+            c = tim.app.defaultConfig(); st = c.excitation.stepped;
+            p = tim.app.steppedPlan(st, 16384);
+            f = p.freqs;
+            tc.verifyEqual(f([1 end]), [120 4500], 'exact end points');
+            tc.verifyEqual(p.settle_s, max(0.2, 50 ./ f));
+            tc.verifyEqual(p.record_s, max(0.2, 100 ./ f));
+            tc.verifyEqual(p.step_s(1), 50 / 120 + 100 / 120, 'AbsTol', 1e-12);   % 1.25 s at 120 Hz
+            tc.verifyEqual(p.step_s(end), 0.4, 'AbsTol', 1e-12);
+            tc.verifyEqual(p.total_s, 1 + sum(p.step_s), 'AbsTol', 1e-12);
+            tc.verifyLessThan(p.total_s, 1 + 40 * 0.8, 'shorter than the former fixed 0.3 s + 0.5 s');
+            tc.verifyEqual(p.recordSamples, round(p.record_s * 16384));
+            tc.verifyGreaterThanOrEqual(min(p.record_s .* f) / st.nBlocks, 25 - 1e-9, 'at least 25 periods per block');
+            % a configuration without cycles (before 1.5.0, or set in code) keeps fixed times
+            old = rmfield(st, {'settleCycles', 'recordCycles'}); old.settleTime = 0.3; old.recordTime = 0.5;
+            q = tim.app.steppedPlan(old);
+            tc.verifyEqual([unique(q.settle_s) unique(q.record_s)], [0.3 0.5]);
+            b = c; b.excitation.stepped = old;
+            tc.verifyFalse(any(contains(tim.app.validateConfig(b), 'Stepped sine')), 'accepted without cycles');
+            % the lab file and the shipped files use the cycles
+            for n = {'user_config.json', 'example_config.json', 'sim_thin_screen.json'}
+                u = tim.app.loadConfig(fullfile(fileparts(fileparts(mfilename('fullpath'))), 'config', n{1}));
+                tc.verifyEqual([u.excitation.stepped.settleCycles u.excitation.stepped.recordCycles], [50 100], n{1});
+            end
+            % invalid values refused
+            for bad = {{'settleCycles', -1}, {'recordCycles', NaN}, {'settleTime', -0.1}, {'recordTime', [0.1 0.2]}}
+                b = c; b.excitation.stepped.(bad{1}{1}) = bad{1}{2};
+                tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:stepped', bad{1}{1});
+            end
+            b = c; b.excitation.stepped.recordTime = 0; b.excitation.stepped.recordCycles = 0;
+            tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:stepped', 'no recording');
+            % the analysed segment: one value per step, or one for all steps (saved before 1.5.0)
+            m = struct('records', {{zeros(20000, 4)}}, 'events', {{struct('stepStart', [100 5100])}});
+            m.settings = struct('settleSamples', [1000 500], 'recordSamples', [3000 2000]);
+            tc.verifyEqual(tim.app.steppedSegment(m, 1, 1), 1101:4100);
+            tc.verifyEqual(tim.app.steppedSegment(m, 1, 2), 5601:7600);
+            m.settings = struct('settleSamples', 1000, 'recordSamples', 3000);
+            tc.verifyEqual(tim.app.steppedSegment(m, 1, 2), 6101:9100);
+        end
+
         function sweepMarginCheckedAtTheLimitsOfTheAnalysis(tc)
             % review 2026-10-11: the configuration check used the line centres
             % fMin/1.3 and 1.1 fMax (92 / 4950 Hz for 120-4500 Hz), the analysis

@@ -1997,8 +1997,8 @@ classdef Tubebench < handle
             if strcmp(mode, 'stepped')
                 h.durLabel.Text = 'Number of steps';
                 h.dur.Limits = [1 400]; h.dur.RoundFractionalValues = 'on'; h.dur.Value = min(max(s.nPoints, 1), 400);
-                h.dur.Tooltip = sprintf(['number of frequency steps (%s spacing); each step: %g s settling + %g s ' ...
-                    'recording'], s.spacing, s.settleTime, s.recordTime);
+                h.dur.Tooltip = sprintf('number of frequency steps (%s spacing); each step: %s', s.spacing, ...
+                    stepTimingText(s));
             else
                 T = app.excitationLimits().sweepTime;     % sweep durations of the generator
                 h.durLabel.Text = 'Sweep duration [s]';
@@ -2295,8 +2295,10 @@ classdef Tubebench < handle
             % seconds of one measurement with the values in the fields (MeasurementSession timing)
             h = app.H; ex = app.Cfg.excitation; n = h.reps.Value;
             if strcmp(h.exMode.Value, 'stepped')
-                st = ex.stepped;
-                T = n * (0.5 + h.dur.Value * (st.settleTime + st.recordTime) + 0.5);
+                % the frequencies and steps in the fields, timed per step as the session does
+                st = ex.stepped; st.nPoints = h.dur.Value;
+                st.fStart = h.fStart.Value; st.fStop = h.fStop.Value;
+                T = n * tim.app.steppedPlan(st).total_s;
             else
                 sw = ex.sweep;
                 T = n * (sw.preRoll + h.dur.Value + sw.postRoll + 0.2);
@@ -4715,4 +4717,18 @@ function n = folderName(f)
 % the name of a data folder (the last part of its path)
 [~, n, e] = fileparts(char(f)); n = [n e];
 if isempty(n), [~, n] = fileparts(fileparts(char(f))); end
+end
+
+function t = stepTimingText(s)
+% settling and recording of one stepped-sine step, as tim.app.steppedPlan times them
+p = tim.app.steppedPlan(s);
+t = sprintf('%s settling + %s recording: %.2g s per step at %g Hz, %.2g s at %g Hz', ...
+    timeOrCycles(s, 'settleTime', 'settleCycles'), timeOrCycles(s, 'recordTime', 'recordCycles'), ...
+    p.step_s(1), p.freqs(1), p.step_s(end), p.freqs(end));
+end
+
+function t = timeOrCycles(s, time, cycles)
+% 'max(0.2 s, 100 periods)', or '0.5 s' without cycles
+t = sprintf('%g s', s.(time));
+if isfield(s, cycles) && s.(cycles) > 0, t = sprintf('max(%g s, %g periods)', s.(time), s.(cycles)); end
 end

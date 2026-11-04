@@ -349,33 +349,29 @@ classdef MeasurementSession < handle
             obj.checkConnection();
             st = obj.Cfg.excitation.stepped;
             fs = obj.Cfg.acquisition.sampleRate;
-            if strcmpi(st.spacing, 'log')
-                freqs = logspace(log10(st.fStart), log10(st.fStop), st.nPoints);
-            else
-                freqs = linspace(st.fStart, st.fStop, st.nPoints);
-            end
-            % exact end points: logspace(log10(120), ...) gives 119.99999999999997 Hz,
-            % which fell below the analysis band (120 Hz) and was never valid
-            freqs([1 end]) = [st.fStart st.fStop];
+            % frequencies and the settling / recording samples of every step
+            % (longer at low frequencies when cycles are set: tim.app.steppedPlan)
+            plan = tim.app.steppedPlan(st, fs);
+            freqs = plan.freqs;
             obj.Gen.configureSine(freqs(1), st.amplitudeVpp);
-            nSettle = round(st.settleTime * fs); nRec = round(st.recordTime * fs);
-            nPre = round(0.5 * fs);
-            nStep = nSettle + nRec;
-            % Steps are scheduled at FIXED targets onSample + (k-1)*nStep, so the
+            nSettle = plan.settleSamples; nRec = plan.recordSamples;
+            nPre = plan.preSamples;
+            stepEnd = cumsum(nSettle + nRec);       % end of step k after the output went on
+            % Steps are scheduled at FIXED targets onSample + stepEnd(k), so the
             % block granularity of the received data (overshoot <= 1 block) does
             % not accumulate over the steps (bug found on the bench test).
-            nTotal = nPre + numel(freqs) * nStep + round(0.5 * fs);
+            nTotal = nPre + stepEnd(end) + plan.postSamples;
             ev = struct('stepStart', nan(1, numel(freqs)), 'freqs', freqs, 'onSample', NaN);
             k = 0;
             function onBlock(n)
                 obj.checkStop();
                 if isnan(ev.onSample) && n >= nPre
                     obj.Gen.outputOn(); ev.onSample = n; k = 1; ev.stepStart(1) = n;
-                elseif k >= 1 && k < numel(freqs) && n >= ev.onSample + k * nStep
+                elseif k >= 1 && k < numel(freqs) && n >= ev.onSample + stepEnd(k)
                     k = k + 1;
                     obj.Gen.setFrequency(freqs(k));
                     ev.stepStart(k) = n;
-                elseif k == numel(freqs) && n >= ev.onSample + k * nStep
+                elseif k == numel(freqs) && n >= ev.onSample + stepEnd(k)
                     obj.Gen.outputOff(); k = k + 1;
                 end
             end
@@ -397,7 +393,7 @@ classdef MeasurementSession < handle
                 rethrow(err);
             end
             obj.Gen.armOutput(false);
-            st.frequencies = freqs; st.settleSamples = nSettle; st.recordSamples = nRec;
+            st.frequencies = freqs; st.settleSamples = nSettle; st.recordSamples = nRec;   % per step
             meas = obj.packMeasurement('stepped', records, infos, st, evs);
         end
 

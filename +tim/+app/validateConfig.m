@@ -254,6 +254,16 @@ assert(sw.repetitions >= 1 && sw.repetitions <= 100, 'tim:config:repetitions', .
 st = cfg.excitation.stepped;
 assert(st.nPoints >= 1 && st.nPoints <= 400 && st.repetitions >= 1 && st.repetitions <= 100, 'tim:config:stepped', ...
     'Stepped sine: number of steps must be between 1 and 400 and repetitions between 1 and 100.');
+% timing of a step: max(time, cycles / f) for settling and recording (tim.app.steppedPlan)
+nonneg = @(v) isnumeric(v) && isscalar(v) && isfinite(v) && v >= 0;
+cyc = {'settleCycles', 'recordCycles'};
+for i = 1:2
+    if ~isfield(st, cyc{i}), st.(cyc{i}) = 0; end
+end
+assert(nonneg(st.settleTime) && nonneg(st.settleCycles) && nonneg(st.recordCycles) && ...
+    nonneg(st.recordTime) && max(st.recordTime, st.recordCycles / st.fStop) > 0, 'tim:config:stepped', ...
+    ['Stepped sine: settleTime, settleCycles, recordTime and recordCycles must be numbers >= 0, and every step ' ...
+    'must record (recordTime or recordCycles > 0).']);
 if st.fStart < cfg.analysis.fMin || st.fStop > cfg.analysis.fMax
     report{end+1} = 'Stepped sine: frequencies outside the analysis band are always marked not valid.';
 end

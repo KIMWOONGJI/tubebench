@@ -827,6 +827,9 @@ classdef TestGui < matlab.unittest.TestCase
             h.exMode.Value = 'stepped'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'sweep'));
             tc.verifyEqual(h.durLabel.Text, 'Number of steps');
             tc.verifyEqual(h.dur.Value, c.excitation.stepped.nPoints);
+            % steps timed by the frequency (owner decision 2026-11-04): tooltip and Duration
+            tc.verifySubstring(h.dur.Tooltip, 'max(0.2 s, 50 periods) settling + max(0.2 s, 100 periods) recording');
+            tc.verifyEqual(h.durEst.Text, sprintf('about %.0f s', tim.app.steppedPlan(c.excitation.stepped).total_s));
             h.fStart.Value = 200; h.fStop.Value = 3000; h.dur.Value = 12; h.reps.Value = 2;
             h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
             tc.verifyEqual(h.dur.Value, c.excitation.sweep.duration);

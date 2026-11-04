@@ -6,6 +6,22 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## 1.5.0 - 2026-11-04
+
+### Changed
+- Stepped sine: every step settles max(`settleTime`, `settleCycles`/f) after its frequency change
+  and records max(`recordTime`, `recordCycles`/f) (`tim.app.steppedPlan`), so low frequencies get
+  more periods and high ones no more than the minimum time. Defaults and the shipped configuration
+  files: 0.2 s / 50 periods and 0.2 s / 100 periods (1.25 s at 120 Hz, 0.4 s from 500 Hz up; 40
+  steps take 22 s instead of 33 s). Configurations without the cycles keep fixed times; saved
+  stepped measurements reprocess as before. The constants are a starting point until the decay of
+  the tube is measured (docs/theory.md section 5).
+- The window's Duration estimate, the Number-of-steps tooltip and the Formula tab (1b) follow the
+  per-step timing.
+
+### Added
+- Work order WO-006 (proposal): a level equalizer for the stepped sine (docs/workorder_equalizer.md).
+
 ## 1.4.2 - 2026-11-03 (`7955545`)
 
 ### Changed
