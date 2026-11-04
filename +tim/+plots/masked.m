@@ -11,6 +11,9 @@ function [hValid, hAll] = masked(ax, f, y, ok, colour, opts)
 %   (a one-point segment of the coloured line, which MATLAB does not draw)
 %   gets a dot in the colour (Tag 'timIsolatedValid'), so that every line
 %   counted as valid by the octave-band tables is visible.
+%   opts.outside (stepped sine, 1.5.1): steps outside the frequency range of
+%   the calibration (corrected with the nearest calibrated line, never valid)
+%   get hollow diamonds instead of circles (Tag 'timOutsideCalibration').
 %   Returns the coloured line (use it for the legend) and the grey one.
 if nargin < 6, opts = struct(); end
 stepped = isfield(opts, 'stepped') && opts.stepped;
@@ -19,9 +22,16 @@ lw = 1.5; if isfield(opts, 'lineWidth'), lw = opts.lineWidth; end
 P = tim.gui.palette();
 held = ishold(ax); hold(ax, 'on');
 f = f(:); y = y(:); ok = logical(ok(:));
+out = false(size(f));
+if isfield(opts, 'outside') && numel(opts.outside) == numel(f), out = logical(opts.outside(:)) & ~ok; end
 if stepped
     hAll = plot(ax, f, y, ls, 'Color', P.invalid, 'LineWidth', 0.6, 'Marker', 'o', 'MarkerSize', 5, ...
-        'MarkerEdgeColor', P.invalidMarker, 'MarkerFaceColor', 'w');
+        'MarkerEdgeColor', P.invalidMarker, 'MarkerFaceColor', 'w', 'MarkerIndices', find(~out));
+    if any(out & isfinite(y))
+        plot(ax, f(out), y(out), 'LineStyle', 'none', 'Marker', 'd', 'MarkerSize', 6, 'LineWidth', 1, ...
+            'MarkerEdgeColor', P.outsideCal, 'MarkerFaceColor', 'w', 'Tag', 'timOutsideCalibration', ...
+            'DisplayName', 'outside the calibration range (indicative)');
+    end
 else
     hAll = plot(ax, f, y, '-', 'Color', P.invalid, 'LineWidth', 0.8);
 end

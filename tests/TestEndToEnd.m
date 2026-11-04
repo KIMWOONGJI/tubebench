@@ -213,7 +213,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
         function steppedScheduleDoesNotDrift(tc)
             % regression: step starts used to accumulate the block overshoot
             % and the last steps ran past the end of the record. The steps last
-            % max(time, periods / f) (owner decision 2026-11-04): longer at the
+            % max(time, cycles / f) (owner decision 2026-11-04): longer at the
             % low frequencies, every step at its own fixed target
             c = tc.cfg;
             c.excitation.stepped = struct('fStart', 200, 'fStop', 4000, 'nPoints', 15, 'spacing', 'log', ...
@@ -237,6 +237,44 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             r = tim.app.processMeasurement(m, c, []);
             tc.verifyTrue(all(isfinite(r.spectra.H(:))));
             clear cleanup
+        end
+
+        function steppedStepsOutsideTheCalibration(tc)
+            % owner decision 2026-11-04 (1.5.1): a step outside the frequency range of
+            % the calibration is corrected with the nearest calibrated line, flagged
+            % outsideCalibration, never valid, and drawn as a hollow diamond
+            c = tc.cfg; c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            [s, cal] = tc.calibratedSession(c);
+            cleanup = onCleanup(@() s.close());
+            ex = s.Cfg.excitation;
+            ex.stepped = struct('fStart', 80, 'fStop', 5500, 'nPoints', 10, 'spacing', 'log', 'amplitudeVpp', 0.2, ...
+                'settleTime', 0.1, 'settleCycles', 0, 'recordTime', 0.15, 'recordCycles', 0, 'nBlocks', 2, 'repetitions', 1);
+            s.setExcitation(ex);
+            m = s.measure('stepped');
+            r = tim.app.processMeasurement(m, s.Cfg, cal);
+            a = r.analysis; f = a.f; out = a.valid.flags.outsideCalibration;
+            tc.verifyEqual(out, f < cal.f(1) | f > cal.f(end));
+            tc.verifyGreaterThanOrEqual(nnz(out), 2, 'the first and the last step');
+            tc.verifyTrue(all(isfinite(a.power.TL_tau_dB)), 'every step has a value');
+            tc.verifyFalse(any(a.valid.valid(out)) || any(a.valid.validTau(out)) || any(a.valid.validR(out)), 'never valid');
+            tc.verifyTrue(all(a.valid.flags.calInvalid(out)));
+            tc.verifySubstring(r.calibration.info, 'outside its range');
+            % TL view: hollow diamonds at those steps, one legend entry
+            fig = figure('Visible', 'off'); closeFig = onCleanup(@() close(fig));
+            ax = axes(fig);
+            tim.plots.transmissionLoss(ax, r);
+            d = findobj(ax, 'Tag', 'timOutsideCalibration');
+            tc.verifyNotEmpty(d);
+            for i = 1:numel(d)
+                tc.verifyEqual(d(i).XData(:), f(out), 'AbsTol', 1e-9);
+                tc.verifyEqual(d(i).Marker, 'diamond');
+            end
+            tc.verifyTrue(any(contains(ax.Legend.String, 'outside the calibration range')));
+            % results.csv: the flag column
+            tim.app.exportCsv(r, tc.tmp);
+            T = readtable(fullfile(tc.tmp, 'results.csv'));
+            tc.verifyEqual(logical(T.flag_outsideCalibration), out);
+            clear closeFig cleanup
         end
 
         function steppedToneLevelsAndFigures(tc)

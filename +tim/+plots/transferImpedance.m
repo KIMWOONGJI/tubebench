@@ -83,7 +83,7 @@ end
 
 % ---- thin element
 f = a.f; ok = a.valid.validThinZt; z = a.thin.Zt_norm;
-mo = struct('stepped', o.stepped);
+mo = struct('stepped', o.stepped, 'outside', tim.plots.calOutside(a.valid));   % diamonds outside the calibration range
 xr = o.band;                                         % analysis band; stepped: every step stays visible
 if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
 [hRe, gRe] = tim.plots.masked(ax1, f, real(z), ok, P.q.first, mo);
@@ -118,6 +118,9 @@ end
 if any(miss)
     parts{end + 1} = sprintf('No value at %s Hz (see Validity)', strjoin(arrayfun(@(x) sprintf('%.0f', x), ...
         f(miss).', 'UniformOutput', false), ', '));
+end
+if ~isempty(findobj(ax1, 'Tag', 'timOutsideCalibration'))
+    parts{end + 1} = 'Diamonds: steps outside the calibration range (indicative, never valid)';
 end
 info.note = joinNotes(parts);
 end

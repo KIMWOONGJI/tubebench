@@ -428,7 +428,7 @@ classdef TestConfiguration < matlab.unittest.TestCase
             tc.verifyEqual(p.total_s, 1 + sum(p.step_s), 'AbsTol', 1e-12);
             tc.verifyLessThan(p.total_s, 1 + 40 * 0.8, 'shorter than the former fixed 0.3 s + 0.5 s');
             tc.verifyEqual(p.recordSamples, round(p.record_s * 16384));
-            tc.verifyGreaterThanOrEqual(min(p.record_s .* f) / st.nBlocks, 25 - 1e-9, 'at least 25 periods per block');
+            tc.verifyGreaterThanOrEqual(min(p.record_s .* f) / st.nBlocks, 25 - 1e-9, 'at least 25 cycles per block');
             % a configuration without cycles (before 1.5.0, or set in code) keeps fixed times
             old = rmfield(st, {'settleCycles', 'recordCycles'}); old.settleTime = 0.3; old.recordTime = 0.5;
             q = tim.app.steppedPlan(old);

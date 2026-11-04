@@ -828,13 +828,34 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(h.durLabel.Text, 'Number of steps');
             tc.verifyEqual(h.dur.Value, c.excitation.stepped.nPoints);
             % steps timed by the frequency (owner decision 2026-11-04): tooltip and Duration
-            tc.verifySubstring(h.dur.Tooltip, 'max(0.2 s, 50 periods) settling + max(0.2 s, 100 periods) recording');
+            tc.verifySubstring(h.dur.Tooltip, 'max(0.2 s, 50 cycles) settling + max(0.2 s, 100 cycles) measurement');
             tc.verifyEqual(h.durEst.Text, sprintf('about %.0f s', tim.app.steppedPlan(c.excitation.stepped).total_s));
+            % the cycles row (owner decision 2026-11-04, 1.5.1): the stepped sine's
+            % cycles, the duration and the tooltips follow; too few cycles per block marked
+            on = matlab.lang.OnOffSwitchState.on; off = matlab.lang.OnOffSwitchState.off;
+            tc.verifyEqual([h.settleCyc.Value h.recordCyc.Value], [50 100]);
+            tc.verifyEqual([h.settleCyc.Enable h.recordCyc.Enable], [on on]);
+            h.recordCyc.Value = 400; feval(h.recordCyc.ValueChangedFcn, h.recordCyc, []);
+            tc.verifyEqual(app.Cfg.excitation.stepped.recordCycles, 400);
+            st = c.excitation.stepped; st.recordCycles = 400;
+            tc.verifyEqual(h.durEst.Text, sprintf('about %.0f s', tim.app.steppedPlan(st).total_s));
+            tc.verifySubstring(h.recordCyc.Tooltip, 'at 120 Hz');
+            tc.verifySubstring(h.dur.Tooltip, 'max(0.2 s, 400 cycles) measurement');
+            tc.verifyEqual(h.recordCyc.BackgroundColor, [1 1 1]);
+            % a 10 Hz first step measured over 2 cycles (at least 0.2 s = 2 cycles): 0.5 per block
+            h.fStart.Value = 10; h.recordCyc.Value = 2; feval(h.recordCyc.ValueChangedFcn, h.recordCyc, []);
+            tc.verifyEqual(h.recordCyc.BackgroundColor, tim.gui.palette().ui.attention, 'fewer than 4 cycles per block');
+            tc.verifySubstring(h.recordCyc.Tooltip, 'cycles per block at 10 Hz');
+            h.fStart.Value = 120; h.recordCyc.Value = 100; feval(h.recordCyc.ValueChangedFcn, h.recordCyc, []);
+            tc.verifyEqual(h.recordCyc.BackgroundColor, [1 1 1]);
             h.fStart.Value = 200; h.fStop.Value = 3000; h.dur.Value = 12; h.reps.Value = 2;
             h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
             tc.verifyEqual(h.dur.Value, c.excitation.sweep.duration);
             s = app.Cfg.excitation.stepped;
             tc.verifyEqual([s.fStart s.fStop s.nPoints s.repetitions], [200 3000 12 2], 'typed stepped values kept');
+            tc.verifyEqual([h.settleCyc.Enable h.recordCyc.Enable], [off off], 'greyed for the swept sine');
+            tc.verifySubstring(h.settleCyc.Tooltip, 'Stepped sine only');
+            tc.verifyEqual([h.settleCyc.Value h.recordCyc.Value], [50 100], 'the stepped values stay shown');
         end
 
         function calibrationPromptBar(tc)

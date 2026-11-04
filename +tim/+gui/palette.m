@@ -25,6 +25,7 @@ p.c = p.q.third;
 p.d = [0.902 0.624 0.000];     % orange
 p.invalid = [0.72 0.72 0.72];  % outside the valid mask (visible on white)
 p.invalidMarker = [0.55 0.55 0.55];
+p.outsideCal = [0.38 0.38 0.38];   % stepped-sine steps outside the calibration range (hollow diamonds)
 % status colours (lamps, checklists): distinct from the channel colours
 p.ok = [0.18 0.60 0.24];
 p.warn = [0.93 0.58 0.00];

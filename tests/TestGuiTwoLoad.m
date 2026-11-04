@@ -41,8 +41,8 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             tc.addTeardown(@() delete(app));
             h = app.H;
             L = h.left; rh = L.RowHeight;
-            tc.verifyEqual(sum([rh{:}]) + (numel(rh) - 1) * L.RowSpacing + L.Padding(2) + L.Padding(4), 930, ...
-                'control panel height unchanged');
+            tc.verifyLessThanOrEqual(sum([rh{:}]) + (numel(rh) - 1) * L.RowSpacing + L.Padding(2) + L.Padding(4), 930, ...
+                'control panel within 930 px (1.5.1: a cycles row, thinner section bars)');
             tc.verifyEqual(h.method.Parent, h.background.Parent, 'Method and Background noise in one row');
             tc.verifyEqual(h.method.ItemsData, {'oneLoad', 'oneLoadSymmetric', 'twoLoad'});
             tc.verifyEqual(h.method.Value, 'oneLoad', 'the default method');

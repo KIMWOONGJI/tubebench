@@ -121,6 +121,10 @@ else
     fl.calInvalid = true(Nf, 1);     % no complex calibration -> never "valid"
     up.calInvalid = fl.calInvalid;
 end
+% lines outside the range of the calibration (corrected with the nearest calibrated
+% line, 1.5.1): already calInvalid, flagged for the reason and the stepped-sine markers
+fl.outsideCalibration = false(Nf, 1);
+if isfield(o, 'calOutside') && numel(o.calOutside) == Nf, fl.outsideCalibration = logical(o.calOutside(:)); end
 qualityOK = ~fl.lowCoherence & ~fl.lowSNR & ~fl.calInvalid;
 qualityOKup = ~up.lowCoherence & ~up.lowSNR & ~up.calInvalid;
 
@@ -185,6 +189,7 @@ switch name
     case 'lowCoherence', t = 'low coherence';
     case 'lowSNR', t = 'low SNR';
     case 'calInvalid', t = 'no valid calibration';
+    case 'outsideCalibration', t = 'outside the calibration range';
     case 'nonPassive', t = 'not passive';
     case 'terminationNotAnechoic', t = 'termination not anechoic (τ, TL)';
     case 'velocityMismatch', t = 'velocity mismatch (thin-element Zt)';

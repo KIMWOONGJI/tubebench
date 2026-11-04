@@ -87,4 +87,5 @@ T.reciprocityError = tl.reciprocityError; T.symmetryError = tl.symmetryError;
 T.repeatDiff = tl.repeat.diff;
 T.valid = tl.valid.valid; T.bothLoadsValid = tl.valid.base; T.loadsDiffer = tl.valid.loadsDiffer;
 T.notReciprocal = tl.valid.notReciprocal;
+if isfield(tl.valid, 'outsideCalibration'), T.outsideCalibration = tl.valid.outsideCalibration; end   % 1.5.1
 end

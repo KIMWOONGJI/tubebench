@@ -9,7 +9,7 @@ function p = steppedPlan(st, fs)
 %       settle(k) = max(settleTime, settleCycles / f_k)
 %       record(k) = max(recordTime, recordCycles / f_k)
 %   so a step lasts at least the given time and at least the given number of
-%   periods: low frequencies get more time, high frequencies no more than the
+%   cycles: low frequencies get more time, high frequencies no more than the
 %   minimum (owner decision 2026-11-04). A missing or zero settleCycles /
 %   recordCycles keeps the fixed time of earlier configurations.
 %

@@ -6,6 +6,20 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## 1.5.1 - 2026-11-04
+
+### Added
+- EXCITATION: a **Settle [cycles] / Measure [cycles]** row for the stepped sine (greyed for the
+  swept sine). The tooltips give the resulting times at the first and the last step, the Duration
+  estimate follows, and fewer than 4 measured cycles per block are marked. The section bars (22 px)
+  and the spacers (3 px) are thinner, so the control panel stays within 930 px.
+- Lines outside the frequency range of the calibration (a stepped-sine step outside the analysis
+  band) get a value: they are corrected with the factor of the nearest calibrated line, flagged
+  `outsideCalibration` and never valid. The stepped-sine views draw them as hollow diamonds with a
+  legend entry; Validity has the row and `results.csv` the column. Before, they had no value.
+
+### Changed
+- The stepped-sine timing is given in cycles everywhere (tooltips, Formula tab, documents).
 ## 1.5.0 - 2026-11-04 (`5744c89`)
 
 ### Changed

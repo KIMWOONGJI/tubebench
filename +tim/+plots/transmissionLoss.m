@@ -70,12 +70,14 @@ tl = o.tl; info.lines = gobjects(0); names = {}; grey = gobjects(0); okAll = fal
 if ~isempty(tl)
     % the transfer matrix first (independent of the termination): two loads,
     % or one load of a specimen assumed symmetric
-    [h0, g0] = tim.plots.masked(ax, tl.f, tl.anechoic.TL_dB, tl.valid.valid, P.q.first, mo);
+    mt = mo; mt.outside = tim.plots.calOutside(tl.valid);   % diamonds outside the calibration range
+    [h0, g0] = tim.plots.masked(ax, tl.f, tl.anechoic.TL_dB, tl.valid.valid, P.q.first, mt);
     info.lines = h0; names = {tmName(tl)}; grey = g0;
     okAll = tl.valid.valid & isfinite(tl.anechoic.TL_dB);
     mo.lineStyle = '--';
 end
 cTau = P.q.first; if ~isempty(tl), cTau = P.q.second; end
+mo.outside = tim.plots.calOutside(v);                  % diamonds outside the calibration range
 [h1, g1] = tim.plots.masked(ax, f, a.power.TL_tau_dB, v.validTau, cTau, mo);
 info.lines(end + 1) = h1; names{end + 1} = ['TL = ' mn '20 log_{10}|\tau|'];
 if ~isempty(tl), names{end} = [names{end} ' (this load)']; end
@@ -93,7 +95,8 @@ if any(okAll) && ~o.stepped
 end
 src = res; if ~isempty(tl), src = tl; end             % the transfer matrix names its loads
 title(ax, tim.plots.dataTitle(src, struct('simulation', o.simulation)), 'Interpreter', 'none');
-tim.plots.legend(ax, info.lines, names);
+[lh, ln] = tim.plots.withOutside(ax, info.lines, names);
+tim.plots.legend(ax, lh, ln);
 xr = o.band;                                         % analysis band; stepped: every step stays visible
 if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
 tim.plots.fitAxes(ax, 'XRange', xr, 'YInclude', 0, 'YSteps', [1 2 5]);

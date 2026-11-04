@@ -103,11 +103,12 @@ tl.symmetryError = abs(T.T11 - T.T22) ./ (abs(T.T11) + abs(T.T22));
 % ---- validity: every load used valid (both pairs, quality, calibration) and
 % loads that differ enough; reciprocity is reported, not a mask
 used = first; if ~oneLoad, used = [iA iB]; end
-base = true(Nf, 1); band = true(Nf, 1);
+base = true(Nf, 1); band = true(Nf, 1); outCal = false(Nf, 1);
 for i = used
     v = loads(i).res.analysis.valid;
     base = base & v.valid(:);
     band = band & ~v.flags.outsideBand(:);
+    if isfield(v.flags, 'outsideCalibration'), outCal = outCal | v.flags.outsideCalibration(:); end
 end
 base = base & isfinite(T.T11) & isfinite(T.T12) & isfinite(T.T21) & isfinite(T.T22);
 if oneLoad
@@ -119,7 +120,7 @@ valid = base & differ;
 notRecip = ~oneLoad & tl.reciprocityError > an.reciprocityTol;
 tl.valid = struct('valid', valid, 'base', base, 'loadsDiffer', differ, 'notReciprocal', notRecip, ...
     'nValid', nnz(valid), 'nBand', nnz(band), 'condQMax', an.condQMax, 'reciprocityTol', an.reciprocityTol, ...
-    'summary', '');
+    'summary', '', 'outsideCalibration', outCal);   % a load outside the calibration range (1.5.1)
 if oneLoad
     tl.valid.summary = sprintf('%d of %d lines valid (one load, symmetric specimen assumed)', nnz(valid), nnz(band));
 else

@@ -517,11 +517,11 @@ settling time, over its recording time (`N_rec` samples).
 
         T_settle(f) = max(settleTime, settleCycles / f),   T_rec(f) = max(recordTime, recordCycles / f)
 
-   Defaults 0.2 s / 50 periods and 0.2 s / 100 periods: below 250 Hz the settling, below 500 Hz the
-   recording holds the given number of periods (120 Hz: 0.42 s + 0.83 s), above that the minimum
+   Defaults 0.2 s / 50 cycles and 0.2 s / 100 cycles: below 250 Hz the settling, below 500 Hz the
+   recording holds the given number of cycles (120 Hz: 0.42 s + 0.83 s), above that the minimum
    time applies (40 log steps from 120 to 4500 Hz: 22 s per repetition instead of 33 s with the
    former fixed 0.3 s + 0.5 s). The recording is chosen so that every one of the 4 blocks holds at
-   least 25 periods and the noise bandwidth of the whole record stays at or below 5 Hz. The settling
+   least 25 cycles and the noise bandwidth of the whole record stays at or below 5 Hz. The settling
    has to cover the decay of the tube after a frequency change, which depends on the termination
    and the specimen more than on the frequency: about 0.15 s for 60 dB with the lab absorber at
    125 Hz (|R_term| 0.85, round trip about 3.5 ms), but longer with a rigid cap (|R_term| near 1)
@@ -621,7 +621,10 @@ The analysis band `analysis.fMin`–`fMax` is set in one of two ways (`analysis.
   (the speed of sound: 4695 Hz at 15 °C, 4779 Hz at 25 °C), at once in the window. A calibration
   covers the band it was made with and is not extended (`tim.cal.interpolateCalibration`): lines of
   a later, wider band (warmer air, another geometry - which needs a new calibration anyway) are not
-  valid there.
+  valid there. Since 1.5.1 such a line (or a stepped-sine step outside the band) is corrected with
+  the factor of the nearest calibrated line, held constant, so that it still shows a value; it is
+  flagged `outsideCalibration` and is never valid (owner decision 2026-11-04). Before 1.5.1 it had
+  no value.
 * `'fixed'` (the default, as before): the band is the configured one. Lines outside the limits are
   computed but rejected by the masks of section 8 (`belowSpacingLimit`, `aboveSpacingLimit`,
   `aboveModeCutOn`); `tim.app.validateConfig` reports a band that extends beyond the limits of the
@@ -671,6 +674,7 @@ standard, and the geometric limits are those of section 7):
 | `lowCoherence` | `γ_k² < coherenceMin` at any port | 0.98 |
 | `lowSNR` | `SNR_k < snrMin_dB` at any port (SNR of the estimator, sections 4–6) | 20 dB |
 | `calInvalid` | no valid calibration at this line for all four channels | – |
+| `outsideCalibration` | outside the frequency range of the calibration: corrected with the nearest calibrated line, a value for information only (also `calInvalid`; stepped sine: hollow diamonds) | – |
 | `nonPassive` | `\|R\| > 1 + passivityTol`, or `\|R\|² + \|τ\|² > 1 + passivityTol` with `\|R_term\| ≤ anechoicRmax` | 0.05 |
 | `terminationNotAnechoic` | `\|R_term\| > anechoicRmax` (τ, α_d, TL_τ only) | 0.1 |
 | `velocityMismatch` | `δ_u > velocityMismatchMax` (Z_t and TL from Z_t only) | 0.10 |

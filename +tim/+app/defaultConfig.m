@@ -128,7 +128,7 @@ cfg.excitation.sweep = struct('fStart', 80, 'fStop', 5500, 'duration', 5, 'spaci
     'amplitudeVpp', 0.2, 'repetitions', 4, 'preRoll', 1.0, 'postRoll', 1.0);
 % stepped: every step settles max(settleTime, settleCycles/f) after its
 % frequency command and records max(recordTime, recordCycles/f), so low
-% frequencies get more periods and high ones no more than the minimum time
+% frequencies get more cycles and high ones no more than the minimum time
 % (tim.app.steppedPlan; cycles 0 = the fixed times alone)
 cfg.excitation.stepped = struct('fStart', 120, 'fStop', 4500, 'nPoints', 40, 'spacing', 'log', ...
     'amplitudeVpp', 0.2, 'settleTime', 0.2, 'settleCycles', 50, 'recordTime', 0.2, 'recordCycles', 100, ...
