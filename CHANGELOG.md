@@ -6,7 +6,7 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
-## 1.5.0 - 2026-11-04
+## 1.5.0 - 2026-11-04 (`5744c89`)
 
 ### Changed
 - Stepped sine: every step settles max(`settleTime`, `settleCycles`/f) after its frequency change
