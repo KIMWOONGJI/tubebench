@@ -61,6 +61,7 @@ classdef Tubebench < handle
         Pages struct = struct() % tim.gui.ViewPage of every view
         WaveLines = gobjects(0) % lines of the time-signal view (live update)
         ProgressPrefix char = ''  % label prefix of the stepped-sine progress strip (two loads: 'Load A (1 of 3) · ')
+        LiveYLim = []             % y limits of the live time signals per channel (grow-only during an action, liveAxis)
         Saved logical = true   % the last measurement is saved (or there is nothing to save)
         SavedDir char = ''      % folder of the last save (or of the opened measurement)
         Opened logical = false  % the last measurement was opened from its folder (File > Open measurement…)
@@ -2953,8 +2954,7 @@ classdef Tubebench < handle
                     tim.plots.emptyState(ax, '');
                     set(app.WaveLines(c), 'XData', t, 'YData', y(:, c));
                     ylabel(ax, sprintf('ch%d (M%d) [%s]', c, app.portOf(c), unit));
-                    pk = max(abs(y(:, c))); if ~(pk > 0), pk = 1; end
-                    tim.plots.fitAxes(ax, 'XRange', [t(1) 0], 'YRange', [-pk pk]);
+                    app.liveAxis(ax, c, max(abs(y(:, c))));
                     lv{c} = sprintf('ch%d %.1f dB', c, 20 * log10(sqrt(mean(x(:, c).^2, 'omitnan')) / sens(c) / 2e-5));
                 end
                 if app.Pages.wave.StripShown
@@ -2984,7 +2984,24 @@ classdef Tubebench < handle
             o.emptyText = 'Waiting for data ...';
             info = tim.plots.timeSignals(app.H.axW, [], o);
             if isfield(info, 'lines'), app.WaveLines = info.lines; else, app.WaveLines = gobjects(0); end
-            app.Pages.wave.setNote('');
+            app.LiveYLim = [];
+            % the note line is there from the start: the header keeps its height
+            % when the live levels arrive (else the graphs moved down once, 1.6.2)
+            app.Pages.wave.setNote(sprintf('Live level (last 0.5 s, dB SPL): %s', ...
+                strjoin(arrayfun(@(c) sprintf('ch%d –', c), 1:4, 'UniformOutput', false), '   ')));
+        end
+
+        function liveAxis(app, ax, c, pk)
+            % fixed axes of the live time signals (1.6.2, owner report 2026-11-05:
+            % the graphs and the progress strip moved while the limits followed
+            % every update). The limit grows only, on a 1-2-5 grid, and is reset
+            % for every action (prepareLive); the ticks are -L, -L/2, 0, L/2, L with
+            % one number format and no exponent, so the tick labels - and with
+            % them the plot areas of the tiled layout - stay where they are
+            % (tim.gui.liveAxis).
+            Lprev = [];
+            if numel(app.LiveYLim) >= c && app.LiveYLim(c) > 0, Lprev = app.LiveYLim(c); end
+            app.LiveYLim(c) = tim.gui.liveAxis(ax, Lprev, pk);
         end
 
         function showProgress(app, tf)
@@ -3040,8 +3057,7 @@ classdef Tubebench < handle
             app.readCfgFromUi();
             start = fullfile(tim.app.projectRoot(), 'config', 'user_config.json');
             if isfield(app.Cfg, 'configFile') && ~isempty(app.Cfg.configFile), start = app.Cfg.configFile; end
-            [f, p] = uiputfile('*.json', 'Save configuration', start);
-            figure(app.Fig);
+            [f, p] = tim.gui.fileDialog('save', app.Fig, '*.json', 'Save configuration', start);
             if isequal(f, 0), return; end
             c = app.Cfg; c = rmfield(c, intersect(fieldnames(c), {'configFile'}));
             tim.app.saveConfig(c, fullfile(p, f));
@@ -3057,8 +3073,7 @@ classdef Tubebench < handle
                     {'Disconnect and load', 'Cancel'}, 2, 2, 'question');
                 if ~strcmp(sel, 'Disconnect and load'), return; end
             end
-            [f, p] = uigetfile('*.json', 'Configuration', fullfile(tim.app.projectRoot(), 'config'));
-            figure(app.Fig);
+            [f, p] = tim.gui.fileDialog('open', app.Fig, '*.json', 'Configuration', fullfile(tim.app.projectRoot(), 'config'));
             if isequal(f, 0), return; end
             app.run(@() app.doLoadConfig(fullfile(p, f)), 'loading the configuration');
         end
@@ -3087,10 +3102,9 @@ classdef Tubebench < handle
             start = tim.app.outputDir(c, 'data');
             if ~isempty(app.SavedDir) && isfolder(fileparts(app.SavedDir)), start = fileparts(app.SavedDir); end
             if ~isfolder(start), start = tim.app.projectRoot(); end
-            [f, p] = uigetfile({'raw.mat;result.mat;twoload.json', ...
+            [f, p] = tim.gui.fileDialog('open', app.Fig, {'raw.mat;result.mat;twoload.json', ...
                 'Saved measurement or two-load result (raw.mat, result.mat, twoload.json)'}, ...
                 'Open measurement – select raw.mat in a measurement folder (or a file of a two-load folder)', [start filesep]);
-            figure(app.Fig);
             if isequal(f, 0), return; end
             app.openMeasurement(p);
         end
@@ -3504,8 +3518,10 @@ classdef Tubebench < handle
         end
 
         function onLoadCal(app)
-            [f, p] = uigetfile('*.mat', 'Calibration', tim.app.resolvePath(app.Cfg.output.calibrationDir));
-            figure(app.Fig);
+            % the standard file dialog owned by this window (tim.gui.fileDialog,
+            % 1.6.2): the window no longer disappears for a moment when it closes
+            [f, p] = tim.gui.fileDialog('open', app.Fig, '*.mat', 'Calibration', ...
+                tim.app.resolvePath(app.Cfg.output.calibrationDir));
             if isequal(f, 0), return; end
             app.run(@() app.doLoadCal(fullfile(p, f)), 'loading the calibration');
         end
@@ -4329,9 +4345,8 @@ classdef Tubebench < handle
             start = tim.app.outputDir(c, 'data'); if ~isfolder(start), start = tim.app.projectRoot(); end
             f = cell(1, 2);
             for i = 1:2
-                [fn, p] = uigetfile({'raw.mat', 'Saved measurement (raw.mat)'}, ...
+                [fn, p] = tim.gui.fileDialog('open', app.Fig, {'raw.mat', 'Saved measurement (raw.mat)'}, ...
                     sprintf('Combine two measurements – select raw.mat of load %c', 'A' + i - 1), [start filesep]);
-                figure(app.Fig);
                 if isequal(fn, 0), return; end
                 f{i} = p; start = fileparts(fileparts(p));
             end

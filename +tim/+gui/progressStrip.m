@@ -1,23 +1,33 @@
-function progressStrip(ax, prog, prefix)
+function varargout = progressStrip(ax, prog, prefix)
 %PROGRESSSTRIP Draw the stepped-sine progress strip above the time signals.
 %
 %   tim.gui.progressStrip(ax, prog)          prog: MeasurementSession.Progress
 %   tim.gui.progressStrip(ax, prog, prefix)  label prefix (two loads)
 %   tim.gui.progressStrip(ax, [])            clears the strip
+%   C = tim.gui.progressStrip('colours')     its colours (struct; C.tint(c) lightens c)
 %
 %   One rectangle per step and part (settling, measuring), its width the
-%   planned time (tim.gui.stepProgress). Colours (tim.gui.palette): steps done
-%   in the accent blue (settling lighter), the running step amber while it
-%   settles and blue while it is measured, the steps to come light grey; the
-%   pre-measurement of the equalizer in slate; green when the action is done,
-%   the rest light red when it was stopped. A dark line marks "now". Under the
-%   steps: the octave frequencies (or, where a group is too narrow, the name of
-%   the group). Left label (title): pass, step, frequency, phase; right: time.
-%   Drawn objects are reused (Tag timProgress*), so a live update only sets
-%   their data.
+%   planned time (tim.gui.stepProgress). Colours of the window (tim.gui.palette,
+%   1.6.2: in harmony with the control panel): steps done in the slate of the
+%   section bars (settling lighter), the equalizer's pre-measurement in a light
+%   slate, the running step filled in the accent blue (lighter while it
+%   settles), the steps to come light grey, the steps not played light red
+%   after a Stop. A dark line marks "now". Under the steps: the octave
+%   frequencies (or, where a group is too narrow, the name of the group).
+%   Label on the left (as the titles of the graphs): pass, step, frequency,
+%   phase - dark, green when done, red when stopped; on the right the time in
+%   grey. Drawn objects are reused (Tag timProgress*), so a live update only
+%   sets their data.
 
-if nargin < 3, prefix = ''; end
 P = tim.gui.palette();
+if ischar(ax) && strcmp(ax, 'colours')
+    tint = @(c) 1 - 0.45 * (1 - c);          % the lighter shade of the settling part
+    varargout{1} = struct('done', P.ui.bar, 'pre', 1 - 0.55 * (1 - P.ui.bar), 'running', P.ui.accent, ...
+        'track', [0.91 0.92 0.94], 'notPlayed', 1 - 0.25 * (1 - P.fail), 'now', P.ui.text, ...
+        'text', [0.20 0.20 0.22], 'muted', P.ui.muted, 'ok', 0.85 * P.ok, 'fail', P.fail, 'tint', tint);
+    return
+end
+if nargin < 3, prefix = ''; end
 if isempty(prog)
     delete(findobj(ax, '-regexp', 'Tag', '^timProgress'));
     title(ax, ''); ax.XTick = []; ax.Visible = 'off';
@@ -26,31 +36,27 @@ end
 g = tim.gui.stepProgress(prog, prefix);
 ax.Visible = 'on';
 % ---- colours of the rectangles
-accent = P.ui.accent; slate = [0.36 0.45 0.56]; track = [0.89 0.90 0.92];
-tint = @(c, a) 1 - a * (1 - c);            % a < 1: lighter
+C = tim.gui.progressStrip('colours');
 m = size(g.rect, 1);
-col = repmat(track, m, 1);
+col = repmat(C.track, m, 1);
 isPre = numel(prog.passes) > 1 & g.pass < numel(prog.passes);   % passes before the last: pre-measurement
-base = repmat(accent, m, 1); base(isPre, :) = repmat(slate, nnz(isPre), 1);
+base = repmat(C.done, m, 1); base(isPre, :) = repmat(C.pre, nnz(isPre), 1);
 done = g.rect(:, 2) <= g.x + 1e-9;
-switch g.phase
-    case 'done'
-        done(:) = true;
-        base = repmat(P.ok, m, 1);
-end
+if strcmp(g.phase, 'done'), done(:) = true; end
 col(done & g.part == 2, :) = base(done & g.part == 2, :);
-col(done & g.part == 1, :) = tint(base(done & g.part == 1, :), 0.45);
+col(done & g.part == 1, :) = C.tint(base(done & g.part == 1, :));
 if strcmp(g.phase, 'stopped')
     rest = g.rect(:, 1) >= g.x - 1e-9;
-    col(rest, :) = repmat(tint(P.fail, 0.28), nnz(rest), 1);
+    col(rest, :) = repmat(C.notPlayed, nnz(rest), 1);
 end
-% the running rectangle: filled up to "now" (amber while settling)
+% the running rectangle: filled up to "now" (lighter while it settles)
 cur = find(~done & g.rect(:, 1) < g.x, 1);
 xf = zeros(0, 2); cf = zeros(0, 3);
 if ~isempty(cur) && ~any(strcmp(g.phase, {'done', 'stopped'}))
     xf = [g.rect(cur, 1), g.x];
-    if g.part(cur) == 1, cf = P.warn; else, cf = base(cur, :); end
+    if g.part(cur) == 1, cf = C.tint(C.running); else, cf = C.running; end
 end
+track = C.track;
 % ---- geometry
 [V, F] = rects(g.rect, 0, 1);
 [Vf, Ff] = rects(xf, 0, 1);
@@ -90,36 +96,43 @@ end
 % "now"
 hn = findobj(ax, 'Tag', 'timProgressNow');
 nowOn = ~any(strcmp(g.phase, {'done'}));
-[nx, ny] = vlines(g.x(nowOn), -0.18, 1.18);
+[nx, ny] = vlines(g.x(nowOn), -0.15, 1.15);
 if isempty(hn)
-    hn = line(ax, nx, ny, 'Color', [0.16 0.18 0.22], 'LineWidth', 1.5, 'Tag', 'timProgressNow', 'HitTest', 'off', ...
+    hn = line(ax, nx, ny, 'Color', C.now, 'LineWidth', 1.5, 'Tag', 'timProgressNow', 'HitTest', 'off', ...
         'Clipping', 'off');
 else
     set(hn, 'XData', nx, 'YData', ny);
 end
 uistack([hs hg hn], 'top');
 hold(ax, 'off');
-% ---- axes, ticks, labels
+% ---- axes, ticks, labels: the font and the text colour of the graphs below
+% (tim.plots.style, 11 pt), no axis line, no tick marks
 ax.XLim = [0 max(g.T, eps)]; ax.YLim = [0 1];
 [tx, tl] = ticks(g, prog, ax);
 ax.XTick = tx; ax.XTickLabel = tl;
 ax.YTick = []; ax.TickLength = [0 0]; ax.Box = 'off'; ax.YColor = 'none';
-ax.XColor = P.ui.muted; ax.XGrid = 'off'; ax.YGrid = 'off'; ax.LineWidth = 0.5;
-ax.XMinorTick = 'off'; ax.XScale = 'linear'; ax.Color = 'none'; ax.FontSize = 10;
-switch g.status
-    case 'ok', tc = 0.85 * P.ok;
-    case 'fail', tc = P.fail;
-    otherwise, tc = P.ui.text;
+ax.XColor = C.text; ax.XGrid = 'off'; ax.YGrid = 'off'; ax.LineWidth = 0.5;
+ax.XMinorTick = 'off'; ax.XScale = 'linear'; ax.Color = 'none'; ax.FontSize = 11;
+try                                 % (exists once the axes was drawn)
+    ax.XAxis.Axle.Visible = 'off';
+catch
 end
-title(ax, g.label, 'FontWeight', 'bold', 'Color', tc, 'FontSize', 11, 'Interpreter', 'none');
+switch g.status
+    case 'ok', tc = C.ok;
+    case 'fail', tc = C.fail;
+    otherwise, tc = C.text;
+end
+title(ax, g.label, 'FontWeight', 'normal', 'Color', tc, 'FontSize', 11, 'Interpreter', 'none');
 ax.TitleHorizontalAlignment = 'left';
 ht = findobj(ax, 'Tag', 'timProgressTime');
 if isempty(ht)
-    ht = text(ax, 1, 1, '', 'Units', 'normalized', 'HorizontalAlignment', 'right', 'VerticalAlignment', 'bottom', ...
-        'Color', P.ui.muted, 'FontSize', 11, 'Tag', 'timProgressTime', 'Interpreter', 'none', ...
+    ht = text(ax, 0, 0, '', 'HorizontalAlignment', 'right', 'VerticalAlignment', 'bottom', ...
+        'Color', C.muted, 'FontSize', 11, 'Tag', 'timProgressTime', 'Interpreter', 'none', ...
         'Clipping', 'off', 'HitTest', 'off');
 end
-ht.Position = [1 1.32 0];               % on the line of the title (above the 1.18 "now" marker)
+% on the line of the title, right-aligned with the strip's end
+yt = ax.Title.Position(2); if ~(isfinite(yt) && yt > 1), yt = 1.3; end
+ht.Position = [ax.XLim(2), yt, 0];
 ht.String = g.right;
 end
 
