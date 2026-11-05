@@ -27,6 +27,15 @@ classdef ViewPage < handle
         SummaryTitle = []
         SummaryTable = []
         SummaryNote = []
+        Strip = gobjects(0)          % axes of a strip above the stacked axes ('Strip' > 0)
+        StripShown = false
+    end
+    properties (Access = private)
+        StripPx = 0                  % height of the strip's tile when shown [px]
+        Weights = []                 % relative heights of the stacked axes
+    end
+    properties (Constant, Access = private)
+        StripRows = 400              % rows of the tiled layout of a page with a strip
     end
 
     methods
@@ -41,6 +50,7 @@ classdef ViewPage < handle
                 opts.SummaryWidth double = 320
                 opts.SummaryTitle (1,:) char = 'Summary'
                 opts.ToolWidths cell = {}
+                opts.Strip double = 0        % [px] a strip axes above the stacked axes (hidden until showStrip)
             end
             P = tim.gui.palette();
             p.Grid = uigridlayout(parent, [2 1], 'RowHeight', {72, '1x'}, 'Padding', [0 0 0 0], ...
@@ -80,12 +90,32 @@ classdef ViewPage < handle
                     v = sscanf(char(opts.AxesHeights{i}), '%fx');
                     if ~isempty(v) && v > 0, w(i) = round(v); end
                 end
-                tl = tiledlayout(pnl, sum(w), 1, 'TileSpacing', 'compact', 'Padding', 'compact');
-                for i = 1:n
-                    ax = nexttile(tl, [w(i) 1]);
-                    tim.plots.style(ax);
-                    axtoolbar(ax, {'export', 'zoomin', 'zoomout', 'pan', 'restoreview'});
-                    p.Axes(i) = ax;
+                if opts.Strip > 0
+                    % a strip in the same tiled layout (the progress of a stepped
+                    % sine above the time signals, 1.6.1): its plot area lines up
+                    % with the axes below; its height in pixels is kept by the
+                    % row spans of a fine grid (layoutTiles, on every resize)
+                    p.StripPx = opts.Strip; p.Weights = w;
+                    tl = tiledlayout(pnl, p.StripRows, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
+                    p.Strip = nexttile(tl, 1, [1 1]);
+                    p.Strip.Visible = 'off'; p.Strip.Toolbar = []; disableDefaultInteractivity(p.Strip);
+                    for i = 1:n
+                        ax = nexttile(tl, 1 + i, [1 1]);
+                        tim.plots.style(ax);
+                        axtoolbar(ax, {'export', 'zoomin', 'zoomout', 'pan', 'restoreview'});
+                        p.Axes(i) = ax;
+                    end
+                    pnl.AutoResizeChildren = 'off';    % (else SizeChangedFcn is not called)
+                    pnl.SizeChangedFcn = @(~, ~) p.layoutTiles();
+                    p.layoutTiles();
+                else
+                    tl = tiledlayout(pnl, sum(w), 1, 'TileSpacing', 'compact', 'Padding', 'compact');
+                    for i = 1:n
+                        ax = nexttile(tl, [w(i) 1]);
+                        tim.plots.style(ax);
+                        axtoolbar(ax, {'export', 'zoomin', 'zoomout', 'pan', 'restoreview'});
+                        p.Axes(i) = ax;
+                    end
                 end
             end
             if opts.Summary
@@ -117,6 +147,35 @@ classdef ViewPage < handle
                 p.Note.Text = ''; p.Header.RowHeight{3} = 0; p.Grid.RowHeight{1} = 72;
             else
                 p.Note.Text = txt; p.Note.FontColor = col; p.Header.RowHeight{3} = 18; p.Grid.RowHeight{1} = 92;
+            end
+        end
+
+        function showStrip(p, tf)
+            % show (true) or hide the strip; hidden, the stacked axes take its place
+            if isempty(p.Strip) || ~isgraphics(p.Strip) || p.StripShown == logical(tf), return; end
+            p.StripShown = logical(tf);
+            p.layoutTiles();
+        end
+
+        function layoutTiles(p)
+            % row spans of the strip (its height in pixels, shown) and of the
+            % stacked axes (the rest, by their relative heights)
+            if isempty(p.Strip) || ~isgraphics(p.Strip), return; end
+            R = p.StripRows;
+            pnl = p.Strip.Parent.Parent;               % axes -> tiled layout -> panel
+            H = 0;
+            try, pos = getpixelposition(pnl); H = pos(4); catch, end
+            if ~(H > 50), H = 600; end                  % not laid out yet (hidden window)
+            s = 1;
+            if p.StripShown, s = min(round(R / 3), max(1, round(R * p.StripPx / H))); end
+            w = p.Weights; n = numel(p.Axes);
+            span = floor((R - s) * w / sum(w));
+            span(end) = R - s - sum(span(1:end - 1));   % the last takes the rounding rest
+            p.Strip.Layout.Tile = 1; p.Strip.Layout.TileSpan = [s 1];
+            t = s + 1;
+            for i = 1:n
+                p.Axes(i).Layout.Tile = t; p.Axes(i).Layout.TileSpan = [span(i) 1];
+                t = t + span(i);
             end
         end
 

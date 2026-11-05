@@ -125,7 +125,7 @@ else
     % level at the specimen (swept sine): right axis, after the left one is fitted
     hi = gobjects(0); iname = {};
     if hasRes && pa, [hi, iname, itxt] = specimenCurves(ax, res, P, false); end
-    tim.plots.legend(ax, [h hi hb], [names, iname, {bandName(o.band)}]);
+    tim.plots.legend(ax, [h hi hb], [names, iname, {bandName(o.band)}], 'northoutside');   % never over the data (1.6.1)
     if pa
         info.note = 'One-sided Welch PSD of the sound pressure (repetition 1, whole record); dashed: analysis band.';
         if ~isempty(hi)
@@ -235,7 +235,7 @@ if pa, ylabel(ax, 'Tone level [dB SPL]'); else, ylabel(ax, sprintf('Tone level [
 names = arrayfun(@(c) channelName(ch(c), port(c)), 1:C, 'UniformOutput', false);
 tim.plots.fitAxes(ax, 'XRange', o.band, 'XInclude', [min(fk) max(fk)]);
 tim.plots.fitAxes(ax, 'Axis', 'y', 'YSteps', [1 2 5]);
-tim.plots.legend(ax, [h hi he hn], [names, iname, ename, {'Noise in fit bandwidth'}]);
+tim.plots.legend(ax, [h hi he hn], [names, iname, ename, {'Noise in fit bandwidth'}], 'northoutside');   % never over the data (1.6.1)
 info.lines = h;
 info.levels = struct('shown', ~isempty(hi), 'axis', 'left', 'lines', hi);
 info.note = sprintf(['Stepped sine, %d steps: tone level of every step from the sine fit of the settled part ' ...

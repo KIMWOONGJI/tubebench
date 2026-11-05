@@ -61,6 +61,8 @@ classdef MeasurementSession < handle
                                  % (measureEqualizerPlan / setEqualizerPlan; 1.6.0, WO-006); consumed by it,
                                  % discarded when the termination, the stepped sine, the amplifier, the
                                  % geometry or the virtual specimen changes
+        Progress = []            % progress of the running / last stepped sine (1.6.1; newProgress):
+                                 % read by the window's progress strip, no instrument I/O
     end
     properties
         Calibration = []
@@ -374,18 +376,32 @@ classdef MeasurementSession < handle
             % start never leaves it armed for a later one (review 2026-11-05)
             plan = obj.EqualizerPlan;
             obj.EqualizerPlan = [];
+            obj.Progress = [];
             obj.requirePrepared();
             obj.checkConnection();
-            eq = tim.app.equalizerSettings(obj.Cfg.excitation.stepped);
+            st = obj.Cfg.excitation.stepped;
+            eq = tim.app.equalizerSettings(st);
             if strcmp(eq.mode, 'off')
-                meas = obj.runStepped([], 'stepped sine');
+                obj.Progress = tim.app.MeasurementSession.newProgress(st, {'Measurement'});
+                meas = obj.trackProgress(@() obj.runStepped([], 'stepped sine'));
                 return
             end
             % refused before anything is configured or armed (owner decision
             % 2026-11-04): a source that cannot change its level while the
             % output is on, no calibration, no geometry
             obj.checkEqualizerReady(eq);
-            st = obj.Cfg.excitation.stepped;
+            if isempty(plan)
+                obj.Progress = tim.app.MeasurementSession.newProgress(st, ...
+                    {tim.app.MeasurementSession.preName(eq), 'Measurement'});
+            else
+                obj.Progress = tim.app.MeasurementSession.newProgress(st, {'Measurement'});
+            end
+            meas = obj.trackProgress(@() obj.equalizedRun(st, eq, plan));
+        end
+
+        function meas = equalizedRun(obj, st, eq, plan)
+            % measureStepped with the equalizer on: the pre-measurement (unless a
+            % plan is armed), then the steps at their voltages
             if isempty(plan)
                 plan = obj.premeasure(st, eq);      % (a Stop while it was processed: premeasure)
                 obj.checkConnection();
@@ -397,6 +413,18 @@ classdef MeasurementSession < handle
             meas = obj.runStepped(plan.vpp, 'stepped sine (equalized)');
             meas.equalizer = plan;
             meas.metadata.equalizer = tim.app.MeasurementSession.equalizerSummary(plan);
+        end
+
+        function out = trackProgress(obj, fn)
+            % runs fn (a stepped sine) and records how it ended in Progress:
+            % 'done', or 'stopped' on any error (rethrown)
+            try
+                out = fn();
+            catch err
+                if ~isempty(obj.Progress), obj.Progress.state = 'stopped'; end
+                rethrow(err);
+            end
+            if ~isempty(obj.Progress), obj.Progress.state = 'done'; end
         end
 
         function plan = measureEqualizerPlan(obj)
@@ -414,6 +442,7 @@ classdef MeasurementSession < handle
             %   first, and a refusal, an error or a Stop (also while the
             %   pre-measurement is processed) arms none.
             obj.EqualizerPlan = [];
+            obj.Progress = [];
             obj.requirePrepared();
             obj.checkConnection();
             st = obj.Cfg.excitation.stepped;
@@ -423,7 +452,8 @@ classdef MeasurementSession < handle
                     '(excitation.stepped.equalizer.mode): no pre-measurement.']);
             end
             obj.checkEqualizerReady(eq);
-            plan = obj.premeasure(st, eq);
+            obj.Progress = tim.app.MeasurementSession.newProgress(st, {tim.app.MeasurementSession.preName(eq)});
+            plan = obj.trackProgress(@() obj.premeasure(st, eq));
             obj.EqualizerPlan = plan;
         end
 
@@ -903,10 +933,19 @@ classdef MeasurementSession < handle
             nTotal = nPre + stepEnd(end) + plan.postSamples;
             ev = struct('stepStart', nan(1, numel(freqs)), 'freqs', freqs, 'onSample', NaN);
             k = 0;
+            % the progress of this pass for the window (Progress, 1.6.1): the
+            % samples received and the output-on sample; no instrument I/O
+            trackP = ~isempty(obj.Progress);
+            if trackP
+                obj.Progress.pass = obj.Progress.pass + 1;
+                obj.Progress.state = 'running'; obj.Progress.fs = fs;
+            end
             function onBlock(n)
                 obj.checkStop();
+                if trackP, obj.Progress.n = n; end
                 if isnan(ev.onSample) && n >= nPre
                     obj.Gen.outputOn(); ev.onSample = n; k = 1; ev.stepStart(1) = n;
+                    if trackP, obj.Progress.onSample = n; end
                 elseif k >= 1 && k < numel(freqs) && n >= ev.onSample + stepEnd(k)
                     k = k + 1;
                     if perStep && vpp(k) < vpp(k - 1), obj.Gen.setAmplitude(vpp(k)); end
@@ -924,6 +963,7 @@ classdef MeasurementSession < handle
             try
                 for r = 1:st.repetitions
                     ev.stepStart(:) = NaN; ev.onSample = NaN; k = 0;
+                    if trackP, obj.Progress.rep = r; obj.Progress.n = 0; obj.Progress.onSample = NaN; end
                     if r > 1
                         if perStep && vpp(1) < vpp(end), obj.Gen.setAmplitude(vpp(1)); end
                         obj.Gen.setFrequency(freqs(1));
@@ -939,6 +979,9 @@ classdef MeasurementSession < handle
                 rethrow(err);
             end
             obj.Gen.armOutput(false);
+            if trackP && obj.Progress.pass < numel(obj.Progress.passes)
+                obj.Progress.state = 'processing';     % the next pass follows (the equalizer's measurement)
+            end
             st.frequencies = freqs; st.settleSamples = nSettle; st.recordSamples = nRec;   % per step
             if perStep, st.stepAmplitudeVpp = vpp; end    % the level of every step (res.levels.generatorVpp)
             meas = obj.packMeasurement('stepped', records, infos, st, evs);
@@ -1247,6 +1290,21 @@ classdef MeasurementSession < handle
     methods (Static)
         function v = ternary(c, a, b)
             if c, v = a; else, v = b; end
+        end
+
+        function p = newProgress(st, passes)
+            %NEWPROGRESS Progress of a stepped sine before its first pass (1.6.1):
+            %   passes (names, e.g. {'Pre-measurement (−20 dB)', 'Measurement'})
+            %   x st.repetitions, the timing of tim.app.steppedPlan; the window
+            %   draws it with tim.gui.progressStrip (tim.gui.stepProgress).
+            p = struct('kind', 'stepped', 'passes', {cellstr(passes)}, 'pass', 0, 'rep', 0, ...
+                'nReps', max(1, st.repetitions), 'plan', tim.app.steppedPlan(st), 'fs', 1, 'n', 0, ...
+                'onSample', NaN, 'state', 'running');
+        end
+
+        function s = preName(eq)
+            % name of the equalizer's pre-measurement pass, with its level
+            s = sprintf('Pre-measurement (%s dB)', strrep(sprintf('%+g', eq.preLevel_dB), '-', char(8722)));
         end
         function m = micsByChannel(m)
             %MICSBYCHANNEL Microphone list sorted by DAQ channel (element c =

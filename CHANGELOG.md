@@ -6,6 +6,22 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## 1.6.1 - 2026-11-05
+
+### Added
+- **Progress strip of the stepped sine** in Measurement > Time signals: one time line above the
+  graphs, exactly as wide as their plot area, with one block per step (width = planned time,
+  settling and measured parts), steps done in blue, the running step amber while it settles, the
+  octave frequencies under their steps, the pass / step / frequency / phase on the left and the
+  time left on the right. The equalizer's pre-measurement comes first on the same line;
+  repetitions and two-load runs are labelled. Green when done, the rest light red after Stop. The
+  session records the progress (`MeasurementSession.Progress`; no instrument I/O, bus traffic
+  unchanged); `tim.gui.stepProgress` / `tim.gui.progressStrip`; `TestProgressStrip`.
+
+### Changed
+- Measurement > Spectrum (window and saved figure): the legend stands above the plot area in up to
+  four columns instead of inside it, so it no longer covers the curves.
+
 ## 1.6.0 - 2026-11-05
 
 ### Added

@@ -518,7 +518,8 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
    enter its name in **Specimen** (before Start measurement: the name at Start counts).
 9. Press **Start measurement**. In hardware mode confirm the excitation dialog (**Start
    excitation**). The Time signals view shows the last 0.5 s of every channel live ("LIVE · 3.2 s
-   recorded …") with the level of every channel in the header. Stop ends the measurement at once;
+   recorded …"; a stepped sine shows its progress strip instead) with the level of every channel in
+   the header. Stop ends the measurement at once;
    the views then show the last measurement again.
 10. Check the result: Measurement > Transfer functions (coherence and SNR against their limits),
     the Results views and Results > Validity (why frequency lines are not valid). The message pane
@@ -728,7 +729,24 @@ switching calibration…".
 
 Sound pressure (voltage / sensitivity) of the four channels, one graph per channel on a common time
 axis, labelled "ch1 (M1) [Pa]" etc. During an acquisition: the last 0.5 s, about five updates per
-second, the header note gives the live level of every channel. After the measurement: the whole
+second, the header note gives the live level of every channel.
+
+**Progress of a stepped sine** (1.6.1): a strip above the graphs, exactly as wide as their plot
+area, shows the whole action as one time line: one block per step, its width the planned time of
+the step (the low frequencies take longest), each block split into its settling part (lighter)
+and its measured part. Steps done are blue, the running step fills amber while it settles and
+blue while it is measured, the steps to come are light grey, and a dark line marks "now". The
+octave frequencies (125 Hz … 4 kHz) are written under their steps. With the level equalizer the
+pre-measurement comes first on the same line, in slate; with repetitions every repetition is a
+group of its own (white gaps). The label on the left gives the pass, the step, its frequency and
+whether it settles or is measured (with two loads first the load, e.g. "Load A (1 of 3)"); on the
+right the time so far, the planned total and the time left. When the action ends the strip turns
+green ("Done · 40 steps · 25.3 s"); after Stop or an error the steps not played turn light red
+("Stopped at step 17 of 40"). It stays until the next measurement; a swept sine, noise, the
+background noise, the calibration and an opened measurement show no strip. The time line is the
+plan; the time of processing between the pre-measurement and the measurement is not part of it.
+
+After the measurement: the whole
 record of repetition 1, long records as a min / max envelope so that every peak stays visible. A
 display high-pass at 20 Hz removes the slow CCLD settling drift; the raw data are not changed and
 are stored in volts. Without a valid sensitivity for every channel the graphs show mV.
@@ -754,6 +772,9 @@ sensitivity (certificate > TEDS > nominal) is applied once, in software, so it c
 twice.
 
 ### Measurement > Spectrum
+
+The legend stands above the plot area in up to four columns, so it never covers the curves
+(1.6.1).
 
 * Swept sine, random noise and background noise: **power spectral density** of the sound pressure
   of repetition 1 in dB re (20 µPa)²/Hz (Welch, Hann window, 50 % overlap), one curve per channel,

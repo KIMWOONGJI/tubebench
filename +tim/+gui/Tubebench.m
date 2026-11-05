@@ -60,7 +60,8 @@ classdef Tubebench < handle
         H struct = struct()     % UI handles
         Pages struct = struct() % tim.gui.ViewPage of every view
         WaveLines = gobjects(0) % lines of the time-signal view (live update)
-        Saved logical = true    % the last measurement is saved (or there is nothing to save)
+        ProgressPrefix char = ''  % label prefix of the stepped-sine progress strip (two loads: 'Load A (1 of 3) · ')
+        Saved logical = true   % the last measurement is saved (or there is nothing to save)
         SavedDir char = ''      % folder of the last save (or of the opened measurement)
         Opened logical = false  % the last measurement was opened from its folder (File > Open measurement…)
         ReprocessMics = []      % microphones whose channel-to-port mapping Reprocess uses for LastMeas: the
@@ -1210,7 +1211,7 @@ classdef Tubebench < handle
             % a measurement / result view: header, stacked axes, summary
             % (titles and descriptions: tim.plots.viewText, shared with the saved figures)
             spec = struct( ...
-                'wave', {{'waveforms', 'axW', {'Axes', 4}}}, ...
+                'wave', {{'waveforms', 'axW', {'Axes', 4, 'Strip', 66}}}, ...
                 'spec', {{'spectrum', 'axSpec', {'Axes', 1}}}, ...
                 'tf', {{'transfer', 'axH', {'Axes', 3}}}, ...
                 'refl', {{'reflection', 'axR', {'Axes', 2, 'AxesHeights', {'2x', '1x'}, 'SummaryTitle', 'Octave bands'}}}, ...
@@ -1222,6 +1223,7 @@ classdef Tubebench < handle
             [vt, vd] = tim.plots.viewText(s{1});
             page = tim.gui.ViewPage(tab, vt, vd, s{3}{:});
             h = struct(s{2}, page.Axes);
+            if ~isempty(page.Strip), h.axP = page.Strip; end   % progress of a stepped sine (time signals, 1.6.1)
             probe = [];                % drawing independent of the laid-out size ...
             if strcmp(p, 'tf'), probe = page.Axes(1); end   % ... except the legend rows (results)
         end
@@ -2955,7 +2957,12 @@ classdef Tubebench < handle
                     tim.plots.fitAxes(ax, 'XRange', [t(1) 0], 'YRange', [-pk pk]);
                     lv{c} = sprintf('ch%d %.1f dB', c, 20 * log10(sqrt(mean(x(:, c).^2, 'omitnan')) / sens(c) / 2e-5));
                 end
-                title(app.H.axW(1), sprintf('LIVE  %s  %.1f s recorded (%s)', char(183), total, app.Session.Status));
+                if app.Pages.wave.StripShown
+                    title(app.H.axW(1), '');                % the progress strip above says it (stepped sine)
+                    app.drawProgress();
+                else
+                    title(app.H.axW(1), sprintf('LIVE  %s  %.1f s recorded (%s)', char(183), total, app.Session.Status));
+                end
                 xlabel(app.H.axW(4), 'Time relative to now [s]');
                 app.Pages.wave.setNote(sprintf('Live level (last 0.5 s, dB SPL): %s', strjoin(lv, '   ')));
                 app.LiveCount = app.LiveCount + 1;
@@ -2964,15 +2971,47 @@ classdef Tubebench < handle
             drawnow('limitrate');
         end
 
-        function prepareLive(app)
+        function prepareLive(app, stepped)
             % time-signal view in its live state: labels and units of the
-            % connected microphones; liveUpdate then only sets the line data
+            % connected microphones; liveUpdate then only sets the line data.
+            % stepped (true): a stepped sine follows - the progress strip above
+            % the time signals is shown (1.6.1, owner request 2026-11-05) and
+            % filled by liveUpdate from the session's Progress; otherwise hidden
+            if nargin < 2, stepped = false; end
             app.ensureBuilt('wave');
+            app.showProgress(stepped);
             o = app.plotOpts(); o.mics = app.Session.Mics;
             o.emptyText = 'Waiting for data ...';
             info = tim.plots.timeSignals(app.H.axW, [], o);
             if isfield(info, 'lines'), app.WaveLines = info.lines; else, app.WaveLines = gobjects(0); end
             app.Pages.wave.setNote('');
+        end
+
+        function showProgress(app, tf)
+            % the progress strip of the time-signal view: shown empty ("starting")
+            % for a stepped sine that follows, or hidden and cleared
+            if ~app.isBuilt('wave') || ~isfield(app.H, 'axP'), return; end
+            if tf
+                app.Pages.wave.showStrip(true);
+                st = app.Cfg.excitation.stepped;
+                if ~isempty(app.Session), st = app.Session.Cfg.excitation.stepped; end
+                tim.gui.progressStrip(app.H.axP, tim.app.MeasurementSession.newProgress(st, {'Stepped sine'}), ...
+                    app.ProgressPrefix);
+            else
+                tim.gui.progressStrip(app.H.axP, []);
+                app.Pages.wave.showStrip(false);
+            end
+        end
+
+        function drawProgress(app)
+            % the strip from the session's Progress (live, and once at the end of
+            % the action: done / stopped); nothing while it is hidden
+            if ~app.isBuilt('wave') || ~isfield(app.H, 'axP') || ~app.Pages.wave.StripShown, return; end
+            if isempty(app.Session) || isempty(app.Session.Progress), return; end
+            try
+                tim.gui.progressStrip(app.H.axP, app.Session.Progress, app.ProgressPrefix);
+            catch
+            end
         end
 
         function p = portOf(app, c)
@@ -3087,6 +3126,7 @@ classdef Tubebench < handle
             if isstruct(res) && isfield(res, 'transferMatrix'), app.LastTM = res.transferMatrix; end   % one load, symmetric
             app.LastCfg = saved;         % the set-up of the saved results (Save writes it again)
             app.Saved = true; app.SavedDir = folder; app.Opened = true;
+            app.showProgress(false);                     % an opened measurement: no progress of a live run
             app.ReprocessMics = [];      % the configuration's mapping unless chosen below
             app.refreshViews();
             app.setResultStatus();
@@ -3391,9 +3431,17 @@ classdef Tubebench < handle
             end
             app.ensureBuilt('wave');                     % live view: prepared BEFORE the data stream
             app.showTab(app.H.waveTab);
-            app.prepareLive();
+            app.ProgressPrefix = '';
+            stepped = strcmp(app.Cfg.excitation.mode, 'stepped');
+            app.prepareLive(stepped);
             app.Session.setTermination(app.Cfg.measurement.loadA);   % recorded with the data (Tube setup, WO-005)
-            m = app.Session.measure(app.Cfg.excitation.mode);
+            try
+                m = app.Session.measure(app.Cfg.excitation.mode);
+            catch err
+                app.drawProgress();                      % stopped: where it stopped
+                rethrow(err);
+            end
+            app.drawProgress();                          % done
             app.LastLoads = []; app.LastTM = [];         % one measurement: no transfer matrix of earlier loads
             app.LastMeas = m; app.LastRes = []; app.LastCfg = app.Cfg; app.Saved = false; app.SavedDir = ''; app.Opened = false;
             app.ReprocessMics = [];                      % a new measurement: the configuration's mapping
@@ -4037,6 +4085,7 @@ classdef Tubebench < handle
                 if isvalid(app) && app.isBuilt('twoload')
                     for k = app.TwList.runningKeys(), app.TwList.set(k{1}, 'fail', err.message); end
                 end
+                if isvalid(app), app.drawProgress(); end  % a stepped load: where it stopped
                 rethrow(err);
             end
             app.LastLoads = out.loads; app.LastTM = out.tl;
@@ -4087,7 +4136,9 @@ classdef Tubebench < handle
             % Two-load view when it is done (twReport; owner 2026-10-14)
             app.showTab(app.H.waveTab);
             app.testPoint('twoload:measuring');
-            app.prepareLive();
+            nm = key; if strcmp(key, 'A2'), nm = ['A' char(8242)]; end
+            app.ProgressPrefix = sprintf('Load %s (%d of %d) · ', nm, k, n);
+            app.prepareLive(strcmp(app.Session.Cfg.excitation.mode, 'stepped'));
         end
 
         function twReport(app, q)
@@ -4108,9 +4159,10 @@ classdef Tubebench < handle
                         app.TwList.set(app.twKey(q.k), 'run', sprintf('measuring (%s, equalized) ...', ...
                             app.signalName(app.Session.Cfg.excitation.mode)));
                         app.showTab(app.H.waveTab);
-                        app.prepareLive();                  % the live view starts again for the load
+                        app.prepareLive(true);              % the live view starts again for the load
                     end
                 case 'load'
+                    app.drawProgress();                  % the strip of the load: done
                     v = q.res.analysis.valid; inB = ~v.flags.outsideBand;
                     frac = nnz(v.valid & inB) / max(1, nnz(inB));
                     pk = tim.app.peakLevel(q.meas).max_dB;
@@ -4340,6 +4392,7 @@ classdef Tubebench < handle
             end
             app.LastLoads = L; app.LastTM = p.tl;
             app.Saved = true; app.SavedDir = folder; app.Opened = true; app.ReprocessMics = [];
+            app.showProgress(false);                     % an opened measurement: no progress of a live run
             app.logTwoLoad(app.LastTM, sprintf('Opened %s', folderName(folder)));
             app.showLoad('A');
             app.setResultStatus();

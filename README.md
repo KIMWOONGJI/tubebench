@@ -18,8 +18,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/MATLAB-R2022b-e16737" alt="MATLAB R2022b">
   <img src="https://img.shields.io/badge/toolbox-Signal%20Processing-lightgrey" alt="Signal Processing Toolbox">
-  <img src="https://img.shields.io/badge/version-1.6.0-informational" alt="Version 1.6.0">
-  <img src="https://img.shields.io/badge/tests-431-brightgreen" alt="431 automated tests">
+  <img src="https://img.shields.io/badge/version-1.6.1-informational" alt="Version 1.6.1">
+  <img src="https://img.shields.io/badge/tests-436-brightgreen" alt="436 automated tests">
   <img src="https://img.shields.io/badge/method-ASTM%20E2611-555555" alt="ASTM E2611">
 </p>
 
@@ -212,14 +212,14 @@ the skill `/add-instrument` runs the procedure.
 
 ## Project status
 
-Version **1.6.0** (2026-11-05); the changes of every version are in [CHANGELOG.md](CHANGELOG.md).
+Version **1.6.1** (2026-11-05); the changes of every version are in [CHANGELOG.md](CHANGELOG.md).
 The automated tests verify the software's behaviour, not physical accuracy;
 [docs/hardware_status.md](docs/hardware_status.md) lists what has been verified on the real
 instruments.
 
 | Area | Status |
 |---|---|
-| Software | ✅ complete; 431 automated tests in 28 classes (simulation and recorded hardware fixtures) |
+| Software | ✅ complete; 436 automated tests in 29 classes (simulation and recorded hardware fixtures) |
 | Instrument communication: 33220A SCPI, LAN-XI REST, recorder cycle, binary stream, TEDS | ✅ verified on the instruments |
 | Swept-sine measurements in the tube, sine excitation on the bench, microphone chain, switching calibration with its empty-tube check, measurement workflow in the window | ✅ done on the instruments (2026-10-08 to 2026-10-12) |
 | Instrument interface (1.2.0), connection check (1.2.1), generator load at the amplifier input (1.3.0) | ✅ owner's hardware checks passed (2026-10-12 / 2026-10-13) |
@@ -326,7 +326,7 @@ If tubebench helps your work, please cite it (GitHub's "Cite this repository" re
   author  = {Kim, Woongji},
   title   = {tubebench: four-microphone impedance-tube measurements in MATLAB},
   year    = {2026},
-  version = {1.6.0},
+  version = {1.6.1},
   url     = {https://github.com/kimwoongji/tubebench},
   license = {MIT}
 }
