@@ -23,6 +23,10 @@ classdef (Abstract) SignalSource < tim.instr.Instrument
     %                            'none' (last commanded state, never "confirmed")
     %   triggerSweep()           start the configured sweep (sweep only)
     %   tf = waitComplete(t)     true when the sweep has ended, never earlier
+    %   setAmplitude(vpp)        optional (source.levelWhileOn, 1.6.0): new sine
+    %                            level [Vpp], output state unchanged; sine only
+    %                            (tim:gen:mode); level checked BEFORE the command
+    %                            (tim:gen:amplitude); default tim:gen:unsupported
     %
     %   Every level is checked BEFORE any level command: positive, its
     %   open-circuit voltage at most generator.maxVpp, within the level range
@@ -57,7 +61,31 @@ classdef (Abstract) SignalSource < tim.instr.Instrument
         tf = waitComplete(obj, timeout)
     end
 
+    methods
+        function setAmplitude(obj, vpp) %#ok<INUSD>
+            %SETAMPLITUDE Optional (1.6.0, WO-006; docs/instrument_interface.md
+            %   section 3.2): a new level of the configured sine [Vpp] while
+            %   the output keeps its state - the level equalizer of the stepped
+            %   sine changes it at every step. A driver that implements it
+            %   declares capabilities().source.levelWhileOn = true; it refuses
+            %   any other waveform (tim:gen:mode) and checks the level BEFORE
+            %   its level command (tim:gen:amplitude, section 3.4). This default
+            %   sends nothing and changes nothing.
+            error('tim:gen:unsupported', ['This signal source cannot change its level while the output is on ' ...
+                '(capabilities().source.levelWhileOn is false).']);
+        end
+    end
+
     methods (Static)
+        function tf = levelWhileOn(s)
+            %LEVELWHILEON The source declares setAmplitude (a level change while
+            %   the output is on): capabilities().source.levelWhileOn true. A
+            %   driver without the field (written before 1.6.0) counts as false.
+            %   tf = tim.instr.SignalSource.levelWhileOn(capabilities().source)
+            tf = isstruct(s) && isfield(s, 'levelWhileOn') && isscalar(s.levelWhileOn) && ...
+                islogical(s.levelWhileOn) && s.levelWhileOn;
+        end
+
         function report = checkSourceConfig(cfg, c, displayName)
             %CHECKSOURCECONFIG Generic source checks for a driver's checkConfig.
             %   report = tim.instr.SignalSource.checkSourceConfig(cfg, capabilities(), displayName)

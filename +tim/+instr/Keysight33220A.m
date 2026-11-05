@@ -24,6 +24,12 @@ classdef Keysight33220A < tim.instr.SignalSource
     %     p.189): the level is the voltage across that resistance, e.g. the
     %     input of an amplifier. A numeric load is read back (OUTP:LOAD?).
     %   * APPLy is never used (it forces OUTP ON, see manual p.175).
+    %   * setAmplitude (1.6.0, the level equalizer of the stepped sine) sends
+    %     the same VOLT command (p.182) while the output is on: sine only, the
+    %     level checked first and read back, never OUTP. Whether the attenuator
+    %     relays glitch then is not in the manual: hardware check WO-006
+    %     section 6 item 1 (docs/ref_33220A_scpi.md); the settling of every
+    %     step covers it.
     %
     %   All SCPI strings follow the 33220A User's Guide (33220-90002, Ed. 4);
     %   page references are in docs/ref_33220A_scpi.md.
@@ -99,6 +105,25 @@ classdef Keysight33220A < tim.instr.SignalSource
             end
             obj.Transport.write(sprintf('FREQ %.6f', f));
             obj.checkErrors('setFrequency');
+        end
+
+        function setAmplitude(obj, vpp)
+            %SETAMPLITUDE New sine level [Vpp] with the output state unchanged
+            %   (contract 3.2, capabilities().source.levelWhileOn; 1.6.0). The
+            %   level is checked before the command (open-circuit limit MaxVpp,
+            %   range at the load), then VOLT (p.182; never OUTP, never APPLy),
+            %   the error queue and the read-back VOLT? (output off and
+            %   tim:gen:verify on a mismatch). Six significant digits: the
+            %   equalizer's levels are not all on the 0.1 mV grid of configure*
+            %   (whose '%.4f' stays, the bus traffic of the other calls is
+            %   unchanged).
+            if ~strcmp(obj.Mode, 'sine')
+                error('tim:gen:mode', 'setAmplitude requires sine mode.');
+            end
+            obj.checkAmplitude(vpp);
+            obj.Transport.write(sprintf('VOLT %.6g', vpp));
+            obj.checkErrors('setAmplitude');
+            obj.verifyNumeric('VOLT?', vpp, 1e-3, 'amplitude');
         end
 
         function configureSweep(obj, s)
@@ -378,11 +403,13 @@ classdef Keysight33220A < tim.instr.SignalSource
         function c = capabilities()
             % limits: 33220A User's Guide (docs/ref_33220A_scpi.md); amplitude
             % per OUTP:LOAD: 20 / 10 Vpp maximum, 20 / 10 mVpp minimum (INF / 50);
-            % any load 1 .. 10000 ohm (p.189): the INF range x R / (R + 50)
+            % any load 1 .. 10000 ohm (p.189): the INF range x R / (R + 50);
+            % levelWhileOn: VOLT with the output on (setAmplitude, 1.6.0)
             src = struct('waveforms', {{'sine', 'sweep', 'noise'}}, 'sweepSpacing', {{'LOG', 'LIN'}}, ...
                 'frequencyRange', [1e-6 20e6], 'bandFraction', NaN, 'loads', {{'INF', '50'}}, ...
                 'maxVpp', [20 10], 'minVpp', [0.02 0.01], 'loadRange', [1 10000], 'sweepTime', [1e-3 500], 'noiseCrest', 3.3, ...
-                'outputImpedance_ohm', 50, 'trigger', 'bus', 'readback', 'instrument', 'levelKnown', true);
+                'outputImpedance_ohm', 50, 'trigger', 'bus', 'readback', 'instrument', 'levelKnown', true, ...
+                'levelWhileOn', true);
             c = struct('roles', {{'source'}}, 'sharedClock', false, 'rolesTogether', false, ...
                 'products', struct('name', {}, 'feature', {}), 'source', src);
         end

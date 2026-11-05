@@ -79,7 +79,14 @@ function out = sweepResponse(records, fs, opts)
 %   out fields: f, H (Nf x C, H(:,ref) = 1), coherence, snr_dB, nAvg,
 %   excitation (per repetition: detected start/end/duration, gated,
 %   sweepStart_s, sweepDuration_s, gate_s, gateEnds {lower, upper}),
-%   method, options, warnings.
+%   refPower, method, options, warnings.
+%   refPower (Nf x 1, V^2 per bin; 1.6.0, WO-006): sum |Y_ref|^2 / nAvg, the
+%   mean |Y_ref|^2 per FFT bin of the line and per repetition, with Y the
+%   UNNORMALISED DFT of the windowed segment (zero padding does not change
+%   it; the window is 1 inside the band, so no window correction). It gives
+%   the sine-equivalent amplitude of the sweep at the reference microphone
+%   (tim.dsp.sweepEquivalentAmplitude; docs/theory.md, section 3C). NaN for a
+%   line without bins.
 
 arguments
     records
@@ -197,6 +204,10 @@ end
 out = struct('f', fGrid, 'H', H, 'coherence', coh, 'snr_dB', snr, 'nAvg', nAvg, ...
     'excitation', excit, 'refChannel', ref, 'options', o, ...
     'method', 'ratio of channel spectra (H1, band- and repetition-averaged); excitation-independent');
+% mean |Y_ref|^2 per bin and repetition: the absolute level of the sweep at the
+% reference microphone (1.6.0, WO-006 stage 1); nothing else uses it
+rp = Srr ./ nAvg; rp(nAvg <= 0) = NaN;
+out.refPower = rp;
 out.nNoiseReps = nNoiseReps;
 out.warnings = {};
 if numel(records) == 1 && max(nAvg) < 2

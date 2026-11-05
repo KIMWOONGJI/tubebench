@@ -92,6 +92,34 @@ classdef TestInstruments < matlab.unittest.TestCase
             tc.verifyTrue(any(contains(errs, '-211')));
         end
 
+        function levelChangeWithTheOutputOn(tc)
+            % setAmplitude (1.6.0, WO-006, the equalizer of the stepped sine):
+            % VOLT while the output is on (manual p.182), then the error queue
+            % and the read-back - never OUTP, never APPLy; a level above the
+            % limit sends nothing; sine only
+            tr = tim.instr.MockScpiTransport();
+            g = tim.instr.Keysight33220A(tr, 'MaxVpp', 0.5);
+            tc.verifyTrue(tim.instr.SignalSource.levelWhileOn(tim.instr.Keysight33220A.capabilities().source));
+            g.configureSine(1000, 0.2); g.armOutput(true); g.outputOn();
+            n = numel(tr.Log);
+            g.setAmplitude(0.05);
+            tc.verifyEqual(tr.Log(n + 1:end), {'> VOLT 0.05', '> SYST:ERR?', '< +0,"No error"', '> VOLT?', ...
+                '< +5.0000000000000E-02'});
+            tc.verifyEqual(tr.State.OUTP, 1, 'the output stays on');
+            tc.verifyEqual(tr.State.VOLT, 0.05);
+            g.setAmplitude(0.0234567);                           % six significant digits: read back within 1e-3
+            tc.verifyEqual(tr.Log{end - 4}, '> VOLT 0.0234567');
+            n = numel(tr.Log);
+            tc.verifyError(@() g.setAmplitude(0.6), 'tim:gen:amplitude', 'above MaxVpp');
+            tc.verifyError(@() g.setAmplitude(0.01), 'tim:gen:amplitude', 'below 20 mVpp at INF');
+            tc.verifyNumElements(tr.Log, n, 'a refused level sends nothing');
+            tc.verifyEqual(tr.State.OUTP, 1);
+            g.armOutput(false);
+            g.configureNoise(0.2);
+            tc.verifyError(@() g.setAmplitude(0.1), 'tim:gen:mode', 'sine only');
+            tc.verifyFalse(any(startsWith(tr.Log, '> APPL')));
+        end
+
         function wrongInstrumentRejected(tc)
             tr = tim.instr.MockScpiTransport();
             tr.IdnString = 'Rigol,DG1022,123,1.0';

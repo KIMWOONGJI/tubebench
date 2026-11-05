@@ -56,8 +56,9 @@ The window title is "tubebench". It opens as a normal window as large as the scr
 
 * the **menu bar** (File, Help; section 7);
 * the **control panel** on the left, in workflow order: INSTRUMENTS, IMPEDANCE TUBE, EXCITATION,
-  CALIBRATION, MEASUREMENT, RESULTS (section 4). It fits a 1920 × 1080 screen without scrolling
-  and scrolls only in a small window;
+  CALIBRATION, MEASUREMENT, RESULTS (section 4). It is made to fit a 1920 × 1080 screen without
+  scrolling (1.6.0: one row more for the Equalizer, 957 px; still to be checked on the lab
+  screen) and scrolls in a smaller window;
 * the **views** on the right, in two levels of tabs (section 6):
 
   | Tab | Sub-tabs |
@@ -118,6 +119,11 @@ The same style is used in the window and in the saved figures:
   settings are checked against it, and the programmed value is read back from the generator
   (33220A) and checked again right before the output is switched on. The field cannot go below
   the smallest level of the generator either (33220A at load `"INF"`: 0.01 Vpk).
+* **Level equalizer** (stepped sine, 1.6.0): while it is on, the level field is the **maximum**
+  of every step. No step is ever played above it (the session checks every step level against it
+  before anything is configured, and the driver checks every level command), the confirmation and
+  the loudspeaker check use it, and the pre-measurement plays 20 dB below it. A step that would
+  need more is played at the maximum and reported, never raised.
 * **Loudspeaker power limit** (Test limit [W]): the loudspeaker power at its **nominal impedance**,
   P = V_rms² / Z (the convention of the rated power, IEC 60268-5), from the generator level, the
   amplifier gain and the amplifier input (section 4), is checked before every excitation. Above the
@@ -311,14 +317,15 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 | Frequency [Hz] … to … | start and stop frequency, at most the usable band of the instruments (LAN-XI: 0.45 × sample rate, i.e. 7372.8 Hz at 16384 S/s; the tooltip states the limit) |
 | Sweep duration [s] | duration of one sweep, within the sweep times of the generator (33220A: 0.001–500 s); for the stepped sine the field is **Number of steps** (1–400) |
 | Repetitions | number of repetitions, averaged (1–100) |
-| Settle [cycles] / Measure [cycles] | stepped sine only (greyed for the swept sine): the cycles every step waits after its frequency change and the cycles its sine fit uses, each at least the minimum time of the configuration (`settleTime`, `recordTime`, 0.2 s). The tooltips give the resulting times at the first and the last step; the expected Duration follows. Fewer than 4 measured cycles per block are marked in yellow. A reflecting termination (rigid cap) needs more settling than the absorber |
+| Settle [cycles] / Measure [cycles] | stepped sine only (greyed for the swept sine): the cycles every step waits after its frequency change and the cycles its sine fit uses, each at least the minimum time of the configuration (`settleTime` 0.3 s, `recordTime` 0.2 s). The tooltips give the resulting times at the first and the last step; the expected Duration follows. Fewer than 4 measured cycles per block are marked in yellow. The default covers the empty tube with the absorber and with the rigid cap (measured 2026-11-05, section 8); a specimen with a sharp resonance can need more |
+| Equalizer | stepped sine only (1.6.0; greyed like the cycles row for the swept sine and while an action runs): the **level equalizer**. **Off** (default), **Incident [dB SPL]** (the rms level of the incident wave at the specimen front face) or **Face velocity [mm/s]** (the rms particle velocity there), and the **target** in that unit (greyed while Off; each quantity keeps its own last target, defaults 94 dB SPL and 2.4 mm/s, so a dB value is never read as mm/s). A pre-measurement of the same steps at −20 dB of the level field comes first, then every step is played at the voltage that gives the target (section 5, "Stepped sine with the level equalizer"). While it is on, the **level field is the maximum** of every step: the Vrms after it reads "max …", its tooltip says so, and the drive check uses it. The tooltips give the level of the pre-measurement and the tolerance (±1 dB). A signal source that cannot change its level while the output is on (the demo generator; `capabilities().source.levelWhileOn`) offers no equalizer: the row is greyed, and a mode switched on in a configuration file can only be set to Off |
 | Amplifier | a list like Signal (not typed): "none (direct drive)", "power amplifier", and the models of `amplifier.knownModels` in the configuration file (add a model there). **Fixed while connected**, like Amp input: another amplifier may need another generator load, which is sent only at Connect. To change it: Disconnect, choose the amplifier, enter its gain and Amp input, Connect |
 | Amplifier gain [×] | voltage gain of the amplifier (Vout/Vin) as a plain number: 20 dB = ×10, 26 dB = ×20, 40 dB = ×100 (the tooltip gives the conversion; do not enter the dB value: a 40 dB amplifier entered as ×40 would get 2.5 × the shown loudspeaker voltage) |
 | Amp input [Ω] / Generator load | with an amplifier: its **input impedance** from the data sheet - a list with High Z, 50, 600 and 10000, or type a value (e.g. 2200) and press Enter. It is also the generator's **load setting** (`OUTP:LOAD`), sent at Connect, so the programmed level is the voltage at the amplifier input (High Z, or above the 33220A's 10 kΩ: the open-circuit voltage). Fixed while connected. In direct drive the label reads **Generator load** and the list is fixed at High Z. See "Generator output load" below |
 | Loudspeaker [Ω] | nominal (rated) impedance of the loudspeaker |
 | Test limit [W] | power limit of the loudspeaker for these measurements, at most its rated power (`loudspeaker.ratedPower_W`): an excitation above it (power at the nominal impedance) is refused |
 | Speaker [Vpk] ▾ / Generator [Vpk] ▾ / Amp input [Vpk] ▾ | the label of the level field is a list: **Speaker [Vpk]** (the voltage at the loudspeaker; with an amplifier it needs the gain) or the generator's level - **Generator [Vpk]** in direct drive (the open-circuit voltage), **Amp input [Vpk]** with an amplifier (the voltage at its input). The field: peak voltage; for the generator from its smallest level at the load (33220A: 0.01 Vpk at High Z, 0.0092 Vpk at 600 Ω) up to the amplitude limit (`generator.maxVpp`/2 open circuit, at the load × R/(R + 50 Ω)); at the loudspeaker the same range converted (33220A at High Z, 8 Ω: 0.00138–0.138 Vpk for a 1 Vpk limit) |
-| (after the field) | the level as Vrms (= Vpk/√2; noise: Vpk/3.3) and the expected duration of one measurement, e.g. "about 29 s" |
+| (after the field) | the level as Vrms (= Vpk/√2; noise: Vpk/3.3; "max …" while the equalizer is on) and the expected duration of one measurement, e.g. "about 29 s" |
 
 * Each signal keeps its own frequency range, duration or number of steps and repetitions:
   switching the Signal shows the values last used for that signal. The amplitude is common.
@@ -377,8 +384,9 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
      power. The tooltip lists every criterion.
 * The expected **Duration** is repetitions × (pre-roll + sweep duration + post-roll + 0.2 s) for
   the swept sine and repetitions × (1 s + the settling and recording times of all steps) for the
-  stepped sine (longer at low frequencies, see Configuration). The connection, the confirmation
-  and the processing come on top.
+  stepped sine (longer at low frequencies, see Configuration); with the equalizer on it includes
+  the pre-measurement, which plays the same steps and repetitions: twice the time. The connection,
+  the confirmation and the processing come on top.
 
 ### CALIBRATION
 
@@ -510,7 +518,8 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
    enter its name in **Specimen** (before Start measurement: the name at Start counts).
 9. Press **Start measurement**. In hardware mode confirm the excitation dialog (**Start
    excitation**). The Time signals view shows the last 0.5 s of every channel live ("LIVE · 3.2 s
-   recorded …") with the level of every channel in the header. Stop ends the measurement at once;
+   recorded …"; a stepped sine shows its progress strip instead) with the level of every channel in
+   the header. Stop ends the measurement at once;
    the views then show the last measurement again.
 10. Check the result: Measurement > Transfer functions (coherence and SNR against their limits),
     the Results views and Results > Validity (why frequency lines are not valid). The message pane
@@ -525,6 +534,56 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 In simulation mode there is no excitation dialog, and during the switching calibration the
 virtual microphones are moved by the program; everything else is the same.
 
+### Stepped sine with the level equalizer (1.6.0)
+
+The ratios between the microphones do not depend on the level for a linear specimen, so an
+ordinary measurement needs no equalizer. It is meant for specimens that are not linear (resonator
+necks, perforates: their resistance depends on the particle velocity) and for measurements of the
+amplitude dependence: every step is measured at the same level **at the specimen** (owner
+decisions 2026-11-04, WO-006; `theory.md` section 3C). Stepped sine only; the swept sine is never
+equalized.
+
+1. Steps 1–8 above. The equalizer needs a **calibration** (Load or Run) and **L1, d and L2**: the
+   level at the specimen comes from the calibrated decomposition.
+2. Signal **Stepped sine**, **Equalizer** Incident [dB SPL] or Face velocity [mm/s], and the
+   **target**. Set the **level field to the largest level any step may get**: while the equalizer
+   is on it is the maximum ("max …" after it), and the drive check shows that level. Raising it
+   needs the owner's approval, as always.
+3. **Start measurement**. In hardware mode the excitation confirmation shows the maximum and adds
+   "Equalizer: a pre-measurement of the steps at -20 dB (… Vpk), then every step at the voltage
+   that gives the target (±1 dB), never above the level shown"; it is asked once for both runs.
+   The program then
+   * plays the same steps and repetitions at −20 dB of the level field (at least the smallest
+     level of the generator) and computes the level at the specimen of every step;
+   * computes the voltage of every step, V_k = min(maximum, V_pre × target / achieved_pre,k),
+     with the transfer from the generator to the specimen taken as linear, and logs the range of
+     the voltages and the steps that cannot reach the target (capped at the maximum);
+   * plays the steps at these voltages. The level changes together with the frequency of the step
+     while the output stays on (a lower level before the new frequency, a higher one after it), so
+     no frequency is played above its own level or that of the step before.
+
+   Time signals shows both runs live; the Duration is about twice that without the equalizer.
+4. Check the result. **Measurement > Spectrum** shows the incident level (black squares; with Face
+   velocity also the velocity as black triangles on a right axis in mm/s) and the target as a
+   dashed line in a light green band of ± the tolerance. **Results > Validity** has the row
+   "Target level not reached (±1 dB)", red at the steps outside the tolerance. It is **report
+   only**: such a step is never masked. The message pane gives the summary ("Equalizer (…): target
+   reached at N of M steps; not reached at … Hz (K of them at the maximum)"). A step capped at the
+   maximum needs a higher level field (with approval) or a lower target.
+
+The equalizer is refused before anything is played (`tim:session:equalizer`, the reason in the
+message) with a generator that cannot change its level while the output is on, without a
+calibration, with unknown positions of the microphones or of the front face, and when the
+pre-measurement has data-integrity problems or gives no level at the specimen. A Stop during the
+pre-measurement switches the output off at once and keeps its partial data, as for every
+measurement; no step is then played with the equalizer. A pre-measurement that was recorded and
+then refused, or stopped while it was processed, is kept the same way
+(`data\emergency\partial_<time>.mat`, with its settings and events). The pre-measurement is not saved as a
+measurement of its own: its result per step (frequency, voltage, achieved level) is stored with the
+equalized measurement (`meas.equalizer`, section 12). The equalizer is feedforward: no correction
+pass in 1.6.0. For a specimen that is not linear the achieved level can therefore miss the target;
+the deviation is reported per step (`res.equalizer`, section 10).
+
 ### Two loads (transfer matrix, ASTM E2611)
 
 Use it when the termination is not anechoic (the lab termination reflects: |R_term| 0.85 at
@@ -534,7 +593,8 @@ Use it when the termination is not anechoic (the lab termination reflects: |R_te
    Termination box (default: Absorber at tube end, Rigid cap at tube end), keep **Repeat load A at
    the end** on, and leave **B level** at "same as A" unless load B overdrives the specimen (it may
    only be lowered). The model draws load A at first, then the load whose kind or place was
-   changed last.
+   changed last. With the stepped-sine **equalizer** on (1.6.0) the B level is ignored and greyed:
+   every load is equalized to the target.
 2. **Start two-load measurement**. Without a calibration (CALIBRATION reads "No calibration")
    the window asks first: no line of any load would be valid, and neither T nor the repeat of load
    A could be judged during the run (**Cancel** is the default; the raw data of a run started
@@ -545,7 +605,13 @@ Use it when the termination is not anechoic (the lab termination reflects: |R_te
    **Measure** (or **Abort**). While the load is measured the window shows Measurement > Time
    signals (live), then returns to Two-load. Change **only the termination**: the specimen section
    and the microphones stay untouched. In simulation the virtual tube changes the termination by
-   itself.
+   itself. With the equalizer on (owner decisions 2026-11-04), every change of termination (loads
+   A and B) is followed by the **pre-measurement** of that load as a step of its own in the list
+   ("Load A: equalizer pre-measurement (-20 dB)", then "Load A: …"; the operator mounts the load
+   once, before the pre-measurement); its row gives the range of the voltages and the number of
+   steps capped at the maximum (orange when there are any). **Load A again** gets no new
+   pre-measurement: it is played with the voltages of load A, so that the repeat check compares
+   only the mounting. The message pane gives the equalizer summary of every load.
 3. Every load is processed and **saved at once** in a folder of its own
    (`…_sweep_<specimen>_loadA_absorber-end`, `…_loadB_rigid-end`, `…_loadA2_absorber-end`); a Stop
    or an error keeps the loads measured so far. After the last load the figures of the loads are
@@ -614,7 +680,9 @@ lengths (grey) follow every change of a field at once; the viewpoint is kept.
   (Absorber, Rigid cap, Open end) **at** a **place** (Tube end: the end cap, 291 mm behind M4;
   Joint: the joint of the downstream tube with the extension tube removed, 41 mm behind M4; the
   absorber only at the tube end, so its place is fixed). One load: one row "Termination"; Two
-  loads: **Load A**, **Load B**, **Repeat load A at the end** and **B level**. Any two different
+  loads: **Load A**, **Load B**, **Repeat load A at the end** and **B level** (greyed while the
+  stepped-sine equalizer is on, 1.6.0: the grey line then reads "Load B: equalized like load A (B
+  level ignored)" instead of "Load B at −6 dB …"). Any two different
   terminations can be paired; ASTM E2611 and Brüel & Kjær use an open and an approximately
   anechoic termination. A grey line below says what is mounted and where; two equal loads are
   named in red (Start refuses them). The 3D model draws the chosen termination: the absorber, the
@@ -661,7 +729,24 @@ switching calibration…".
 
 Sound pressure (voltage / sensitivity) of the four channels, one graph per channel on a common time
 axis, labelled "ch1 (M1) [Pa]" etc. During an acquisition: the last 0.5 s, about five updates per
-second, the header note gives the live level of every channel. After the measurement: the whole
+second, the header note gives the live level of every channel.
+
+**Progress of a stepped sine** (1.6.1): a strip above the graphs, exactly as wide as their plot
+area, shows the whole action as one time line: one block per step, its width the planned time of
+the step (the low frequencies take longest), each block split into its settling part (lighter)
+and its measured part. Steps done are blue, the running step fills amber while it settles and
+blue while it is measured, the steps to come are light grey, and a dark line marks "now". The
+octave frequencies (125 Hz … 4 kHz) are written under their steps. With the level equalizer the
+pre-measurement comes first on the same line, in slate; with repetitions every repetition is a
+group of its own (white gaps). The label on the left gives the pass, the step, its frequency and
+whether it settles or is measured (with two loads first the load, e.g. "Load A (1 of 3)"); on the
+right the time so far, the planned total and the time left. When the action ends the strip turns
+green ("Done · 40 steps · 25.3 s"); after Stop or an error the steps not played turn light red
+("Stopped at step 17 of 40"). It stays until the next measurement; a swept sine, noise, the
+background noise, the calibration and an opened measurement show no strip. The time line is the
+plan; the time of processing between the pre-measurement and the measurement is not part of it.
+
+After the measurement: the whole
 record of repetition 1, long records as a min / max envelope so that every peak stays visible. A
 display high-pass at 20 Hz removes the slow CCLD settling drift; the raw data are not changed and
 are stored in volts. Without a valid sensitivity for every channel the graphs show mV.
@@ -688,6 +773,9 @@ twice.
 
 ### Measurement > Spectrum
 
+The legend stands above the plot area in up to four columns, so it never covers the curves
+(1.6.1).
+
 * Swept sine, random noise and background noise: **power spectral density** of the sound pressure
   of repetition 1 in dB re (20 µPa)²/Hz (Welch, Hann window, 50 % overlap), one curve per channel,
   the analysis band between two dashed lines. Summary **Levels**: the level in the analysis band
@@ -698,6 +786,23 @@ twice.
   part, markers, dB SPL) and, dotted, the residual noise in the bandwidth of the fit. Summary
   **Step levels**: minimum and maximum step level and the median SNR per channel. Before
   processing the raw PSD is drawn grey with this explanation.
+* **Level at the specimen** (1.6.0): with a calibration and a known front face (IMPEDANCE TUBE),
+  the view also shows, in black, the **incident wave at the specimen front face** in dB SPL, from
+  the calibrated four-microphone decomposition and the sensitivity of the reference microphone
+  (`docs/theory.md`, section 3C). Stepped sine: black squares on the tone-level axis, one per step.
+  Swept sine: a black curve on a second y axis on the right (the left one stays the PSD); it is the
+  **sine-equivalent** level, the level a stepped sine of the same amplitude would give at that
+  frequency. Lines that are not valid (the validity of R) are grey. The note under the summary
+  gives the range of the incident level and of the particle velocity at the front face (mm/s) on
+  the valid lines; both are in `results.csv` (section 12). Nothing is added without a calibration,
+  with the front face unknown, for random noise and for results saved before 1.6.0 (Reprocess with
+  a calibration adds it, in a new folder when saved). The results of a linear specimen do not
+  depend on the level; those of a specimen that is not linear (a resonator neck, a perforate) do.
+* **Equalizer target** (1.6.0, an equalized stepped sine): the target as a dashed line in a light
+  green band of ± the tolerance. Incident [dB SPL]: on the tone-level axis, next to the black
+  squares. Face velocity [mm/s]: the particle velocity at the front face as black triangles (grey
+  where not valid) with its target on a right axis in mm/s. The note under the summary adds
+  "Equalizer: target … ± 1 dB, N of M steps within (K capped at the maximum … Vpk)".
 
 ### Measurement > Transfer functions
 
@@ -724,7 +829,9 @@ the termination, so a re-packed absorber does not count as a change; a moved spe
 microphone does. The right column holds the **Loads** table (load, termination, share of the band
 valid in that load, peak level in the tube, temperature) and the **operator steps and the
 quality of every load** (valid share, peak level, saved folder; "0 % valid: no calibration"
-without one; the last row: the transfer matrix, the figures and the pair folder). **Show load** (header) picks the load whose measurement
+without one; with the stepped-sine equalizer, 1.6.0, a pre-measurement row before loads A and B
+with the range of the voltages and the steps capped at the maximum; the last row: the transfer
+matrix, the figures and the pair folder). **Show load** (header) picks the load whose measurement
 (Time signals, Spectrum, Transfer functions) and own results (|R_term|, the validity rows of that
 load) the other views show; the transfer matrix stays. The header note warns when the loads could
 not be combined (another calibration, geometry, mapping or signal), when no line is valid
@@ -791,7 +898,10 @@ One row per criterion, the frequency lines that pass in dark blue, the others li
 SNR, cal.)", "Passive", **"Valid"**, "Valid R", "Valid τ / TL", "Valid thin Z_t", "Validated
 (experiment)". Below a separator one row per rejection reason ("Rejected: low coherence",
 "Rejected: termination not anechoic", …), red where it rejects.
-Stepped sine: one square per step. Summary **Validity criteria**: number and share of passing
+Stepped sine: one square per step, and the row "Rejected: not settled" (1.6.0, the settled check,
+section 8): red at the steps where a channel ratio still drifted from the first to the last block
+of the record, i.e. the step had not settled; it is part of "Quality OK" and affects "|τ|, α_d,
+TL, Z_t (R: M1/M2)". Summary **Validity criteria**: number and share of passing
 lines and which results each criterion affects; the note is the summary line of the masks
 ("… N valid (R: M, upstream pair), …"). "Valid R" uses only the upstream pair M1/M2 (section 10)
 and may therefore pass where "Valid" does not. The column "Affects" says so: "Measured", "Geometry
@@ -804,6 +914,11 @@ M1/M2)."); without L1, d and L2 it says that R, τ, TL and Z_t are not available
 With a transfer matrix a third group of rows follows below a second separator: "Both loads
 valid", "Loads differ (cond(Q) ≤ 10)", **"Valid T"**, "Reciprocal (|det T − 1| ≤ 0.1)" and "Load A
 repeat (≤ 0.05)" (the last two report only).
+An equalized stepped sine (1.6.0) ends with the row "Target level not reached (±1 dB)" below a
+last separator: red at the steps whose achieved level lies outside the tolerance of the target,
+"Passing" = the steps within it, Affects "report only (equalizer; not masked)". It masks nothing
+(owner decision 2026-11-04); the summary note adds "Equalizer: N of M steps within the
+tolerance."
 
 ### Results > Transfer matrix
 
@@ -818,8 +933,10 @@ assumed. Summary **Octave bands**: the mean magnitudes of the four elements.
 ### Formula
 
 Every equation used by the program, with the default thresholds read from the code: 0 conventions
-and symbols; 1 transfer functions (swept sine, stepped sine, random noise); 2 switching
-calibration; 3 plane-wave decomposition; 4 pressure and particle velocity at the specimen faces;
+and symbols; 1 transfer functions (swept sine, stepped sine with its settled check, 1.6.0, random
+noise); 2 switching
+calibration; 3 plane-wave decomposition; 4 pressure and particle velocity at the specimen faces
+(4a: the level at the specimen and the level equalizer of the stepped sine, 1.6.0);
 5 reflection, transmission and dissipation; 6 transfer impedance; 7 transmission loss; 8 transfer
 matrix (two loads, one load of a symmetric specimen); 9 air properties and tube losses; 10 geometric validity range; 11 validity
 criteria; 12 units and level references; 13 references (standards and literature). Every section
@@ -893,7 +1010,7 @@ before measuring if the code was edited. Without a `.git` folder (copied project
 | Signal | Use | Main settings (`excitation.*`) |
 |---|---|---|
 | `sweep` (swept sine, default) | broadband, fast, robust | `fStart` 80, `fStop` 5500 Hz (wider than the analysis band), `duration` 5 s, `spacing` `LOG`/`LIN`, `amplitudeVpp`, `repetitions` 4 (≥ 2 gives a meaningful coherence), `preRoll` 1 s (silence for the noise estimate), `postRoll` 1 s (ring-down) |
-| `stepped` (stepped sine) | highest SNR at chosen frequencies, cross-check | `fStart` 120, `fStop` 4500 Hz, `nPoints` 40, `spacing` `log`/`lin`, `settleTime` 0.2 s and `settleCycles` 50, `recordTime` 0.2 s and `recordCycles` 100 (per step the larger of the time and the cycles), `nBlocks` 4, `repetitions` 1 |
+| `stepped` (stepped sine) | highest SNR at chosen frequencies, cross-check; with the equalizer a defined level at the specimen | `fStart` 120, `fStop` 4500 Hz, `nPoints` 40, `spacing` `log`/`lin`, `settleTime` 0.3 s and `settleCycles` 50, `recordTime` 0.2 s and `recordCycles` 100 (per step the larger of the time and the cycles), `nBlocks` 4, `repetitions` 1, `equalizer` (1.6.0: `mode` `"off"`, section 9) |
 | `noise` (random noise, scripts only) | 33220A built-in noise, Welch H1 | `amplitudeVpp`, `duration` 20 s, `nfft` 8192 |
 
 * The 33220A and the LAN-XI module are **not synchronised**. The sweep is triggered by software
@@ -904,10 +1021,12 @@ before measuring if the code was edited. Without a `.git` folder (copied project
 * Stepped sine: the first and the last step are exactly `fStart` and `fStop` (a step at 120 Hz is
   inside the default analysis band). Each step waits max(`settleTime`, `settleCycles`/f) after its
   frequency change and records max(`recordTime`, `recordCycles`/f), so low frequencies get more
-  cycles and high ones the minimum time (defaults 0.2 s / 50 cycles and 0.2 s / 100 cycles:
-  1.25 s at 120 Hz, 0.4 s from 500 Hz up; `settleCycles` / `recordCycles` 0 gives fixed times).
-  The values are a starting point; the settling a termination needs is set from a measurement
-  (`theory.md` section 5). Each step is evaluated by a sine fit of the settled part, in
+  cycles and high ones the minimum time (defaults 0.3 s / 50 cycles and 0.2 s / 100 cycles:
+  1.25 s at 120 Hz, 0.5 s from 500 Hz up; `settleCycles` / `recordCycles` 0 gives fixed times).
+  The settling was set from a measurement in the lab tube (1.6.0, 2026-11-05, empty section with
+  the absorber and with the rigid cap, `theory.md` section 5): the new frequency reaches the
+  recording 35–140 ms after the command, and the tube decays within some tens of cycles after it.
+  A specimen with a sharp resonance of its own can need more; the settled check below shows it. Each step is evaluated by a sine fit of the settled part, in
   `nBlocks` blocks. The SNR of a step is the tone power over the noise power in the bandwidth of
   the fit (`theory.md` section 5); it enters the validity masks like the SNR of the sweep.
   All results are drawn with markers at the step frequencies (also in the saved figures and in
@@ -915,6 +1034,25 @@ before measuring if the code was edited. Without a `.git` folder (copied project
   but not valid, **hollow diamond = outside the frequency range of the calibration** (corrected with
   the nearest calibrated line, for information only, never valid; flag `outsideCalibration` in
   Validity and `results.csv`), a triangle on the axis = no value.
+* Stepped sine, **settled check** (1.6.0, `theory.md` section 5 step 7): every step compares the
+  ratio of each channel to the reference in the first and in the last of its `nBlocks` blocks. A
+  change beyond four standard deviations of the noise (the noise of the 0.5 s recorded before the
+  output goes on; noise alone exceeds them about once in 10⁷ steps) by
+  more than `analysis.settleDriftMax` (0.01 = 1 % of the ratio, about 0.09 dB or 0.57°) means
+  that a transient had not decayed when the record began: the step is flagged `notSettled`
+  ("Rejected: not settled" in Validity) and is not valid (for R only the M1/M2 channels count). A
+  common change of all channels (generator level, frequency) does not count. Remedy: a longer
+  `settleTime` / `settleCycles` (the field Settle [cycles]). With one block (`nBlocks` 1) the
+  step is not judged. Swept sine and noise have no such check. Stepped measurements of earlier
+  versions get the check when they are reprocessed, so a Reprocess can reject steps that were
+  valid before.
+* Stepped sine with the **level equalizer** (1.6.0, `excitation.stepped.equalizer`; section 5): a
+  pre-measurement of the same steps at `preLevel_dB` (−20 dB) below the amplitude, then every step
+  at its own generator level, V_k = min(amplitude, V_pre × target / achieved_pre,k), set with the
+  frequency of the step while the output stays on. The amplitude is the maximum of every step.
+  It needs a signal source that can change its level while the output is on
+  (`capabilities().source.levelWhileOn`: the 33220A and the simulated combined device, not the
+  demo generator), a calibration and the positions of the microphones and the front face.
 * The switching calibration always uses the swept-sine settings (frequency range, duration,
   repetitions) and the Amplitude, whichever Signal is selected.
 
@@ -1013,12 +1151,15 @@ still be opened and reprocessed; Connect then reports the error.
 | `tubeDrawing` | lab CAD | part sizes for the drawings only |
 | `environment` | 20 °C, 101325 Pa | `temperature_C`, `pressure_Pa`; `c_override`, `rho_override` replace the computed values; `relativeHumidity` is recorded only |
 | `excitation` | section 8 | `mode` and the settings of `sweep`, `stepped`, `noise` |
+| `excitation.stepped.equalizer.mode`, `target` | `"off"`, 94 | level equalizer of the stepped sine (1.6.0; field Equalizer): `"off"`, `"incidentPressure"` (target in dB SPL, 20–160, the rms incident wave at the front face) or `"faceVelocity"` (target in mm/s rms, above 0 and at most 10000; above 50 mm/s a "CHECK" names the matching level); the target is checked only while the equalizer is on. A file without the key (before 1.6.0) keeps it off. A signal source without `levelWhileOn` with a mode on gives a "CHECK" when the file is loaded; the stepped sine is then refused |
+| `excitation.stepped.equalizer.preLevel_dB`, `tolerance_dB` | −20, 1 | level of the pre-measurement relative to the amplitude (−60 … < 0 dB; at least the smallest level of the generator) and the tolerance of the target (> 0 … 20 dB; report only); no field in the window |
 | `analysis.refChannel` | 1 | reference channel of the transfer functions |
 | `analysis.fMin`, `fMax`, `df` | 120, 4500, 2 Hz | analysis band and frequency-line spacing (`fMax` ≤ the usable band of the DAQ driver, LAN-XI: 0.45 × sample rate) |
 | `analysis.bandMode` | `"fixed"` | `"fixed"`: `fMin`, `fMax` as set; `"geometry"` (lab file): `fMin`, `fMax` = the ASTM E1050 / E2611 limits of the tube (spacings s1, s2: `lowerFraction`–`upperFraction` × c/s; diameter: 0.58 c/D; c from the temperature), rounded inward to `df` and recomputed whenever those values change; L1, d and L2 do not enter. Section 7 of `docs/theory.md` |
 | `analysis.lossModel` | `"kirchhoff"` | tube-loss model: `"kirchhoff"` (visco-thermal wall losses, attenuation and phase-velocity reduction, matching characteristic impedance), `"iso10534"` (ISO 10534-2 attenuation only, for ISO-conformant work) or `"none"`. The same model is used by the analysis, Tests D/E and the virtual tube (`theory.md` section 1). `"iso10534"` and `"none"` bias a thin-element Z_t (up to about 47 % and about two thirds of Z_t at \|Z_t\|/(ρc) = 0.05 in the lab tube) and give a "CHECK: …" warning. A configuration saved before `"kirchhoff"` became the default (2026-10-09), and the `config.json` of an older measurement folder, still name `"iso10534"`. |
 | `analysis.velocityRef` | `"mean"` | velocity in Z_t: `"mean"`, `"upstream"` or `"downstream"` |
 | `analysis.coherenceMin`, `snrMin_dB` | 0.98, 20 dB | quality limits of the validity masks |
+| `analysis.settleDriftMax` | 0.01 | settled check of the stepped sine (1.6.0, section 8): the largest change of a channel ratio from the first to the last block of a step beyond four noise standard deviations, as a fraction of the ratio (0.01 = 1 %); a step above it is flagged `notSettled` and not valid. Must be greater than 0 (`tim:config:settled`); a large value such as 1e3 switches the check off in a file, `Inf` in a script. A file without the key (before 1.6.0) gets 0.01 |
 | `analysis.condMax`, `phaseUncertainty_rad`, `maxPhaseSensitivity` | 40, 0.002, 0.05 | geometry limits of the decomposition |
 | `analysis.lowerFraction`, `upperFraction` | 0.01, 0.40 | spacing limits 0.01·c/s < f < 0.40·c/s |
 | `analysis.passivityTol`, `velocityMismatchMax`, `anechoicRmax` | 0.05, 0.10, 0.1 | passivity, thin-element and anechoic-termination limits |
@@ -1026,7 +1167,7 @@ still be opened and reprocessed; Connect then reports the error.
 | `measurement.method` | `"oneLoad"` | `"oneLoad"`, `"oneLoadSymmetric"` (T from one load, symmetric specimen assumed) or `"twoLoad"` (field Method) |
 | `measurement.loadA`, `loadB` | absorber at `tubeEnd`; rigid at `tubeEnd` | termination of load A (also of a one-load measurement) and load B: `kind` `"absorber"`, `"rigid"` or `"open"` and `place` `"tubeEnd"` or `"joint"` (the absorber only at the tube end); Setup > Tube setup |
 | `measurement.repeatLoadA` | true | load A again at the end (A → B → A′) |
-| `measurement.loadBLevel_dB` | 0 | level of load B relative to load A, −40 … 0 dB (only lower) |
+| `measurement.loadBLevel_dB` | 0 | level of load B relative to load A, −40 … 0 dB (only lower); ignored while the stepped-sine equalizer is on (1.6.0) |
 | `measurement.levelStepWarn_dB`, `maxTemperatureDiff_C`, `maxMinutesBetween` | 10, 1, 30 | warnings: load B so much louder than load A (peak level), the loads more than 1 K or 30 min apart |
 | `analysis.validatedBands` | empty | experimentally validated bands (`validation_procedure.md`) |
 | `calibration.file` | `""` | calibration loaded at Connect |
@@ -1098,10 +1239,44 @@ amplifier input impedance is reported too.
   plug in front of M3/M4, a high-TL specimen with a weak downstream signal or a failed
   calibration of the M3/M4 channels does not reject R.
 * `validTau` and `validThinZt` use both pairs (`valid`) plus their own condition.
+* Stepped sine (1.6.0): `valid.flags.notSettled` (the settled check, section 8) is part of
+  `qualityOK`; `valid.settleDrift` is the largest excess drift over the ports per step (NaN: not
+  judged), `spectra.settleDrift` and `spectra.blockDrift` hold the excess and the drift per step
+  and DAQ channel. Swept-sine and noise results have neither.
 * The near-singularity criterion (k·s close to π) is tested separately for each pair.
 * For a thick specimen (the 75 mm lab specimen section: k·d up to about 6 at 4.5 kHz) the
   thin-element Z_t has no meaning. Use R, τ and the TL from τ (anechoic termination), or the
   transfer matrix (Method Two loads).
+
+**Level at the specimen** (1.6.0, `res.levels`; `docs/theory.md`, section 3C), one value per
+frequency line of `res.analysis.f` (the steps of a stepped sine):
+
+| Field | Meaning |
+|---|---|
+| `available`, `note` | true when the levels were computed (swept or stepped sine, a calibration, the front face known, data in volts, a valid sensitivity of the reference microphone); otherwise `note` gives the reason |
+| `method` | stepped sine: the fitted tone amplitude; swept sine: the sine-equivalent amplitude from the spectrum of the reference channel and the sweep rate |
+| `incident_dB_SPL`, `incident_Pa` | incident wave at the front face, dB SPL and Pa (rms) |
+| `faceVelocity_mm_s` | particle velocity at the front face, mm/s (rms) |
+| `valid` | `valid.validR` and a finite level (the upstream pair M1/M2, as R) |
+| `refChannel`, `sensitivity_VperPa`, `refAmplitude_Pa` | the reference microphone, its sensitivity and the pressure amplitude there (Pa peak; also without a calibration) |
+| `generatorVpp` | the generator level of every line (Vpp) |
+| `sweepRate_Hz_s`, `sweepDuration_s` | swept sine: the sweep rate at every line and the sweep duration on the DAQ clock |
+
+The level of a swept sine is smooth only on the scale of the square root of the sweep rate (about
+15 Hz at 150 Hz and 80 Hz at 4.5 kHz for a 3 s sweep 80–5500 Hz), so the lowest lines of the band
+can ripple by a few 0.1 dB. The absolute value rests on the sensitivity of the reference
+microphone: use the certificate or TEDS, not the nominal value.
+
+**Equalizer** (1.6.0, `res.equalizer`, only for an equalized stepped sine; recomputed from
+`res.levels` on Reprocess; report only, it masks nothing), one value per step:
+
+| Field | Meaning |
+|---|---|
+| `mode`, `unit`, `target`, `tolerance_dB` | the controlled quantity (`"incidentPressure"`: dB SPL, `"faceVelocity"`: mm/s), the target and the tolerance |
+| `vpp`, `limited` | the generator level played at every step (Vpp) and its limit: `""`, `"max"` (capped at the amplitude: the target cannot be reached), `"min"` (the smallest level of the generator: above the target), `"unknown"` (no level from the pre-measurement: played at its level) |
+| `achieved`, `deviation_dB` | the controlled quantity the measurement achieved (from `res.levels`) and its deviation from the target in dB |
+| `reached`, `nReached`, `text` | within ± the tolerance (the Validity row and `eqReached` of `results.csv`), their number and the summary line of the message pane |
+| `plan` | the plan of the measurement (`meas.equalizer`): the settings, the step frequencies and levels, the expected value per step, `maxVpp`, `minVpp`, `preVpp`, the termination and the drive chain it was measured with, `reusedFrom` (`"A"` for load A again) and `pre`, the result of the pre-measurement per step (frequency, level, achieved quantity, incident level, face velocity, validity, time, calibration) |
 
 **Transfer matrix** (Method Two loads, or One load, symmetric; `tim.app.processTwoLoad`, result
 `tm`, in the pair folder's `result.mat` as `tl`):
@@ -1124,9 +1299,9 @@ The one-load method (`method` `"oneLoadSymmetric"`) is valid **only** for specim
 to be reciprocal and symmetric; its `reciprocityError` and `symmetryError` are zero by assumption.
 
 **Levels of trust**: *in the analysis band* → *geometry criteria met* → *quality criteria met*
-(coherence, SNR, calibration) → *valid* (also passive) → *validated* (inside the experimentally
-validated bands, `analysis.validatedBands`, which stay empty until Tests D/E have passed on this
-set-up). Graphs draw values that are not valid in grey. The CSV files contain every mask and flag.
+(coherence, SNR, calibration; a stepped sine also settled) → *valid* (also passive) → *validated*
+(inside the experimentally validated bands, `analysis.validatedBands`, which stay empty until
+Tests D/E have passed on this set-up). Graphs draw values that are not valid in grey. The CSV files contain every mask and flag.
 
 ## 11. Script use
 
@@ -1159,6 +1334,25 @@ s.close();
 * `s.setTermination(struct('kind', 'rigid', 'place', 'tubeEnd'))` records the termination mounted
   now with every following measurement (`metadata.termination`; in simulation the virtual tube
   gets it). The calibration sets the absorber.
+* The level equalizer of the stepped sine (1.6.0; section 5):
+
+  ```matlab
+  ex = s.Cfg.excitation;
+  ex.stepped.equalizer.mode = 'incidentPressure';  ex.stepped.equalizer.target = 90;   % dB SPL
+  s.setExcitation(ex);                    % amplitudeVpp = the MAXIMUM of every step
+  meas = s.measure('stepped');            % pre-measurement at -20 dB, then the equalized steps
+  res  = tim.app.processMeasurement(meas, s.Cfg, s.Calibration);   % res.equalizer, res.levels
+  plan = s.measureEqualizerPlan();        % or: the pre-measurement alone, armed for the next stepped measurement
+  s.setEqualizerPlan(plan);               % re-arm a plan made before (same steps, maximum, termination, chain)
+  ```
+
+  An armed plan is used once - by the next stepped start, also when that start is refused or
+  stopped - and discarded (logged) when the termination, the stepped settings, the amplifier, the
+  geometry or the virtual specimen change; a plan made with another calibration is refused.
+  `s.setEqualizerPlan([])` disarms it, and `s.measureEqualizerPlan()` disarms the plan before
+  first (a refused or stopped pre-measurement arms none). `tim.app.runTwoLoad` makes a plan for
+  loads A and B and re-arms that of load A for load A again; a plan it armed and did not use (a
+  Stop or an error before the load was measured) is disarmed when it ends.
 * Two loads from a script (each load saved at once, then the pair folder; the prompts in the
   command window, Enter to go on):
 
@@ -1204,11 +1398,11 @@ Folders are never overwritten; a suffix `_2`, `_3`, … is added if needed.
 
 | File | Content |
 |---|---|
-| `raw.mat` | `meas`: raw volts of every repetition, settings, generator events, microphones and sensitivities, metadata (the drivers with their display names and settings, the instrument identities with firmware, TEDS, the LAN-XI setup, amplifier, configuration) and the undecoded stream bytes of the last repetition |
-| `result.mat` | `res` (spectra, calibration info, analysis, validity); not for background noise or a measurement without results |
-| `config.json`, `metadata.json` | configuration snapshot; metadata including `softwareInfo` |
-| `results.csv` | one row per frequency line: R, τ, R_term, Z_t, TL, power fractions, condition numbers, every mask and flag |
-| `spectra.csv` | transfer functions per channel, coherence, SNR; stepped sine also the step levels |
+| `raw.mat` | `meas`: raw volts of every repetition, settings, generator events, microphones and sensitivities, metadata (the drivers with their display names and settings, the instrument identities with firmware, TEDS, the LAN-XI setup, amplifier, configuration) and the undecoded stream bytes of the last repetition; an equalized stepped sine (1.6.0) also `meas.equalizer` (the plan with the pre-measurement result per step: frequency, voltage, achieved level) and `meas.settings.stepAmplitudeVpp` (the level of every step) |
+| `result.mat` | `res` (spectra, calibration info, analysis, validity, the level at the specimen `res.levels`, an equalized stepped sine `res.equalizer`); not for background noise or a measurement without results |
+| `config.json`, `metadata.json` | configuration snapshot; metadata including `softwareInfo`; an equalized stepped sine also `equalizer` (mode, unit, target, tolerance, pre-measurement level, maximum and minimum, the number of steps at a limit, `reusedFrom`, the time of the pre-measurement, the step frequencies and levels) |
+| `results.csv` | one row per frequency line: R, τ, R_term, Z_t, TL, power fractions, condition numbers, the level at the specimen (`incident_dB_SPL`, `faceVelocity_mm_s`, rms; NaN without a calibration or a known front face; since 1.6.0), an equalized stepped sine also `eqVoltage_Vpk` (the generator level of the step), `eqTarget` (dB SPL or mm/s) and `eqReached` (1 = within the tolerance; report only), a stepped sine `settleDrift` (the largest excess drift of the settled check over the ports, a fraction of the ratio; NaN = not judged; since 1.6.0), every mask and flag (a stepped sine also `flag_notSettled`) |
+| `spectra.csv` | transfer functions per channel, coherence, SNR; stepped sine also the step levels and `settleDrift<c>` (excess drift of the settled check per DAQ channel, since 1.6.0) |
 | `fig_*.png` | the figures (PNG 200 dpi; a vector PDF only if `output.figureFormats` contains "pdf") |
 | `README.txt` | time, mode, software version, repository and commit |
 
@@ -1276,11 +1470,16 @@ then Start measurement. The Transfer impedance and Transmission loss views show 
 | `tim:lanxi:streamStalled` | network interruption or module stopped; partial data saved in `data\emergency` |
 | `tim:gen:amplitude` | requested amplitude above `generator.maxVpp` (open circuit) or outside the generator's range at the load, or changed at the front panel |
 | `tim:gen:load` | the generator load is not `INF` or a resistance of 1-10000 Ω written as a number |
+| "Check the settings: … cannot change its level while the output is on … Set Equalizer to Off", `tim:session:equalizer` "needs a signal source that can change its level while the output is on" | the stepped-sine equalizer is on with a generator that cannot change its level while its output is on (e.g. the demo generator): set Equalizer to Off (1.6.0) |
+| `tim:session:equalizer` "needs a switching calibration" / "needs the microphone positions and the position of the specimen front face" | the equalizer computes the level at the specimen from the calibrated decomposition: load or run a calibration, enter L1, d and L2 |
+| `tim:session:equalizer` "the pre-measurement has data integrity problems" / "gives no level at the specimen" | nothing was played with the equalizer: check the messages (overload, sensitivity of the reference microphone) and start again; the recorded pre-measurement is in `data\emergency` |
+| Validity "Target level not reached" red at some steps, "N at the maximum" in the messages | the level field (the maximum) is too low for the target at those steps: raise it deliberately (owner's approval) or lower the target; report only, the lines stay valid. For a specimen that is not linear the feedforward rule can also miss the target |
 | `tim:gen:scpiError` | the 33220A reported an error (message included); output switched off |
 | "Excitation not detected" | amplifier off or muted, loudspeaker disconnected, level too low |
 | Calibration "✗ Test E failed" or "– check" (orange) | hover over it: Test E failed, temperature changed by more than 3 K, port distances changed, other mode, another acquisition module or input settings, another microphone on a channel, or calibration sweeps with data integrity problems: check the set-up and recalibrate |
 | Calibration message "C3 (ch3/ch1): no valid frequency line" | no usable signal on that input (microphone unplugged, cable or CCLD fault): the calibration of the other channels is saved, that channel stays uncalibrated and the empty-tube check is skipped; repair the input and calibrate again |
 | Few valid frequency lines | Results > Validity: "no valid calibration" (load or run a calibration), low coherence / low SNR (amplitude, repetitions), termination not anechoic (τ, TL), velocity mismatch (thick specimen: thin-element Z_t not applicable) |
+| Stepped sine: Validity "Rejected: not settled" red at some steps | a transient had not decayed when those steps were recorded (a reflecting termination such as the rigid cap, a resonant specimen, a short settling): raise Settle [cycles] or `settleTime` and measure again. Red at every step with a long settling can also be a stray tone close to the step frequencies (mains hum); red at a few steps only, at random, can be noise in the room during those steps that was not there before the output went on (the check takes the noise from there). Reprocessing does not help: the drift is in the recording (1.6.0) |
 | Transfer impedance view empty, "Thin-element model not applicable" | the specimen is thick (k·d > 1): use Reflection and transmission and Transmission loss |
 | A view shows "Preparing the view…" | the views are prepared in the background during the first half minute after the start (section 2); after a running action it is prepared first. "This view could not be prepared" names the cause in Messages: close and start the program again |
 | A MATLAB command window stays open after the program was closed | `start_tubebench.bat` starts MATLAB without its desktop: type `tubebench` there to open the program again, or `exit` to quit MATLAB |

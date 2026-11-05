@@ -360,7 +360,8 @@ classdef TemplateSource < tim.instr.SignalSource
                 'outputImpedance_ohm', 50, ...                              % TODO source impedance [ohm]
                 'trigger', 'bus', ...                                       % 'bus' | 'software'
                 'readback', 'instrument', ...                               % output state query
-                'levelKnown', true);                                        % absolute volts
+                'levelKnown', true, ...                                     % absolute volts
+                'levelWhileOn', false);                                     % TODO true only if the manual documents a level change while the output is on; then implement setAmplitude (contract 3.2)
             c = struct('roles', {{'source'}}, 'sharedClock', false, 'rolesTogether', false, ...
                 'products', struct('name', {}, 'feature', {}), ...          % TODO MATLAB products beyond the base (e.g. VISA: Instrument Control Toolbox)
                 'source', src);

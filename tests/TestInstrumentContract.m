@@ -205,6 +205,9 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
                     'read-back of the device session only for a shared-clock combined device');
                 tc.verifyTrue(islogical(s.levelKnown));
                 tc.verifyGreaterThan(s.noiseCrest, 1);
+                if isfield(s, 'levelWhileOn')        % optional (1.6.0): setAmplitude declared
+                    tc.verifyTrue(isscalar(s.levelWhileOn) && islogical(s.levelWhileOn), 'levelWhileOn is true or false');
+                end
             end
             if any(strcmp('acquisition', c.roles))
                 q = c.acquisition;
@@ -492,6 +495,95 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.verifyFalse(h.outputOn());
         end
 
+        function levelChangeOnlyWhereDeclared(tc, source)
+            % optional setAmplitude (1.6.0, WO-006; contract 3.2): a source that
+            % does not declare capabilities().source.levelWhileOn refuses it with
+            % tim:gen:unsupported and programs nothing; one that declares it
+            % refuses it outside sine mode (tim:gen:mode), checks the level before
+            % its command (tim:gen:amplitude: nothing reaches the instrument) and
+            % leaves the output state alone. Early returns, no assumptions: an
+            % Incomplete case counts as failed in TestInstrumentTemplates.
+            [src, h, cfg] = tc.make('source', source);
+            c = capabilitiesOf(src); c = c.source;
+            if ~tim.instr.SignalSource.levelWhileOn(c)
+                src.configureSine(1000, 0.2);
+                n = numel(h.levelHistory());
+                tc.verifyError(@() src.setAmplitude(0.1), 'tim:gen:unsupported');
+                tc.verifyNumElements(h.levelHistory(), n, 'nothing programmed');
+                tc.verifyFalse(h.outputOn());
+                return
+            end
+            lim = cfg.generator.maxVpp;
+            tc.verifyError(@() src.setAmplitude(0.1), 'tim:gen:mode', 'not configured');
+            src.configureSine(1000, 0.2);
+            n = numel(h.levelHistory());
+            tc.verifyError(@() src.setAmplitude(1.5 * lim), 'tim:gen:amplitude');
+            tc.verifyError(@() src.setAmplitude(0), 'tim:gen:amplitude');
+            k = find(strcmp(cfg.generator.load, c.loads), 1);
+            if c.minVpp(k) > 0
+                tc.verifyError(@() src.setAmplitude(0.5 * c.minVpp(k)), 'tim:gen:amplitude');
+            end
+            tc.verifyNumElements(h.levelHistory(), n, 'a refused level reaches nothing');
+            tc.verifyTrue(all(h.levelHistory() <= lim), 'no level above the limit reached the instrument');
+            src.setAmplitude(0.1);
+            lv = h.levelHistory();
+            tc.verifyEqual(lv(end), 0.1, 'RelTol', 1e-3, 'the new level');
+            tc.verifyFalse(h.outputOn(), 'the output state is unchanged (off)');
+            sw = struct('fStart', 80, 'fStop', 5500, 'duration', 1, 'spacing', c.sweepSpacing{1}, 'amplitudeVpp', 0.2);
+            src.configureSweep(sw);
+            tc.verifyError(@() src.setAmplitude(0.1), 'tim:gen:mode', 'sine only');
+        end
+
+        function levelChangeWhileTheOutputPlays(tc, source)
+            % a source that declares levelWhileOn changes the level of a playing
+            % sine and keeps the output on: an instrument at once, a planned
+            % (block) output at its planned sample - and not while the plan
+            % plays (tim:gen:schedule)
+            [src, h, cfg] = tc.make('source', source);
+            c = capabilitiesOf(src);
+            if ~tim.instr.SignalSource.levelWhileOn(c.source), return; end
+            lim = cfg.generator.maxVpp;
+            src.configureSine(1000, 0.2);
+            if ~isBlockSource(src)
+                src.armOutput(true); src.outputOn();
+                src.setAmplitude(0.1);
+                tc.verifyTrue(h.outputOn(), 'the output stays on');
+                lv = h.levelHistory();
+                tc.verifyEqual(lv(end), 0.1, 'RelTol', 1e-3);
+                n = numel(h.traffic());
+                tc.verifyError(@() src.setAmplitude(1.5 * lim), 'tim:gen:amplitude');
+                tc.verifyNumElements(h.traffic(), n, 'a refused level sends nothing');
+                tc.verifyTrue(h.outputOn());
+                src.armOutput(false);
+                tc.verifyFalse(h.outputOn());
+                return
+            end
+            src.prepare(tc.channelSetup(cfg));
+            B = planUnit(src);
+            function onBlock(n)
+                if ~src.isPlanning(), return; end
+                switch n
+                    case B, src.outputOn();
+                    case 3 * B, src.setAmplitude(0.1);            % half the level from 3B
+                    case 6 * B, src.outputOff();
+                end
+            end
+            src.armOutput(true);
+            src.acquire(8 * B, @onBlock);
+            src.armOutput(false);
+            p = h.playedSignal();
+            tc.verifyEqual(max(abs(p(B + 1:3 * B))), 0.1, 'RelTol', 0.02, '0.2 Vpp before 3B');
+            tc.verifyEqual(max(abs(p(3 * B + 1:6 * B))), 0.05, 'RelTol', 0.02, '0.1 Vpp from 3B');
+            tc.verifyFalse(h.outputOn());
+            % not while the plan plays
+            [src2, h2, cfg2] = tc.make('source', source);
+            src2.configureSine(1000, 0.2);
+            err = tc.whilePlaying(src2, h2, cfg2, @() src2.setAmplitude(0.1));
+            tc.verifyEqual(err.identifier, 'tim:gen:schedule', 'no level change while the plan plays');
+            tc.verifyFalse(h2.outputOn());
+            src2.armOutput(false);
+        end
+
         %% ---------------- acquisitions ----------------
         function acquireShapeRateUnitIntegrity(tc, acquisition)
             [acq, ~, cfg] = tc.preparedAcquisition(acquisition);
@@ -734,6 +826,56 @@ classdef TestInstrumentContract < matlab.unittest.TestCase
             tc.assertFalse(isnan(doneAt), 'the sweep ran inside the acquisition');
             tc.verifyTrue(ok, 'the sweep completes');
             tc.verifyGreaterThanOrEqual(doneAt, sweepEnd, 'waitComplete true only after the end of the sweep');
+        end
+
+        function levelChangeHeardInTheRecord(tc, separateAcquisition)
+            % sections 3.2 and 10 (1.6.0, WO-006): a level change of a separate
+            % source while its output plays (setAmplitude, levelWhileOn) is heard
+            % by the acquisition on the same rig - the equalized stepped sine
+            % relies on it. Nothing to check when no separate source declares it
+            % (an early return: an Incomplete case counts as failed in
+            % TestInstrumentTemplates).
+            cfg = tc.config('acquisition', separateAcquisition);
+            list = tim.instr.drivers();
+            srcName = '';
+            for i = 1:numel(list)
+                c = capabilitiesOf(list(i).name);
+                if any(strcmp('source', c.roles)) && ~c.rolesTogether && tim.instr.SignalSource.levelWhileOn(c.source)
+                    srcName = list(i).name; break
+                end
+            end
+            if isempty(srcName), return; end
+            cfg.generator.driver = srcName;
+            rig = tim.sim.SimulatedRig(cfg);
+            ctx = struct('mode', 'simulation', 'rig', rig, 'progress', []);
+            src = tim.instr.create('source', cfg, ctx);
+            tc.addTeardown(@() src.close());
+            acq = tim.instr.create('acquisition', cfg, ctx, src);
+            tc.addTeardown(@() acq.close());
+            quiet(acq);
+            hs = feval([class(src) '.testHooks'], src);
+            acq.prepare(tc.channelSetup(cfg));
+            fs = acq.SampleRate;
+            src.configureSine(1000, 0.2);
+            at = [0.25 1.0 2.0];                               % on, half the level, off [s]
+            state = 0;
+            function onBlock(n)
+                if state == 0 && n >= at(1) * fs
+                    src.outputOn(); state = 1;
+                elseif state == 1 && n >= at(2) * fs
+                    src.setAmplitude(0.1); state = 2;
+                elseif state == 2 && n >= at(3) * fs
+                    src.outputOff(); state = 3;
+                end
+            end
+            src.armOutput(true);
+            x = acq.acquire(round(2.5 * fs), @onBlock);
+            src.armOutput(false);
+            tc.assertEqual(state, 3, 'the schedule ran inside the acquisition');
+            tc.verifyFalse(hs.outputOn());
+            % windows clear of the block latency and the 0.1 s acoustic delay of the rig
+            amp = @(t1, t2) tim.dsp.sineResponse(x(round(t1 * fs) + 1:round(t2 * fs), :), fs, 1000).amplitude(1);
+            tc.verifyEqual(amp(0.75, 1.05) / amp(1.55, 1.95), 2, 'RelTol', 0.02, 'half the level after setAmplitude');
         end
 
         %% ---------------- combined block device (planned output, section 8.3) ----------------

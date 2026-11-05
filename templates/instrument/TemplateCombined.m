@@ -471,7 +471,8 @@ classdef TemplateCombined < tim.instr.SignalSource & tim.instr.Acquisition
                 'outputImpedance_ohm', 0, ...                               % TODO source impedance [ohm] (an AO: about 0)
                 'trigger', 'clock', ...                                     % sweep starts sample-exactly on the shared clock
                 'readback', 'device', ...                                   % state of the device session
-                'levelKnown', true);                                        % TODO false for full-scale units (audio): vppAtFullScale
+                'levelKnown', true, ...                                     % TODO false for full-scale units (audio): vppAtFullScale
+                'levelWhileOn', false);                                     % TODO true only if a level change can be planned like setFrequency; then implement setAmplitude (contract 3.2)
             acq = struct('channels', 4, ...                                 % TODO analog inputs (>= 4)
                 'simultaneous', true, ...                                   % TODO must be true
                 'sampleRates', [8192 16384 32768], ...                      % TODO rates it runs EXACTLY, or [] and:

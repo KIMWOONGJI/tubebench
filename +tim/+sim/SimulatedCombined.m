@@ -21,16 +21,19 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
     %   TIMING (contract section 8.3). acquire(n, onBlock) first runs a
     %   PLANNING PASS: onBlock(B), onBlock(2B), ... up to n without waiting
     %   (B = settings.blockSamples), isPlanning() is true, and every source call
-    %   made meanwhile - outputOn, triggerSweep, setFrequency, configure*,
-    %   outputOff - is scheduled sample-exactly at the current n on the device
-    %   timeline. An error out of onBlock (e.g. a Stop) discards the plan:
-    %   nothing is played. Then the EXECUTION plays the plan while recording
-    %   and calls onBlock(nDone) again from the first block; a level,
-    %   frequency, trigger or outputOn call then raises tim:gen:schedule, and
-    %   outputOff stops the output at once (5 ms fade to 0 V, then zeros; the
-    %   recording continues to the end). Outside acquire, configure* and
-    %   setFrequency set the initial state of the next plan, outputOn and
-    %   triggerSweep raise tim:gen:schedule and isOutputOn is false.
+    %   made meanwhile - outputOn, triggerSweep, setFrequency, setAmplitude,
+    %   configure*, outputOff - is scheduled sample-exactly at the current n on
+    %   the device timeline. setAmplitude (1.6.0, levelWhileOn: a new sine
+    %   level from that sample, output state and phase unchanged) serves the
+    %   level equalizer of the stepped sine. An error out of onBlock (e.g. a
+    %   Stop) discards the plan: nothing is played. Then the EXECUTION plays
+    %   the plan while recording and calls onBlock(nDone) again from the first
+    %   block; a level, frequency, trigger or outputOn call then raises
+    %   tim:gen:schedule, and outputOff stops the output at once (5 ms fade to
+    %   0 V, then zeros; the recording continues to the end). Outside acquire,
+    %   configure*, setFrequency and setAmplitude set the initial state of the
+    %   next plan, outputOn and triggerSweep raise tim:gen:schedule and
+    %   isOutputOn is false.
     %
     %   OUTPUT OFF = 0 V (section 3.1): 0 V is written on creation, by
     %   outputOff, close and delete, and every plan or abnormal end finishes
@@ -126,6 +129,28 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
             else
                 obj.device(sprintf('frequency %.6g Hz', f));
                 obj.Frequency = f;
+            end
+        end
+
+        function setAmplitude(obj, vpp)
+            %SETAMPLITUDE New sine level [Vpp], output state and phase unchanged
+            %   (contract 3.2, levelWhileOn; 1.6.0). Sine only (tim:gen:mode);
+            %   the level is checked first (tim:gen:amplitude). Planning pass:
+            %   scheduled at the current sample; while playing: tim:gen:schedule;
+            %   outside acquire: the level of the next plan.
+            obj.assertOpen('setAmplitude');
+            if ~strcmp(obj.planOrConfig().mode, 'sine')
+                error('tim:gen:mode', 'setAmplitude requires sine mode.');
+            end
+            obj.assertNotPlaying('setAmplitude');
+            obj.checkLevel(vpp);
+            obj.LevelLog(end+1) = vpp;
+            if obj.Planning
+                obj.schedule('level', vpp);
+                obj.Plan.level = vpp;
+            else
+                obj.device(sprintf('level %.4g Vpp', vpp));
+                obj.Level = vpp;
             end
         end
 
@@ -439,7 +464,8 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
             src = struct('waveforms', {{'sine', 'sweep', 'noise'}}, 'sweepSpacing', {{'LOG', 'LIN'}}, ...
                 'frequencyRange', [1 Inf], 'bandFraction', 0.45, 'loads', {{'INF'}}, ...
                 'maxVpp', 10, 'minVpp', 0.001, 'sweepTime', [0.1 300], 'noiseCrest', 3.3, ...
-                'outputImpedance_ohm', 0, 'trigger', 'clock', 'readback', 'device', 'levelKnown', true);
+                'outputImpedance_ohm', 0, 'trigger', 'clock', 'readback', 'device', 'levelKnown', true, ...
+                'levelWhileOn', true);                % setAmplitude, planned like setFrequency (1.6.0)
             acq = struct('channels', 4, 'simultaneous', true, 'sampleRates', [4096 8192 16384 32768 65536], ...
                 'sampleRateRange', [], 'bandFraction', 0.45, 'ranges', {{'10 Vpeak'}}, 'filters', {{'0.7 Hz'}}, ...
                 'ccld', true, 'teds', false, 'dataUnit', 'V', 'mode', 'block', 'needsOwnSource', true);
@@ -579,6 +605,8 @@ classdef SimulatedCombined < tim.instr.SignalSource & tim.instr.Acquisition
                     if o.on, o.on = false; o.fadeStart = ev.n; end
                 case 'freq'
                     o.f = ev.value;
+                case 'level'
+                    o.level = ev.value;            % from this sample on (synthesize)
                 case 'trigger'
                     o.sweepStart = ev.n;
                     obj.Rig.markTrigger(obj.Rig.SampleCounter + offset);   % sweep start on the rig timeline

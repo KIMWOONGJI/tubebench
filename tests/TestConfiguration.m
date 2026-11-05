@@ -421,10 +421,12 @@ classdef TestConfiguration < matlab.unittest.TestCase
             p = tim.app.steppedPlan(st, 16384);
             f = p.freqs;
             tc.verifyEqual(f([1 end]), [120 4500], 'exact end points');
-            tc.verifyEqual(p.settle_s, max(0.2, 50 ./ f));
+            % settleTime 0.3 s since the measured command delay (owner decision 2026-11-05)
+            tc.verifyEqual(st.settleTime, 0.3);
+            tc.verifyEqual(p.settle_s, max(0.3, 50 ./ f));
             tc.verifyEqual(p.record_s, max(0.2, 100 ./ f));
             tc.verifyEqual(p.step_s(1), 50 / 120 + 100 / 120, 'AbsTol', 1e-12);   % 1.25 s at 120 Hz
-            tc.verifyEqual(p.step_s(end), 0.4, 'AbsTol', 1e-12);
+            tc.verifyEqual(p.step_s(end), 0.5, 'AbsTol', 1e-12);
             tc.verifyEqual(p.total_s, 1 + sum(p.step_s), 'AbsTol', 1e-12);
             tc.verifyLessThan(p.total_s, 1 + 40 * 0.8, 'shorter than the former fixed 0.3 s + 0.5 s');
             tc.verifyEqual(p.recordSamples, round(p.record_s * 16384));
@@ -454,6 +456,63 @@ classdef TestConfiguration < matlab.unittest.TestCase
             tc.verifyEqual(tim.app.steppedSegment(m, 1, 2), 5601:7600);
             m.settings = struct('settleSamples', 1000, 'recordSamples', 3000);
             tc.verifyEqual(tim.app.steppedSegment(m, 1, 2), 6101:9100);
+        end
+
+        function equalizerSettingsChecked(tc)
+            % the level equalizer of the stepped sine (1.6.0, WO-006; owner
+            % decisions 2026-11-04): defaults, the checks of validateConfig, the
+            % JSON round trip; files and code without the field: mode 'off'
+            c = tim.app.defaultConfig();
+            tc.verifyEqual(c.excitation.stepped.equalizer, ...
+                struct('mode', 'off', 'target', 94, 'preLevel_dB', -20, 'tolerance_dB', 1));
+            tc.verifyEqual(tim.app.equalizerSettings(c.excitation.stepped), c.excitation.stepped.equalizer);
+            tc.verifyEqual(tim.app.equalizerSettings(rmfield(c.excitation.stepped, 'equalizer')).mode, 'off', ...
+                'a stepped sine built without the field');
+            part = tim.app.equalizerSettings(struct('equalizer', struct('mode', 'faceVelocity', 'target', [])));
+            tc.verifyEqual({part.mode, part.target, part.preLevel_dB}, {'faceVelocity', 94, -20}, 'empty keeps the default');
+            tc.verifyWarningFree(@() tim.app.validateConfig(c));
+            b = c; b.excitation.stepped = rmfield(b.excitation.stepped, 'equalizer');
+            tc.verifyWarningFree(@() tim.app.validateConfig(b), 'no field: nothing to check');
+            % valid settings in both modes
+            for good = {{'incidentPressure', 20}, {'incidentPressure', 160}, {'faceVelocity', 0.5}, {'faceVelocity', 1e4}}
+                b = c; b.excitation.stepped.equalizer.mode = good{1}{1}; b.excitation.stepped.equalizer.target = good{1}{2};
+                tc.verifyWarningFree(@() tim.app.validateConfig(b, 'instruments'), sprintf('%s %g', good{1}{:}));
+            end
+            % refused values
+            bad = {{'mode', 'pressure'}, {'mode', 3}, {'preLevel_dB', 0}, {'preLevel_dB', -61}, {'preLevel_dB', NaN}, ...
+                {'tolerance_dB', 0}, {'tolerance_dB', 21}, {'tolerance_dB', [1 2]}};
+            for i = 1:numel(bad)
+                b = c; b.excitation.stepped.equalizer.(bad{i}{1}) = bad{i}{2};
+                tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:equalizer', bad{i}{1});
+            end
+            for t = {{'incidentPressure', 19}, {'incidentPressure', 170}, {'incidentPressure', NaN}, ...
+                    {'faceVelocity', 0}, {'faceVelocity', 2e4}, {'faceVelocity', -1}}
+                b = c; b.excitation.stepped.equalizer.mode = t{1}{1}; b.excitation.stepped.equalizer.target = t{1}{2};
+                tc.verifyError(@() tim.app.validateConfig(b), 'tim:config:equalizer', sprintf('%s %g', t{1}{:}));
+            end
+            b = c; b.excitation.stepped.equalizer.target = 400;          % mode off: the target is not checked
+            tc.verifyWarningFree(@() tim.app.validateConfig(b));
+            % a face-velocity target that looks like a level, and a source without a level change: reported
+            b = c; b.excitation.stepped.equalizer.mode = 'faceVelocity';
+            tc.verifySubstring(strjoin(tim.app.validateConfig(b), ' '), 'Check the unit of the target');
+            b = c; b.generator.driver = 'demo'; b.excitation.stepped.equalizer.mode = 'incidentPressure';
+            tc.verifySubstring(strjoin(tim.app.validateConfig(b), ' '), 'cannot change its level while the output is on');
+            tc.verifyFalse(any(contains(tim.app.validateConfig(c), 'equalizer')), 'nothing reported while it is off');
+            % JSON round trip and files without the field
+            b = c; b.excitation.stepped.equalizer = struct('mode', 'faceVelocity', 'target', 2.5, 'preLevel_dB', -26, ...
+                'tolerance_dB', 0.5);
+            f = fullfile(tc.tmp, 'eq.json');
+            tim.app.saveConfig(b, f);
+            r = tc.verifyWarningFree(@() tim.app.loadConfig(f));
+            tc.verifyEqual(r.excitation.stepped.equalizer, b.excitation.stepped.equalizer);
+            u = struct('excitation', struct('stepped', struct('equalizer', struct('mode', 'incidentPressure'))));
+            e = tim.app.loadConfig(tc.writeJson(u, 'eqPart.json')).excitation.stepped.equalizer;
+            tc.verifyEqual({e.mode, e.target, e.tolerance_dB}, {'incidentPressure', 94, 1}, 'missing keys: the defaults');
+            root = fileparts(fileparts(mfilename('fullpath')));
+            for n = {'user_config.json', 'example_config.json', 'sim_thin_screen.json'}
+                u = tc.verifyWarningFree(@() tim.app.loadConfig(fullfile(root, 'config', n{1})));
+                tc.verifyEqual(u.excitation.stepped.equalizer.mode, 'off', n{1});
+            end
         end
 
         function sweepMarginCheckedAtTheLimitsOfTheAnalysis(tc)

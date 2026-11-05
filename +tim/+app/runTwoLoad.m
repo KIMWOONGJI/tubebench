@@ -12,7 +12,13 @@ function out = runTwoLoad(session, opts)
 %     2. session.setTermination(load): recorded in the measurement's metadata,
 %        and in simulation the virtual rig mounts the load;
 %     3. one measurement with cfg.excitation.mode - load B at
-%        measurement.loadBLevel_dB relative to load A (only lower);
+%        measurement.loadBLevel_dB relative to load A (only lower). With the
+%        level equalizer of the stepped sine on (excitation.stepped.equalizer,
+%        1.6.0; owner decisions 2026-11-04) the termination change is followed
+%        by a pre-measurement as its own step (session.measureEqualizerPlan,
+%        loads A and B), load A again is played with the voltages of load A
+%        (no new pre-measurement, so the repeat compares only the mounting),
+%        and loadBLevel_dB is ignored (the equalizer sets every level);
 %     4. processing with session.Calibration (tim.app.processMeasurement);
 %     5. saving AT ONCE in a folder of its own (tim.app.saveMeasurement, name
 %        <kind>[_<specimen>]_load<role>_<tag>): a Stop, a cancel or an error
@@ -25,7 +31,9 @@ function out = runTwoLoad(session, opts)
 %           message in the command window, Enter to go on
 %   opts.report(q)   q.kind 'load' after every load (role, label, folder, res,
 %           meas, k, n, load, cfg), 'saving' before the figures and the pair
-%           folder are written (text), 'result' at the end (tl, folder)
+%           folder are written (text), 'result' at the end (tl, folder);
+%           with the equalizer 'pre' before (state 'start') and after (state
+%           'done', plan) the pre-measurement of loads A and B (role, k, n)
 %   opts.specimen    name for the folders and the metadata ('' = none)
 %   opts.save        false: nothing is written (tests); default true
 %   opts.figures     @(res, meas) -> struct of figures for a load folder
@@ -81,6 +89,22 @@ restoreLevel = onCleanup(@() restoreExcitation(session, ex0));
 loads = struct('role', {}, 'load', {}, 'meas', {}, 'res', {}, 'folder', {}, 'cfg', {});
 session.log('Two-load measurement (ASTM E2611): load A "%s", load B "%s"%s.', dA.label, dB.label, ...
     ternary(n == 3, ', load A repeated at the end', ''));
+% the level equalizer of the stepped sine (owner decisions 2026-11-04): a
+% pre-measurement after every change of termination, A' with the plan of A,
+% the B level not used
+eqOn = strcmp(cfg.excitation.mode, 'stepped') && ...
+    ~strcmp(tim.app.equalizerSettings(cfg.excitation.stepped).mode, 'off');
+if eqOn && ms.loadBLevel_dB < 0
+    session.log('Load B level (measurement.loadBLevel_dB = %+g dB) ignored: the equalizer sets the level of every step.', ...
+        ms.loadBLevel_dB);
+end
+planA = [];
+if eqOn
+    % a plan armed here is for the load it was measured for: a Stop or an
+    % error before that measurement must not leave it armed for a later
+    % stepped measurement (review 2026-11-05; sends nothing)
+    dropPlan = onCleanup(@() disarmPlan(session));
+end
 for k = 1:n
     st = steps(k);
     session.throwIfStopped();
@@ -95,13 +119,24 @@ for k = 1:n
     session.throwIfStopped();
     session.log('%s', msg);
     session.setTermination(st.load);
-    if strcmp(st.role, 'B') && ms.loadBLevel_dB < 0
+    if ~eqOn && strcmp(st.role, 'B') && ms.loadBLevel_dB < 0
         ex = ex0; md = ex.mode;
         ex.(md).amplitudeVpp = ex0.(md).amplitudeVpp * 10^(ms.loadBLevel_dB / 20);
         session.setExcitation(ex);
         session.log('Load B at %+.1f dB relative to load A: %.3g Vpk.', ms.loadBLevel_dB, ex.(md).amplitudeVpp / 2);
     elseif ~isequal(session.Cfg.excitation, ex0)
         session.setExcitation(ex0);
+    end
+    if eqOn && strcmp(st.role, 'A2') && ~isempty(planA)
+        p = planA; p.reusedFrom = 'A';
+        session.setEqualizerPlan(p);              % checked: the same termination, steps and maximum
+        session.log('Load A again with the voltages of load A (no new pre-measurement).');
+    elseif eqOn
+        report(struct('kind', 'pre', 'state', 'start', 'role', st.role, 'k', k, 'n', n));
+        p = session.measureEqualizerPlan();       % armed for the measurement of this load
+        if strcmp(st.role, 'A'), planA = p; end
+        report(struct('kind', 'pre', 'state', 'done', 'role', st.role, 'k', k, 'n', n, 'plan', p));
+        session.throwIfStopped();
     end
     m = session.measure(cfg.excitation.mode);
     m.metadata.specimen = ternary(isempty(specimen), 'unnamed specimen', specimen);
@@ -169,6 +204,15 @@ function restoreExcitation(session, ex0)
 % the level of load A again after a lowered load B (also after a Stop or an error)
 try
     if ~isequal(session.Cfg.excitation, ex0), session.setExcitation(ex0); end
+catch
+end
+end
+
+function disarmPlan(session)
+% an equalizer plan the sequence armed and did not use: disarmed (also after a
+% Stop or an error)
+try
+    if isvalid(session), session.setEqualizerPlan([]); end
 catch
 end
 end

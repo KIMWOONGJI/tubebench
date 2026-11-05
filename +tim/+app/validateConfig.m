@@ -149,6 +149,17 @@ for i = 1:size(lims, 1)
         end
     end
 end
+% settled check of the stepped sine (1.6.0, owner decision 2026-11-04): a
+% relative drift > 0; Inf (in a script) switches the check off. A file
+% without the key keeps the default (loadConfig)
+if isfield(cfg.analysis, 'settleDriftMax')
+    v = cfg.analysis.settleDriftMax;
+    if ~(isnumeric(v) && isscalar(v) && isreal(v) && ~isnan(v) && v > 0)
+        error('tim:config:settled', '%s', ['Settled check of the stepped sine (analysis.settleDriftMax) must be ' ...
+            'a number greater than 0: the largest relative drift of a channel ratio between the first and the last ' ...
+            'block of a step, e.g. 0.01 (1 %).']);
+    end
+end
 % measurement method and termination loads (WO-005)
 if isfield(cfg, 'measurement')
     ms = cfg.measurement;
@@ -267,6 +278,12 @@ assert(nonneg(st.settleTime) && nonneg(st.settleCycles) && nonneg(st.recordCycle
 if st.fStart < cfg.analysis.fMin || st.fStop > cfg.analysis.fMax
     report{end+1} = 'Stepped sine: frequencies outside the analysis band are always marked not valid.';
 end
+% level equalizer of the stepped sine (1.6.0, WO-006): checked when present; a
+% file or script without it keeps the default (mode 'off': loadConfig,
+% tim.app.equalizerSettings)
+if isfield(st, 'equalizer')
+    report = [report, checkEqualizer(cfg, st.equalizer)];
+end
 g = cfg.geometry;
 if any(~isfinite(g.micPositions))
     report{end+1} = 'Microphone port positions not entered: only the results of the individual microphone pairs are available.';
@@ -281,6 +298,63 @@ if all(isfinite(g.micPositions))
     end
 end
 report = [report, checkDrivers(cfg, strcmp(scope, 'instruments'))];
+end
+
+function report = checkEqualizer(cfg, u)
+% excitation.stepped.equalizer (1.6.0, WO-006; owner decisions 2026-11-04):
+% errors tim:config:equalizer. The target is checked while the equalizer is
+% on, in the unit of its mode. A signal source that cannot change its level
+% while the output is on is only reported here (a file still loads); the
+% session refuses the equalized stepped sine before anything is armed
+% (tim:session:equalizer)
+report = {};
+if ~(isstruct(u) && isscalar(u))
+    error('tim:config:equalizer', ['Stepped-sine equalizer (excitation.stepped.equalizer) must be a struct with ' ...
+        'mode, target, preLevel_dB and tolerance_dB.']);
+end
+eq = tim.app.equalizerSettings(struct('equalizer', u));
+if ~(ischar(eq.mode) && any(strcmp(eq.mode, {'off', 'incidentPressure', 'faceVelocity'})))
+    error('tim:config:equalizer', ['Equalizer (excitation.stepped.equalizer.mode) must be ''off'', ' ...
+        '''incidentPressure'' or ''faceVelocity''.']);
+end
+num = @(v) isnumeric(v) && isscalar(v) && isreal(v) && isfinite(v);
+if ~(num(eq.preLevel_dB) && eq.preLevel_dB >= -60 && eq.preLevel_dB < 0)
+    error('tim:config:equalizer', ['Level of the equalizer pre-measurement (excitation.stepped.equalizer.preLevel_dB) ' ...
+        'must lie between -60 dB and 0 dB (below the amplitude).']);
+end
+if ~(num(eq.tolerance_dB) && eq.tolerance_dB > 0 && eq.tolerance_dB <= 20)
+    error('tim:config:equalizer', ['Equalizer tolerance (excitation.stepped.equalizer.tolerance_dB) must be greater ' ...
+        'than 0 dB and at most 20 dB.']);
+end
+if strcmp(eq.mode, 'off'), return; end
+if strcmp(eq.mode, 'incidentPressure')
+    if ~(num(eq.target) && eq.target >= 20 && eq.target <= 160)
+        error('tim:config:equalizer', ['Equalizer target (excitation.stepped.equalizer.target) must be a level of ' ...
+            '20 to 160 dB SPL (incident wave at the specimen, rms).']);
+    end
+else
+    if ~(num(eq.target) && eq.target > 0 && eq.target <= 1e4)
+        error('tim:config:equalizer', ['Equalizer target (excitation.stepped.equalizer.target) must be a particle ' ...
+            'velocity greater than 0 and at most 10000 mm/s (rms).']);
+    end
+    if eq.target > 50
+        % one target field for both modes (owner decision): a level typed for
+        % the incident pressure would ask for a very high velocity
+        report{end+1} = sprintf(['Equalizer target %g mm/s (excitation.stepped.equalizer.target, face velocity): a ' ...
+            'plane wave of that velocity has about %.0f dB SPL (ρc ≈ 413 Pa·s/m); most steps will be played at the ' ...
+            'amplitude, the maximum. Check the unit of the target.'], eq.target, 20 * log10(413e-3 * eq.target / 2e-5));
+    end
+end
+name = cfg.generator.driver;
+if isstring(name) && isscalar(name), name = char(name); end
+if ischar(name) && any(strcmp(name, {tim.instr.drivers().name}))
+    d = tim.instr.driverInfo(name);
+    if isfield(d.capabilities, 'source') && ~tim.instr.SignalSource.levelWhileOn(d.capabilities.source)
+        report{end+1} = sprintf(['Stepped-sine equalizer (excitation.stepped.equalizer.mode ''%s''): the %s cannot ' ...
+            'change its level while the output is on, so an equalized stepped sine is refused. Switch the equalizer ' ...
+            'off for this signal source.'], eq.mode, d.displayName);
+    end
+end
 end
 
 function report = checkDrivers(cfg, required)

@@ -203,6 +203,9 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             tc.verifyEqual(ax.Title.String, tim.plots.dataTitle(tc.mSweep, struct('simulation', false)), ...
                 'kind and time; no calibration tag (the PSD uses only the sensitivities)');
             tc.verifyEqual(ax.Legend.String, {'ch1 (M1)', 'ch2 (M2)', 'ch3 (M3)', 'ch4 (M4)', 'Analysis band 120 – 4500 Hz'});
+            % owner request 2026-11-05: the legend above the plot area, never over the data
+            tc.verifyEqual(ax.Legend.Location, 'northoutside');
+            tc.verifyEqual(ax.Legend.NumColumns, 4);
             % same Welch estimate from the raw record when no result is given
             ax2 = tc.axesFor(1);
             info2 = tim.plots.spectrum(ax2, tc.mSweep, []);
@@ -247,6 +250,7 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             tc.verifyNumElements(dotted, 5, 'noise of 4 channels + legend sample');
             tc.verifyEqual(ax.YLabel.String, 'Tone level [dB SPL]');
             tc.verifyEqual(ax.Legend.String{end}, 'Noise in fit bandwidth');
+            tc.verifyEqual(ax.Legend.Location, 'northoutside', 'legend above the plot area (1.6.1)');
             S = info.summary;
             tc.verifyEqual(S.columns(3:5), {'Min tone level [dB SPL]', 'Max tone level [dB SPL]', 'Median SNR [dB]'});
             tc.verifyEqual(str2double(S.data{1, 4}), max(tl.spl_dB(:, 1)), 'AbsTol', 0.06);

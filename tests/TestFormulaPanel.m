@@ -9,7 +9,8 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
     %   code; the formulas use the glossary symbols (D diameter, d thickness,
     %   kappa for the ratio of specific heats, tau_a for the anechoic
     %   coefficient) and the code's choices (0.58 c/D, Zc in the velocity,
-    %   Kirchhoff k, stepped SNR per block, the Zt bias of 'iso10534'); the
+    %   Kirchhoff k, stepped SNR per block, the stepped-sine settled check,
+    %   the Zt bias of 'iso10534'); the
     %   texts name the control-panel section and fields; plain text has no
     %   ASCII math; every section ends with its sources, and the numbered
     %   references are those of docs/theory.md, word for word.
@@ -75,6 +76,8 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
             has = @(s) any(contains(crit, s));
             tc.verifyTrue(has(['\gamma_k^{2} \ge ' n(a.coherenceMin) '$']), 'coherence');
             tc.verifyTrue(has(['\mathrm{SNR}_k \ge ' n(a.snrMin_dB) '\ \mathrm{dB}']), 'SNR');
+            tc.verifyTrue(has(['\Delta_k - 4\,\sigma_{\Delta,k} \le ' n(a.settleDriftMax) '$']), ...
+                'settled check of the stepped sine (1.6.0)');
             tc.verifyTrue(has(['\mathrm{cond} \le ' n(a.condMax) '$']), 'condition number');
             tc.verifyTrue(has(['\le ' n(a.maxPhaseSensitivity) ', \quad \delta\varphi = ' n(a.phaseUncertainty_rad)]), ...
                 'phase sensitivity');
@@ -111,6 +114,16 @@ classdef TestFormulaPanel < matlab.unittest.TestCase
             % stepped-sine SNR per block, swept-sine noise energy
             tc.verifyTrue(contains(e, '{G_{\mathrm{n},k}\,f_s/N}'));
             tc.verifyTrue(contains(e, 'E|N_k|^{2} = \frac{G_{\mathrm{n},k}}{2}\,f_s\sum_m w_m^{2}'));
+            % settled check of the stepped sine (1.6.0): first vs last block, the
+            % noise sigma from the per-block SNR with the noise of the pre-roll,
+            % the excess over 4 sigma (tim.dsp.sineResponse, tim.app.processMeasurement)
+            tc.verifyTrue(contains(e, '\Delta_k = \frac{|H_{k,n_b} - H_{k,1}|}{|H_k^{\mathrm{m}}|}'));
+            tc.verifyTrue(contains(e, ['\sigma_{\Delta,k} = \sqrt{2\left(10^{-\mathrm{SNR}^{0}_k/10} + ' ...
+                '10^{-\mathrm{SNR}^{0}_{\mathrm{ref}}/10}\right)}']));
+            % the deviation of the equalizer has its own symbol (not the drift Delta_k)
+            tc.verifyTrue(contains(e, '|\Delta L_k| \le '));
+            tc.verifyFalse(contains(e, '|\Delta_k| \le '));
+            tc.verifyTrue(contains(e, '\max_k\left(\Delta_k - 4\,\sigma_{\Delta,k}\right) > '));
             % calibration with the chain gain g (c is the speed of sound)
             tc.verifyTrue(contains(e, 'C_k = \frac{g_k}{g_{\mathrm{ref}}} = \sqrt{H^{\mathrm{I}}\,H^{\mathrm{II}}}'));
             % the numbers shown for the loss model are those of tim.acoustics.wavenumber

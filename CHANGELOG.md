@@ -6,6 +6,57 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## 1.6.1 - 2026-11-05
+
+### Added
+- **Progress strip of the stepped sine** in Measurement > Time signals: one time line above the
+  graphs, exactly as wide as their plot area, with one block per step (width = planned time,
+  settling and measured parts), steps done in blue, the running step amber while it settles, the
+  octave frequencies under their steps, the pass / step / frequency / phase on the left and the
+  time left on the right. The equalizer's pre-measurement comes first on the same line;
+  repetitions and two-load runs are labelled. Green when done, the rest light red after Stop. The
+  session records the progress (`MeasurementSession.Progress`; no instrument I/O, bus traffic
+  unchanged); `tim.gui.stepProgress` / `tim.gui.progressStrip`; `TestProgressStrip`.
+
+### Changed
+- Measurement > Spectrum (window and saved figure): the legend stands above the plot area in up to
+  four columns instead of inside it, so it no longer covers the curves.
+
+## 1.6.0 - 2026-11-05
+
+### Added
+- **Level at the specimen** (WO-006 stage 1): every processed measurement gives the incident
+  pressure at the front face |A| [dB SPL] and the face velocity |u_L| [mm/s] from the calibrated
+  wave decomposition (`res.levels`, `tim.acoustics.faceLevels`; a swept sine its sine-equivalent
+  level, `tim.dsp.sweepEquivalentAmplitude`; random noise none). Shown in Spectrum and written to
+  `spectra.csv`.
+- **Level equalizer of the stepped sine** (WO-006 stage 2): Equalizer `Incident pressure` or
+  `Face velocity` with a target (`excitation.stepped.equalizer`). A pre-measurement of the same
+  steps at −20 dB below the amplitude field, then every step at
+  V_k = min(amplitude, V_pre × target / achieved_pre), set with the frequency of the step while
+  the output stays on. The amplitude field is the maximum of every step; a step that cannot reach
+  the target is reported ("Target level not reached", `res.equalizer`), never masked. Two loads:
+  a pre-measurement per termination, A′ with the voltages of A, the B level greyed. Feedforward
+  only (no correction pass). Not yet checked on the instruments.
+- Driver contract: optional `setAmplitude` and `capabilities().source.levelWhileOn`; a source
+  without it refuses the equalizer (`tim:session:equalizer`). The 33220A driver sends `VOLT` with
+  the output on; the bus fixtures are unchanged.
+- **Settled check of the stepped sine**: the channel ratio of the first and the last block of every
+  step is compared against the noise of the 0.5 s before the output goes on; a drift above
+  `analysis.settleDriftMax` (0.01) flags the step `notSettled` and makes it invalid (Validity row
+  "Rejected: not settled", `settleDrift` in the CSV files). Checked against the measured decay of
+  the empty lab tube with the absorber and with the rigid cap (2026-11-05).
+- Work order WO-007 (mains hum at the stepped-sine frequencies): a proposal, recorded only.
+
+### Changed
+- Stepped sine: the minimum settling `settleTime` is 0.3 s (was 0.2 s; defaults and the shipped
+  configuration files). Measured on 2026-11-05: the new frequency reaches the recording 35–140 ms
+  after the command; 40 steps take about 25 s instead of 22 s.
+- A stepped measurement saved before 1.6.0 gets the settled check when it is reprocessed, so a
+  Reprocess can reject steps that were valid before.
+- A rejected or stopped equalizer pre-measurement is kept in an emergency file; a stopped two-load
+  run leaves no plan of the earlier load behind.
+
 ## 1.5.1 - 2026-11-04 (`29504e1`)
 
 ### Added

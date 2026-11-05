@@ -334,7 +334,8 @@ classdef DemoSource < tim.instr.SignalSource
                 'outputImpedance_ohm', 50, ...                              % source impedance [ohm] (ref 3.1)
                 'trigger', 'bus', ...                                       % *TRG (ref 3.4)
                 'readback', 'instrument', ...                               % OUTP1:STAT? (ref 3.1)
-                'levelKnown', true);                                        % absolute volts
+                'levelKnown', true, ...                                     % absolute volts
+                'levelWhileOn', false);                                     % a level change with the output on is not documented: no setAmplitude (contract 3.2)
             c = struct('roles', {{'source'}}, 'sharedClock', false, 'rolesTogether', false, ...
                 'products', struct('name', {}, 'feature', {}), ...          % nothing beyond the base (tcpclient)
                 'source', src);

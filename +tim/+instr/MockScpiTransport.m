@@ -7,7 +7,11 @@ classdef MockScpiTransport < handle
     %     * SYST:ERR? FIFO queue, *CLS clears it, *RST does not
     %     * unknown headers produce -113
     %   If a tim.sim.SimulatedRig is attached, output/trigger events are
-    %   forwarded so the simulated acquisition "hears" the excitation.
+    %   forwarded so the simulated acquisition "hears" the excitation. A
+    %   level change while the output is on (VOLT with OUTP ON: the
+    %   equalizer's setAmplitude, 1.6.0) reaches the rig like every other
+    %   change, so the next block it generates plays the new level, phase
+    %   continuous.
     %
     %   Fault injection: set FailNextQuery = true to emulate a timeout,
     %   InjectError = '-222,"Data out of range"' to push an error,

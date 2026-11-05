@@ -20,6 +20,21 @@ function info = spectrum(ax, meas, res, opts)
 %   grey with this explanation. Title: kind and time of the record
 %   (tim.plots.dataTitle without the calibration tag - neither the PSD nor
 %   the tone levels use the complex calibration).
+%   Level at the specimen (1.6.0, WO-006 stage 1; res.levels of a calibrated
+%   swept or stepped sine with known faces): the incident wave at the specimen
+%   front face in black (lines that are not valid in grey; Tag
+%   'timLevelIncident'). Stepped sine: squares on the tone-level axis (dB SPL);
+%   swept sine: a curve on a right y axis in dB SPL (the sine-equivalent level
+%   of the sweep; the left axis stays the PSD). Nothing is added for a result
+%   without it (uncalibrated, faces unknown, noise, older results), and the
+%   right axis of an earlier drawing on the same axes is emptied and hidden.
+%   Equalized stepped sine (res.equalizer, 1.6.0, WO-006 stage 2): the target
+%   as a dashed line (Tag 'timEqTarget') in a light green band of ± the
+%   tolerance (Tag 'timEqBand'). Incident pressure: on the tone-level axis,
+%   next to the black squares. Face velocity: the particle velocity at the
+%   front face (black triangles, Tag 'timLevelVelocity'; grey where not
+%   valid) with its target on a right y axis in mm/s. Lines and patches, no
+%   ConstantLine (the analysis band lines of the PSD are the only ones).
 %
 %   opts (all optional): .band [fMin fMax] (default [120 4500]),
 %   .simulation, .emptyText, .stepped (default from res.kind / meas.kind).
@@ -27,6 +42,11 @@ function info = spectrum(ax, meas, res, opts)
 %                   stepped: Channel | Port | Min / Max tone level | Median SNR
 %         .note     explanation for the header of the view
 %         .lines    one handle per channel (PSD or tone levels)
+%         .levels   level at the specimen: .shown, .axis ('left' | 'right'),
+%                   .lines (the black curve)
+%         .equalizer  target of an equalized stepped sine: .shown, .mode,
+%                   .axis ('left' | 'right'), .lines (band, target line and,
+%                   face velocity, the velocity curve)
 %         .axes     the axes
 
 if nargin < 4 || isempty(opts), opts = struct(); end
@@ -34,6 +54,7 @@ o = defaults(opts, res);
 o.dataUnit = dataUnit(meas, res);              % 'V', or 'FS' (input scale unknown)
 P = tim.gui.palette();
 legend(ax, 'off');
+hideRightAxis(ax);                               % the incident level of an earlier sweep
 cla(ax); hold(ax, 'on');
 ax.XScale = 'log'; ax.YScale = 'linear';         % before style: a log scale switches minor ticks on
 tim.plots.style(ax);
@@ -42,7 +63,9 @@ hasRes = ~isempty(res) && isstruct(res);
 src = []; if hasRes, src = res; elseif hasMeas, src = meas; end
 stepped = o.stepped;
 if isempty(stepped), stepped = ~isempty(src) && isfield(src, 'kind') && strcmp(src.kind, 'stepped'); end
-info = struct('summary', emptySummary(), 'note', '', 'lines', gobjects(0), 'axes', ax);
+info = struct('summary', emptySummary(), 'note', '', 'lines', gobjects(0), ...
+    'levels', struct('shown', false, 'axis', '', 'lines', gobjects(0)), ...
+    'equalizer', struct('shown', false, 'mode', '', 'axis', '', 'lines', gobjects(0)), 'axes', ax);
 xlabel(ax, 'Frequency [Hz]');
 
 % ---- stepped sine, processed: tone level of every step
@@ -87,6 +110,7 @@ end
 hb = bandLines(ax, o.band);
 hold(ax, 'off');
 names = arrayfun(@(c) channelName(ch(c), port(c)), 1:numel(ch), 'UniformOutput', false);
+itxt = '';                                       % summary text of the level at the specimen
 if stepped
     tim.plots.fitAxes(ax, 'XRange', [20 fs / 2]);
     tim.plots.fitAxes(ax, 'Axis', 'y', 'YSteps', [1 2 5], 'YInclude', max(L(:)) + 0.3 * (max(L(:)) - min(L(:))));
@@ -98,19 +122,27 @@ if stepped
 else
     tim.plots.fitAxes(ax, 'XRange', [20 fs / 2]);
     tim.plots.fitAxes(ax, 'Axis', 'y', 'YSteps', [1 2 5], 'YInclude', minSpan(L, 40));
-    tim.plots.legend(ax, [h hb], [names, {bandName(o.band)}]);
+    % level at the specimen (swept sine): right axis, after the left one is fitted
+    hi = gobjects(0); iname = {};
+    if hasRes && pa, [hi, iname, itxt] = specimenCurves(ax, res, P, false); end
+    tim.plots.legend(ax, [h hi hb], [names, iname, {bandName(o.band)}], 'northoutside');   % never over the data (1.6.1)
     if pa
         info.note = 'One-sided Welch PSD of the sound pressure (repetition 1, whole record); dashed: analysis band.';
+        if ~isempty(hi)
+            info.note = [info.note ' Black (right axis): incident wave at the front face, sine-equivalent.'];
+        end
     elseif strcmp(o.dataUnit, 'V')
         info.note = 'No valid sensitivity for every channel: PSD of the channel voltages; dashed: analysis band.';
     else
         info.note = sprintf(['Data in %s (input scale unknown): PSD of the channel signals, no sound pressure; ' ...
             'dashed: analysis band.'], o.dataUnit);
     end
+    info.levels = struct('shown', ~isempty(hi), 'axis', 'right', 'lines', hi);
 end
 title(ax, titleOf(meas, res, o));
 info.lines = h;
 info.summary = psdSummary(f, G, ch, port, o.band, fs, pa, o.dataUnit);
+info.summary.note = [info.summary.note itxt];
 end
 
 % ---------------------------------------------------------------------------
@@ -177,6 +209,14 @@ end
 C = size(lv, 2);
 [ch, port] = channelPorts(meas, res, C);
 fk = tl.f(:);
+% the band of an incident-pressure target goes on this axis BEFORE the data, so
+% it lies behind them without restacking (uistack fails on the axes of a
+% yyaxis drawing, which the window reuses)
+hbL = gobjects(0);
+e = equalizerOf(res);
+if pa && levelsShown(res) && ~isempty(e) && strcmp(e.mode, 'incidentPressure')
+    hbL = eqBand(ax, e, res.levels.f(:), P);
+end
 h = gobjects(1, C);
 for c = 1:C
     col = P.ch(ch(c), :);
@@ -185,14 +225,32 @@ for c = 1:C
         'MarkerSize', 5, 'MarkerFaceColor', col, 'MarkerEdgeColor', col);
 end
 hn = plot(ax, NaN, NaN, ':', 'Color', [0.35 0.35 0.35], 'LineWidth', 1.1);     % legend entry only
+% level at the specimen: on this axis (dB SPL as the tone levels), before the fit
+hi = gobjects(0); iname = {}; itxt = '';
+if pa, [hi, iname, itxt] = specimenCurves(ax, res, P, true); end
+% the target of an equalized stepped sine (1.6.0), with the incident level
+he = gobjects(0); ename = {}; etxt = '';
+if ~isempty(hi), [he, ename, etxt, info.equalizer] = equalizerTarget(ax, res, P, hbL); end
 if pa, ylabel(ax, 'Tone level [dB SPL]'); else, ylabel(ax, sprintf('Tone level [dB re 1 %s]', o.dataUnit)); end
 names = arrayfun(@(c) channelName(ch(c), port(c)), 1:C, 'UniformOutput', false);
 tim.plots.fitAxes(ax, 'XRange', o.band, 'XInclude', [min(fk) max(fk)]);
 tim.plots.fitAxes(ax, 'Axis', 'y', 'YSteps', [1 2 5]);
-tim.plots.legend(ax, [h hn], [names, {'Noise in fit bandwidth'}]);
+tim.plots.legend(ax, [h hi he hn], [names, iname, ename, {'Noise in fit bandwidth'}], 'northoutside');   % never over the data (1.6.1)
 info.lines = h;
+info.levels = struct('shown', ~isempty(hi), 'axis', 'left', 'lines', hi);
 info.note = sprintf(['Stepped sine, %d steps: tone level of every step from the sine fit of the settled part ' ...
     '(markers); dotted: residual noise in the fit bandwidth.'], numel(fk));
+if ~isempty(hi)
+    info.note = [info.note ' Black squares: incident wave at the front face.'];
+end
+if info.equalizer.shown
+    if strcmp(info.equalizer.mode, 'faceVelocity')
+        info.note = [info.note ' Triangles (right axis): face velocity; dashed in green: its target ± tolerance.'];
+    else
+        info.note = [info.note ' Dashed in green: the equalizer target ± tolerance.'];
+    end
+end
+itxt = [itxt etxt];
 % summary
 unit = 'dB SPL'; if ~pa, unit = ['dB re 1 ' o.dataUnit]; end
 cols = {'Channel', 'Port', sprintf('Min tone level [%s]', unit), sprintf('Max tone level [%s]', unit), ...
@@ -204,7 +262,157 @@ for c = 1:C
         num(max(lv(:, c)), '%.1f'), num(median(snr, 'omitnan'), '%.1f')};
 end
 info.summary = struct('title', 'Step levels', 'columns', {cols}, 'data', {D}, ...
-    'note', 'SNR = tone level − residual noise in the fit bandwidth (per step, minimum over repetitions).');
+    'note', ['SNR = tone level − residual noise in the fit bandwidth (per step, minimum over repetitions).' itxt]);
+end
+
+function [h, name, txt] = specimenCurves(ax, res, P, stepped)
+% level at the specimen front face (res.levels, 1.6.0, WO-006 stage 1): the
+% incident wave in black, the lines that are not valid in grey. Stepped sine:
+% squares on the tone-level axis (dB SPL; never Marker 'o' or a dotted line,
+% which are the channels and the noise); swept sine: a curve on the right y
+% axis (the left one is a PSD), fitted on its own; the left axis stays the
+% fitted, active one. Nothing for a result without it (uncalibrated, faces
+% unknown, random noise, results before 1.6.0).
+h = gobjects(0); name = {}; txt = '';
+if ~levelsShown(res), return; end
+lv = res.levels;
+fk = lv.f(:); y = lv.incident_dB_SPL(:);
+ok = lv.valid(:) & isfinite(y);
+if stepped
+    yv = y; yv(~ok) = NaN;
+    plot(ax, fk, y, '-', 'Color', P.invalid, 'LineWidth', 0.6, 'Marker', 's', 'MarkerSize', 6, ...
+        'MarkerEdgeColor', P.invalidMarker, 'MarkerFaceColor', 'w', 'Tag', 'timLevelIncidentAll');
+    h = plot(ax, fk, yv, '-', 'Color', P.q.first, 'LineWidth', 1.4, 'Marker', 's', 'MarkerSize', 6, ...
+        'MarkerEdgeColor', P.q.first, 'MarkerFaceColor', P.q.first, 'Tag', 'timLevelIncident');
+    name = {'Incident wave at the front face'};
+else
+    S = getappdata(ax, 'timFitAxes');              % limits and ticks of the fitted left axis
+    yyaxis(ax, 'right');
+    c = ax.XColor;                                 % house style colour of the axes
+    ax.YAxis(1).Color = c; ax.YAxis(2).Color = c;   % not the colour order of yyaxis
+    ax.YAxis(2).Visible = 'on';
+    hold(ax, 'on');
+    [h, hAll] = tim.plots.masked(ax, fk, y, ok, P.q.first);
+    h.Tag = 'timLevelIncident'; hAll.Tag = 'timLevelIncidentAll';
+    ylabel(ax, 'Incident wave at the front face [dB SPL]');
+    v = y(isfinite(y));
+    tim.plots.fitAxes(ax, 'Axis', 'y', 'YRange', [min(v) max(v)], 'YSteps', [1 2 5]);
+    setappdata(ax, 'timFitAxes', S);               % the fit of the left axis stays the reference
+    hold(ax, 'off');
+    yyaxis(ax, 'left');
+    name = {'Incident wave at the front face (sine-equivalent)'};
+end
+u = lv.faceVelocity_mm_s(ok);
+txt = sprintf(' Front face (valid lines): incident %.1f–%.1f dB SPL, particle velocity %.3g–%.3g mm/s.', ...
+    min(y(ok)), max(y(ok)), min(u), max(u));
+end
+
+function [h, name, txt, q] = equalizerTarget(ax, res, P, hb)
+% the target of an equalized stepped sine (res.equalizer, 1.6.0, WO-006 stage
+% 2; owner decisions 2026-11-04): a dashed line at the target in a light
+% green band of ± the tolerance, drawn behind the data (a missed step is
+% reported, never masked). Incident pressure: on the tone-level axis (dB
+% SPL) of the black squares; its band hb was drawn by the caller before the
+% data. Face velocity: the velocity at the front face (black triangles, grey
+% where not valid) and its target on a right y axis in mm/s, fitted on its
+% own, the band drawn first on that side; the left axis stays the active
+% one. Never uistack: it fails on the axes of a yyaxis drawing. Nothing for
+% a result without res.equalizer or with another number of steps.
+h = gobjects(0); name = {}; txt = '';
+q = struct('shown', false, 'mode', '', 'axis', '', 'lines', gobjects(0));
+e = equalizerOf(res);
+if isempty(e), return; end
+lv = res.levels;
+fk = lv.f(:);
+xr = [min(fk) / 1.05, max(fk) * 1.05];
+t = e.target; tol = e.tolerance_dB;
+hv = gobjects(0);
+switch e.mode
+    case 'incidentPressure'
+        band = t + [-tol tol];
+        side = 'left';
+        name = {sprintf('Target %g dB SPL ± %g dB', t, tol)};
+        if isempty(hb), hb = eqBand(ax, e, fk, P); end
+    case 'faceVelocity'
+        band = t * 10.^([-tol tol] / 20);
+        side = 'right';
+        name = {'Face velocity at the front face', sprintf('Target %g mm/s ± %g dB', t, tol)};
+        S = getappdata(ax, 'timFitAxes');          % the fit of the left axis (if any) stays the reference
+        yyaxis(ax, 'right');
+        c = ax.XColor;                             % house style colour of the axes, as the sweep's right axis
+        ax.YAxis(1).Color = c; ax.YAxis(2).Color = c;
+        ax.YAxis(2).Visible = 'on';
+        hold(ax, 'on');
+        hb = eqBand(ax, e, fk, P);                 % first on this side: behind the data
+        u = lv.faceVelocity_mm_s(:);
+        ok = lv.valid(:) & isfinite(u);
+        uv = u; uv(~ok) = NaN;
+        plot(ax, fk, u, '-', 'Color', P.invalid, 'LineWidth', 0.6, 'Marker', '^', 'MarkerSize', 6, ...
+            'MarkerEdgeColor', P.invalidMarker, 'MarkerFaceColor', 'w', 'Tag', 'timLevelVelocityAll');
+        hv = plot(ax, fk, uv, '-', 'Color', P.q.first, 'LineWidth', 1.4, 'Marker', '^', 'MarkerSize', 6, ...
+            'MarkerEdgeColor', P.q.first, 'MarkerFaceColor', P.q.first, 'Tag', 'timLevelVelocity');
+        ylabel(ax, 'Face velocity |u_L| [mm/s]');
+    otherwise
+        name = {};
+        return
+end
+ht = plot(ax, xr, [t t], '--', 'Color', P.q.ref, 'LineWidth', 1, 'XLimInclude', 'off', 'Tag', 'timEqTarget');
+if strcmp(side, 'right')
+    v = [u(isfinite(u)); band(:)];
+    tim.plots.fitAxes(ax, 'Axis', 'y', 'YRange', [min(v) max(v)], 'YSteps', [1 2 5]);
+    setappdata(ax, 'timFitAxes', S);
+    hold(ax, 'off');
+    yyaxis(ax, 'left');
+    hold(ax, 'on');                                % (the caller draws on)
+end
+h = [hv ht];
+q = struct('shown', true, 'mode', e.mode, 'axis', side, 'lines', [hb ht hv]);
+nMax = nnz(strcmp(e.limited, 'max'));
+vMax = max(e.vpp);
+if isfield(e, 'plan') && isstruct(e.plan) && isfield(e.plan, 'maxVpp'), vMax = e.plan.maxVpp; end
+txt = sprintf(' Equalizer: target %g %s ± %g dB, %d of %d steps within (%d capped at the maximum %.3g Vpk).', ...
+    t, e.unit, tol, nnz(e.reached), numel(e.reached), nMax, vMax / 2);
+end
+
+function e = equalizerOf(res)
+% res.equalizer of an equalized stepped sine with one value per level line, else []
+e = [];
+if isfield(res, 'equalizer') && isstruct(res.equalizer) && isscalar(res.equalizer) && ...
+        isfield(res.equalizer, 'reached') && isfield(res, 'levels') && isfield(res.levels, 'f') && ...
+        numel(res.equalizer.reached) == numel(res.levels.f)
+    e = res.equalizer;
+end
+end
+
+function tf = levelsShown(res)
+% the level at the specimen is drawn (res.levels available with a valid line)
+tf = isfield(res, 'levels') && isstruct(res.levels) && isfield(res.levels, 'available') && ...
+    res.levels.available && any(res.levels.valid);
+end
+
+function hb = eqBand(ax, e, fk, P)
+% the light green band of ± the tolerance around the target, on the active
+% side of the axes; drawn before the data of that side, so it lies behind them
+xr = [min(fk) / 1.05, max(fk) * 1.05];
+t = e.target; tol = e.tolerance_dB;
+if strcmp(e.mode, 'faceVelocity'), band = t * 10.^([-tol tol] / 20); else, band = t + [-tol tol]; end
+hb = patch(ax, xr([1 2 2 1]), band([1 1 2 2]), P.ok, 'FaceAlpha', 0.12, 'EdgeColor', 'none', ...
+    'HitTest', 'off', 'XLimInclude', 'off', 'Tag', 'timEqBand');
+end
+
+function hideRightAxis(ax)
+% the right y axis of an earlier drawing on these axes (the incident level of a
+% swept sine, the face velocity of an equalized stepped sine) is emptied and
+% hidden; never cla(ax, 'reset'), which would also
+% remove the axes toolbar of the window (tim.gui.ViewPage). Ends on the left axis.
+if numel(ax.YAxis) < 2, return; end
+yyaxis(ax, 'right');
+cla(ax);                                         % the active (right) side only
+ylabel(ax, '');
+if numel(ax.YAxis) > 1
+    ax.YAxis(2).Visible = 'off';
+    yyaxis(ax, 'left');
+end
 end
 
 function y = minSpan(L, span)
