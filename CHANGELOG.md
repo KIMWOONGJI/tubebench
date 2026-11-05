@@ -6,7 +6,7 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
-## 1.6.2 - 2026-11-05
+## 1.6.2 - 2026-11-05 (`3c2ae6a`)
 
 ### Fixed
 - **File dialogs** (Load calibration…, Open measurement…, Load / Save configuration…, Combine two
