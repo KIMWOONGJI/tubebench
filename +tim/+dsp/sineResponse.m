@@ -6,7 +6,11 @@ function r = sineResponse(x, fs, fNominal, opts)
 %   x        (N x C) record (volts) taken AFTER the settling time
 %   fNominal generator frequency setting [Hz]
 %   opts     refChannel (1), nBlocks (4) blocks for averaging/uncertainty,
-%            maxClockError (5e-4 relative search range for the frequency)
+%            maxClockError (5e-4 relative search range for the frequency),
+%            noisePsd ([]): struct('f', f, 'G', G), the one-sided PSD
+%            (V^2/Hz, one column per channel) of noise-only data of the same
+%            recording - the pre-roll of a stepped sine, output off - for
+%            driftSigma only
 %
 %   Because the generator clock is not the DAQ clock, the actual frequency
 %   seen by the DAQ differs from fNominal by up to ~1e-4. It is estimated
@@ -23,6 +27,25 @@ function r = sineResponse(x, fs, fNominal, opts)
 %                     samples (narrow-band; G_n one-sided noise PSD near f).
 %                     The SNR of the nBlocks average is snr_dB + 10 log10(nBlocks).
 %   snrBroadband_dB = (|a|^2/2) / residual variance (all frequencies).
+%   drift           = |Hb_last - Hb_first| / |H| per channel: the relative
+%                     change of the block ratio Hb = a_c / a_ref from the first
+%                     to the last block (settled check of the stepped sine,
+%                     1.6.0); 0 for the reference channel; NaN for every
+%                     channel with one block (not judged).
+%   driftSigma      = sqrt(2 (10^(-snr_c/10) + 10^(-snr_ref/10))): its standard
+%                     deviation from noise alone. One block has E|da/a|^2 =
+%                     (E|da|^2/2) / (|a|^2/2) = 1/SNR (snr_dB is per block), so
+%                     the ratio of the two independent blocks has the variance
+%                     2 (1/SNR_c + 1/SNR_ref); |drift|^2 / driftSigma^2 is then
+%                     exponentially distributed, P(drift > z driftSigma) = e^(-z^2).
+%                     0 for the reference channel. With opts.noisePsd the SNR
+%                     of this formula takes G_n from that noise-only PSD
+%                     (driftSnr_dB; the same band and trimming as snr_dB), not
+%                     from the residual: the residual of the fit over the
+%                     whole record holds the transient under test, and an
+%                     abrupt one (the sound of the step arriving during the
+%                     record) would raise its own sigma in proportion to its
+%                     size. Without it driftSnr_dB = snr_dB.
 
 arguments
     x double
@@ -30,7 +53,7 @@ arguments
     fNominal (1,1) double {mustBePositive}
     opts struct = struct()
 end
-o = struct('refChannel', 1, 'nBlocks', 4, 'maxClockError', 5e-4);
+o = struct('refChannel', 1, 'nBlocks', 4, 'maxClockError', 5e-4, 'noisePsd', []);
 fn = fieldnames(opts); for i = 1:numel(fn), o.(fn{i}) = opts.(fn{i}); end
 [N, C] = size(x);
 ref = o.refChannel;
@@ -89,22 +112,53 @@ resAll(:, :) = x - M * (M \ x);
 nf = min(N, 2^floor(log2(N)));
 nw = min(nf, 8192);
 [Pr, fr] = pwelch(resAll, hann(nw, 'periodic'), [], nw, fs);   % one-sided PSD G [V^2/Hz]
-band = abs(fr - fHat) >= 10 & abs(fr - fHat) <= 100;
-if nnz(band) < 3, band = abs(fr - fHat) <= 200 & abs(fr - fHat) >= 2 * fs / nw; end
-% Unbiased, robust band estimate of G: mean of the band bins after removing
-% stray lines (previous step, harmonics, mains) above 10 x median. For a
-% Gaussian-noise periodogram (chi-square, 2 dof per bin) the trimmed mean is
-% 0.03 dB low; the plain median would be 1.59 dB low.
-Gn = zeros(1, C);
-for c = 1:C
-    p = Pr(band, c);
-    Gn(c) = mean(p(p <= 10 * median(p)));
-end
+Gn = bandNoise(Pr, fr, fHat, fs / nw);
 noiseInBw = Gn * fs / L;                % G x ENBW fs/L of the L-sample sine fit (= E|da|^2/2)
+snr = 10 * log10(toneP ./ noiseInBw);
+% settled check (1.6.0, owner decision 2026-11-04): a transient that has not
+% decayed changes the channel ratio from the first to the last block; a common
+% amplitude or frequency error of all channels cancels in the ratio
+if nb > 1
+    drift = abs(Hb(nb, :) - Hb(1, :)) ./ abs(H);
+    drift(ref) = 0;
+else
+    drift = nan(1, C);                  % one block: not judged (also the reference)
+end
+% its noise: from noise-only data when the caller has them (the pre-roll of
+% the recording), never from the residual above, which holds the transient
+% under test (review 2026-11-05: an abrupt one raised its own sigma in
+% proportion to its size); a channel without a band estimate keeps the residual's
+snrDrift = snr;
+nz = o.noisePsd;
+if isstruct(nz) && isscalar(nz) && all(isfield(nz, {'f', 'G'})) && size(nz.G, 2) == C && numel(nz.f) >= 2
+    fz = nz.f(:);
+    G0 = bandNoise(nz.G, fz, fHat, fz(2) - fz(1));
+    use = isfinite(G0);
+    snrDrift(use) = 10 * log10(toneP(use) ./ (G0(use) * fs / L));
+end
+driftSigma = sqrt(2 * (10.^(-snrDrift / 10) + 10^(-snrDrift(ref) / 10)));
+driftSigma(ref) = 0;
 r = struct('fNominal', fNominal, 'f', fHat, 'clockRatio', fHat / fNominal, ...
     'amplitude', mean(abs(a), 1), 'phasor', mean(a, 1), 'H', H, 'Hblocks', Hb, ...
     'stdErr', sem, 'coherence', abs(Scr).^2 ./ (Srr * Scc), ...
-    'snr_dB', 10 * log10(toneP ./ noiseInBw), ...
-    'snrBroadband_dB', 10 * log10(toneP ./ mean(resVar, 1)), 'nBlocks', nb);
+    'snr_dB', snr, ...
+    'snrBroadband_dB', 10 * log10(toneP ./ mean(resVar, 1)), 'nBlocks', nb, ...
+    'drift', drift, 'driftSigma', driftSigma, 'driftSnr_dB', snrDrift);
 r.H(ref) = 1;
+end
+
+function G = bandNoise(P, fr, fHat, df)
+% Unbiased, robust band estimate of the noise PSD G near fHat: mean of the
+% bins 10-100 Hz away on both sides (with fewer than 3 such bins: +-200 Hz,
+% at least two bins of width df away) after removing stray lines (previous
+% step, harmonics, mains) above 10 x median. For a Gaussian-noise periodogram
+% (chi-square, 2 dof per bin) the trimmed mean is 0.03 dB low; the plain
+% median would be 1.59 dB low. NaN for a channel without band bins.
+band = abs(fr - fHat) >= 10 & abs(fr - fHat) <= 100;
+if nnz(band) < 3, band = abs(fr - fHat) <= 200 & abs(fr - fHat) >= 2 * df; end
+G = zeros(1, size(P, 2));
+for c = 1:size(P, 2)
+    p = P(band, c);
+    G(c) = mean(p(p <= 10 * median(p)));
+end
 end

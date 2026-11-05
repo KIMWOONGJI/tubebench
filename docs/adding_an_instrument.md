@@ -108,6 +108,7 @@ not stated, and the manual page that proves it.
 | Generator | **Must:** an amplitude limit that the driver enforces before every level command; an output programmed in full-scale units (audio interface) needs its measured volts per full scale at a fixed knob position (`generator.<driver>.vppAtFullScale`; `daq.<driver>.vppAtFullScale` for a combined driver) | loudspeaker/power limit |
 | Generator | **Must:** a single logarithmic swept sine (the switching calibration and Test E always sweep); stepped sine and noise optional; frequency 80 Hz–5.5 kHz | excitation signals; the calibration method does not change |
 | Generator | Should: software (bus) trigger, completion query that waits for the end of the sweep (*OPC? or equivalent, or time-based) | timing of the sweep in the record |
+| Generator | Optional: the level of a running sine changes by command without switching the output, as the manual documents it (`setAmplitude`, `capabilities().source.levelWhileOn`; 1.6.0) | the level equalizer of the stepped sine; without it the equalizer is refused |
 | Both | No hardware synchronisation between generator and DAQ is needed | the estimator uses channel ratios only (theory.md §4) |
 | Both | One device may take both roles (e.g. a DAQ card with analog output) | factory must allow one object for both roles |
 
@@ -139,6 +140,13 @@ What the answers decide (the contract sections in brackets):
   with `tim:<driver>:rate`.
 * **Completion of the sweep** (3.2): if the manual does not say that the completion query waits
   for the end of the sweep, `waitComplete` is time-based.
+* **Level change while the output is on** (optional, 3.2 and 5; 1.6.0): only if the manual
+  documents that the level of a running sine can be changed without switching the output (and
+  what the output does meanwhile), the driver implements `setAmplitude` and declares
+  `levelWhileOn = true`; the level equalizer of the stepped sine needs it. Otherwise leave
+  `levelWhileOn = false` (the templates' value): the driver inherits the refusal
+  `tim:gen:unsupported`, and the session refuses the equalizer with a clear message before
+  anything is armed. Never conclude it from another instrument.
 
 Write the result into the suitability table at the end of `docs/ref_<instrument>.md` (step 7).
 
@@ -233,6 +241,18 @@ callback. `isOutputOn` asks the instrument; an answer that is neither on nor off
 `tim:gen:verify` - never report "off" without knowing it. `waitComplete` is never `true` before
 the sweep has ended (time-based if the completion query does not wait for it). After `close()`
 nothing is sent any more (`tim:instr:closed`).
+
+**`setAmplitude(vpp)`** (optional, 3.2; 1.6.0). Only for an instrument whose manual documents a
+level change of a running sine (section 2). Override the base-class method: refuse anything but
+sine mode (`tim:gen:mode`), `checkLevel(vpp)` **before** the level command, then the level command
+of the manual, the error queue and the read-back (`tim:gen:verify`, output off) - never a command
+that switches the output on or off by itself (such as the 33220A's `APPLy`). Set `levelWhileOn`
+to `true` in `capabilities()`; the contract cases
+`levelChangeOnlyWhereDeclared`, `levelChangeWhileTheOutputPlays` and
+`levelChangeHeardInTheRecord` then check it. A combined device schedules it in the planning pass
+like `setFrequency` (a `'level'` event that the engine applies from that sample) and refuses it
+during the execution (`tim:gen:schedule`), as `tim.sim.SimulatedCombined` does. An instrument
+without it keeps `levelWhileOn = false` and adds nothing.
 
 **Acquisition methods** (4, 8, 11.1). The template talks to the device through a **device
 session** object (`obj.Dev`, its methods are listed in the template header). For hardware, write
@@ -389,7 +409,9 @@ errors it reports for a wrong value, an unknown command or a wrong state. In sim
 driver runs on it unchanged, so the whole program, the contract tests and the window can be tested
 without the instrument. A mock that accepts everything proves nothing: emulate the documented
 side effects that the driver depends on (e.g. "a trigger is ignored unless the trigger source is
-BUS").
+BUS"). A driver that declares `levelWhileOn` needs a mock whose level change takes effect while
+the output plays: the generator mock passes the new level to the rig at once (the rig plays it
+from its next block), a combined mock from the planned sample.
 
 It couples to the virtual tube (`tim.sim.SimulatedRig`, contract section 10) in one of three ways:
 
@@ -634,7 +656,7 @@ stays registered as the worked example, so the contract tests keep checking it.
 | 1 Facts | DEMO-SG1, one channel, generator only; SCPI over TCP port 5025 with channel-numbered headers (`SOUR1:`, `OUTP1:`, `TRIG1:`); output state reply `ON` / `OFF`; no load setting, no amplitude unit command, no noise; manual: `docs/ref_demo_source.md` |
 | 2 Suitability | every generator Must met (off by command with read-back, level limit in the driver, LOG sweep 0.1 Hz-100 kHz); noise not available (optional); table in the reference, section 6 |
 | 3 Copy | the snippet of section 3 with `from = 'TemplateSource'`, `name = 'DemoSource'`, `reg = 'demo'`: `+tim/+instr/DemoSource.m`, `+tim/+instr/MockDemoSource.m`, `tests/TestDemoSource.m` |
-| 4 Driver | every `TODO` replaced: the DEMO-SG1 commands with their section of the reference; the output state parsed as `ON` / `OFF`; the load and unit commands deleted (`loads` = `{'INF'}`); `configureNoise` reduced to the refusal; limits from the reference; `simulation = 'only'` and a `fromConfig` that refuses hardware mode |
+| 4 Driver | every `TODO` replaced: the DEMO-SG1 commands with their section of the reference; the output state parsed as `ON` / `OFF`; the load and unit commands deleted (`loads` = `{'INF'}`); `configureNoise` reduced to the refusal; limits from the reference; `simulation = 'only'` and a `fromConfig` that refuses hardware mode. Since 1.6.0 it declares `levelWhileOn = false` (its reference documents no level change with the output on): no `setAmplitude`, the stepped-sine equalizer is refused with it |
 | 5 Mock | the command set of the reference (header parser with digits for the channel numbers), the error queue of 16 entries, the replies `ON` / `OFF`; coupled to the rig through `setGeneratorState` (sine only) and `generatorTrigger` |
 | 6 Settings | `generator.demo`: `host` (the documentation address, never used), `port`, `timeout`; a configuration file made from `config/sim_thin_screen.json` with the `generator` section of the snippet (`"driver": "demo"`) |
 | 7 Reference | `docs/ref_demo_source.md` from `ref_template.md` |

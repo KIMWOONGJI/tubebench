@@ -1,9 +1,9 @@
-# Work order WO-006: level equalizer for the stepped sine (proposal)
+# Work order WO-006: level equalizer for the stepped sine
 
 | | |
 |---|---|
 | Target version | 1.6.0 (after 1.5.0, the frequency-dependent step timing) |
-| Status | **proposal, not started** (2026-11-04). The owner decides after the step-timing work (branch `stepped-timing`) whether and how far to build it (section 8) |
+| Status | **built in 1.6.0** (branch `equalizer`, 2026-11-04) with the owner decisions of 2026-11-04 (section 8, answers): stage 1 (the level at the specimen) and stage 2 (contract capability, session sequence, analysis, CSV, two loads, the window and the documents), tested in simulation only. **Open: the hardware check of section 6** (owner present) and the check of the taller control panel on the lab screen. The stepped-sine settled check of answer 1 is built as well (section 8, "As built (settled check)"), also tested in simulation only |
 | Requested by | the owner (Woongji Kim), 2026-11-04: a pressure or particle-velocity equalizer as in spectrum analyzers; one load against two loads; swept sine |
 | Rules | as in CLAUDE.md; the equalizer never plays more than the level the operator set (raising a level needs the owner's approval); hardware results only from real measurements with the owner present |
 
@@ -125,6 +125,63 @@
 4. A source without `levelWhileOn`: switch the output at every step, or no equalizer.
 5. A step that misses the target: reported only, or masked.
 6. Version 1.6.0.
+
+**Answers (owner, 2026-11-04)** - they replace the proposals of sections 3 and 4 where they differ:
+
+1. Both stages in 1.6.0, with the stepped-sine settled check.
+2. Default: the incident pressure `|A|` at the front face in dB SPL (rms of the incident wave);
+   option: the face velocity `|u_L|` in mm/s rms. `excitation.stepped.equalizer.mode` `'off'`
+   (default) | `'incidentPressure'` | `'faceVelocity'`, `.target` in the unit of the mode.
+3. The steps themselves at a low level: `preLevel_dB = -20` relative to the amplitude field;
+   `tolerance_dB = 1`. Feedforward only: no closed loop and no correction pass in 1.6.0
+   (`corrections` of section 3 item 1 is not built).
+4. No equalizer: a source without `levelWhileOn` refuses it with a clear error before anything
+   is armed (`tim:session:equalizer`); the output is not switched at every step.
+5. Reported only: a report-only Validity row "Target level not reached" (like the reciprocity
+   row of two loads), never a mask. While the equalizer is on the amplitude field is the
+   **maximum**: no step above it, and the drive check uses it; per step
+   `V_k = min(maximum, V_pre · target / achieved_pre,k)`.
+6. Version 1.6.0. Two loads: a pre-measurement after every change of termination (A, B) as its
+   own step; A′ with the voltages of A; the B level ignored and greyed while the equalizer is on.
+   The recorded bus-traffic fixtures stay unchanged (the default path never uses the equalizer):
+   no new `TestBusTraffic` scenario, unlike section 4.
+
+As built (core, 2026-11-04): `tim.app.equalizerSettings`, `tim.app.equalizerPlan`,
+`MeasurementSession.measureStepped` / `measureEqualizerPlan` / `setEqualizerPlan`, `res.equalizer`
+(`tim.app.processMeasurement`), the `results.csv` columns `eqVoltage_Vpk`, `eqTarget`, `eqReached`,
+`tim.app.runTwoLoad`; the contract capability in `docs/instrument_interface.md` sections 3, 5 and
+13.5; tests `TestEqualizer`, `TestInstrumentContract`, `TestInstruments`, `TestConfiguration`.
+
+As built (window and documents, 2026-11-04; owner decisions of 2026-11-04):
+
+- EXCITATION: one row **Equalizer** directly below Settle / Measure [cycles], no other row resized
+  (the control panel grows by 28 px, 929 → 957 px; to be checked on the lab screen): a list Off /
+  Incident [dB SPL] / Face velocity [mm/s] and the target (greyed while Off; the last target of
+  each quantity kept, so a dB value is never read as mm/s). Greyed for the swept sine, while an
+  action runs and for a source without `levelWhileOn` (a mode switched on in a file stays
+  selectable to set it Off; Start then refuses it). While it is on the level field is the maximum
+  ("max … Vrms", its tooltip), and the expected Duration includes the pre-measurement (twice: the
+  same steps and repetitions). The tooltips give the pre-measurement level and the tolerance.
+- Measurement > Spectrum: the target as a dashed line in a ± tolerance band (incident pressure on
+  the tone-level axis; face velocity with the velocity on a right axis in mm/s).
+- Results > Validity: the report-only row "Target level not reached (±1 dB)" below a last separator.
+- Setup > Tube setup: the B level greyed and "Load B: equalized like load A (B level ignored)".
+- Measurement > Two-load: a pre-measurement step before loads A and B in the operator list; load A
+  again "(voltages of load A)"; the message pane gives the equalizer summary of every load.
+- Documents: `user_guide.md` (sections 3, 4, 5, 6, 8, 9, 10, 11, 12, 13), `theory.md` (3C, 5 step
+  6), the Formula tab (4a). Tests: `TestGui`, `TestGuiTwoLoad`, `TestPlotsResults`,
+  `TestSpecimenLevels`.
+
+As built (settled check of answer 1, 2026-11-04; owner decisions of 2026-11-04): per step
+and channel the change of the channel ratio from the first to the last block (`tim.dsp.sineResponse`:
+`drift`, `driftSigma` from the per-block SNR with the noise of the pre-roll, output off - review
+2026-11-05: the residual of the step holds the transient itself), its excess over four noise standard deviations
+(`res.spectra.settleDrift`, the worst repetition), the quality flag `notSettled` above
+`analysis.settleDriftMax` = 0.01 (`tim.acoustics.validityMasks`; stepped sine only, R through
+M1/M2), the Validity row "Rejected: not settled", `results.csv` `settleDrift` / `flag_notSettled`,
+`spectra.csv` `settleDrift<c>`; `theory.md` section 5 step 7 and section 8, the Formula tab (1b,
+11), `user_guide.md` (sections 6, 8, 9, 10, 12, 13). Test: `TestSettledCheck` (a provoked
+transient: settling 0 s on the virtual rig).
 
 ## 9. Estimate
 

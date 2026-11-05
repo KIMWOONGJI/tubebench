@@ -17,6 +17,7 @@ Real instrument (queried read-only on 2026-10-08):
 | Function | `FUNC SIN` | 179 | Also `NOIS` (noise cannot be swept, p.99). |
 | Frequency | `FREQ <Hz>` | 181 | Sine 1 µHz – 20 MHz. |
 | Amplitude | `VOLT <value>` | 182 | Unit from `VOLT:UNIT` (default VPP). 10 mVpp–10 Vpp into 50 Ω; 20 mVpp–20 Vpp into open circuit. |
+| Amplitude with the output on (1.6.0, `setAmplitude`) | `VOLT <value>` sent while `OUTP ON` | 182 | The same command as above; `OUTP` is not sent. What the output does while the level changes (an attenuator relay switching, a glitch) and the `VOLT?` read-back with the output on are **NOT VERIFIABLE** from this reference: hardware check WO-006 section 6 item 1 (`docs/workorder_equalizer.md`); the settling time of every step covers a short glitch. The driver writes six significant digits here (`%.6g`; the configure commands keep `%.4f`), so the read-back resolution of the instrument is to be checked at the same time. |
 | Amplitude unit | `VOLT:UNIT VPP` | 191 | dBm not allowed with high-Z load. |
 | Offset | `VOLT:OFFS <V>` | 184 | \|Voff\| + Vpp/2 < Vmax. Amplitude/offset can silently modify each other (-221). |
 | Load setting | `OUTP:LOAD INF` / `50` | 189 | Only rescales displayed/programmed values; true source impedance is always 50 Ω. Stored in non-volatile memory. Query returns `9.9E+37` for INF. |

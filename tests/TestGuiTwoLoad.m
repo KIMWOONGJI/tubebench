@@ -41,8 +41,9 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             tc.addTeardown(@() delete(app));
             h = app.H;
             L = h.left; rh = L.RowHeight;
-            tc.verifyLessThanOrEqual(sum([rh{:}]) + (numel(rh) - 1) * L.RowSpacing + L.Padding(2) + L.Padding(4), 930, ...
-                'control panel within 930 px (1.5.1: a cycles row, thinner section bars)');
+            % owner decision 2026-11-04: one more row without resizing; to be checked on the lab screen
+            tc.verifyLessThanOrEqual(sum([rh{:}]) + (numel(rh) - 1) * L.RowSpacing + L.Padding(2) + L.Padding(4), 960, ...
+                'control panel within 960 px (1.5.1: a cycles row, thinner section bars; 1.6.0: the Equalizer row)');
             tc.verifyEqual(h.method.Parent, h.background.Parent, 'Method and Background noise in one row');
             tc.verifyEqual(h.method.ItemsData, {'oneLoad', 'oneLoadSymmetric', 'twoLoad'});
             tc.verifyEqual(h.method.Value, 'oneLoad', 'the default method');
@@ -194,6 +195,90 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
 
             function recordTab(p)
                 if strcmp(p, 'twoload:measuring'), shown{end + 1} = h.measTabs.SelectedTab; end
+            end
+        end
+
+        function equalizerTwoLoadInTheWindow(tc)
+            % owner decisions 2026-11-04 (1.6.0, WO-006): with the stepped-sine
+            % equalizer on the B level is ignored and greyed, the Two-load view
+            % lists a pre-measurement after every change of termination as its
+            % own step, load A again plays the voltages of load A; the inputs stay
+            % locked while it runs; Spectrum shows the target, Validity the
+            % report-only row
+            file = tc.config({'measurement', 'loadBLevel_dB'}, -6, {'excitation', 'mode'}, 'stepped', ...
+                {'excitation', 'stepped', 'nPoints'}, 6, ...
+                {'excitation', 'stepped', 'equalizer', 'mode'}, 'incidentPressure', ...
+                {'excitation', 'stepped', 'equalizer', 'target'}, 77);
+            app = tim.gui.Tubebench(file, 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            off = matlab.lang.OnOffSwitchState.off;
+            tc.verifyEqual({h.exMode.Value, h.eqMode.Value, h.eqTarget.Value}, {'stepped', 'incidentPressure', 77});
+            h.method.Value = 'twoLoad'; feval(h.method.ValueChangedFcn, h.method, []);
+            % Setup > Tube setup: the B level greyed and named as ignored
+            tc.verifyEqual(h.termLevelB.Value, -6);
+            tc.verifyEqual(h.termLevelB.Enable, off, 'the B level greyed while the equalizer is on');
+            tc.verifySubstring(h.termLevelB.Tooltip, 'Ignored while the equalizer is on');
+            tc.verifySubstring(h.termText.Text, 'Load B: equalized like load A (B level ignored)');
+            % the steps of the Two-load view: a pre-measurement per change of termination
+            keys = {'eqA', 'A', 'eqB', 'B', 'A2', 'result'};
+            tc.verifyEqual(app.TwList.Keys, keys);
+            tc.verifyEqual(app.TwList.Labels(1).Text, 'Load A: equalizer pre-measurement (-20 dB)');
+            tc.verifyEqual(app.TwList.Labels(3).Text, 'Load B: equalizer pre-measurement (-20 dB)');
+            tc.verifySubstring(app.TwList.Labels(4).Text, 'Load B: ');
+            tc.verifyFalse(contains(app.TwList.Labels(4).Text, '6 dB'), 'no B level in the step');
+            tc.verifySubstring(app.TwList.Labels(5).Text, '(voltages of load A)');
+            % the equalizer off: the steps of 1.4.0, the B level free again
+            h.eqMode.Value = 'off'; feval(h.eqMode.ValueChangedFcn, h.eqMode, struct('PreviousValue', 'incidentPressure'));
+            tc.verifyEqual(app.TwList.Keys, {'A', 'B', 'A2', 'result'});
+            tc.verifyEqual(h.termLevelB.Enable, matlab.lang.OnOffSwitchState.on);
+            tc.verifySubstring(h.termText.Text, 'Load B at −6 dB');
+            h.eqMode.Value = 'incidentPressure'; feval(h.eqMode.ValueChangedFcn, h.eqMode, struct('PreviousValue', 'off'));
+            tc.verifyEqual(h.eqTarget.Value, 77, 'the target of the file kept');
+            tc.verifyEqual(app.TwList.Keys, keys);
+            % the run
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            feval(h.runCal.ButtonPushedFcn, h.runCal, []);
+            tc.assertTrue(all(strcmp(app.CalList.States, 'ok')), strjoin(app.CalList.States, ' '));
+            locked = {};
+            app.TestHook = @(p) recordLock(p);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            app.TestHook = [];
+            tc.verifyNumElements(locked, 3, 'one operator step per load');
+            tc.verifyTrue(all(cellfun(@(s) isequal(s, [off off]), locked)), 'the Equalizer row locked while it runs');
+            tc.verifyEqual(app.TwList.Keys, keys);
+            st = app.TwList.States;
+            tc.verifyFalse(any(strcmp(st, 'fail')), strjoin(st, ' '));
+            tc.verifyTrue(all(ismember(st([1 3]), {'ok', 'warn'})), 'both pre-measurements done');
+            tc.verifySubstring(app.TwList.Details(1).Text, 'capped at the maximum');
+            L = app.LastLoads;
+            tc.assertEqual({L.role}, {'A', 'B', 'A2'});
+            tc.verifyTrue(all(arrayfun(@(x) isfield(x.meas, 'equalizer'), L)), 'every load equalized');
+            tc.verifyEqual(L(2).meas.settings.amplitudeVpp, L(1).meas.settings.amplitudeVpp, 'the B level not applied');
+            tc.verifyEqual(L(1).meas.equalizer.reusedFrom, '');
+            tc.verifyEqual(L(2).meas.equalizer.reusedFrom, '', 'load B: its own pre-measurement');
+            tc.verifyEqual(L(2).meas.equalizer.termination, struct('kind', 'rigid', 'place', 'tubeEnd'));
+            tc.verifyEqual(L(3).meas.equalizer.vpp, L(1).meas.equalizer.vpp, 'load A again: the voltages of load A');
+            tc.verifyEqual(L(3).meas.equalizer.reusedFrom, 'A');
+            for i = 1:3
+                tc.verifyLessThanOrEqual(L(i).meas.equalizer.vpp, L(i).meas.settings.amplitudeVpp * (1 + 1e-12), ...
+                    'never above the level field');
+            end
+            lg = strjoin(cellstr(h.log.Value), newline);
+            tc.verifySubstring(lg, 'Equalizer on (incident pressure, target 77 dB SPL ± 1 dB)');
+            tc.verifySubstring(lg, 'B level');
+            tc.verifySubstring(lg, 'ignored');
+            % the views of load A: the target in Spectrum, the report-only row in Validity
+            tc.verifyEqual(app.LastMeas.metadata.twoLoad.role, 'A');
+            tc.verifyNumElements(findobj(h.axSpec, 'Tag', 'timEqTarget'), 1, 'Spectrum: the target');
+            tc.verifyNumElements(findobj(h.axSpec, 'Tag', 'timEqBand'), 1, 'Spectrum: the tolerance band');
+            tc.verifyTrue(any(strcmp(cellstr(h.axV.YTickLabel), sprintf('Target level not reached (%s1 dB)', char(177)))), ...
+                'Validity: the equalizer row');
+            tc.verifySubstring(strjoin(cellstr(h.axV.YTickLabel), '|'), 'Valid T', 'and the transfer-matrix rows');
+            clear cleanup
+
+            function recordLock(p)
+                if strcmp(p, 'twoload:measuring'), locked{end + 1} = [h.eqMode.Enable h.eqTarget.Enable]; end
             end
         end
 

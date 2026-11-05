@@ -7,12 +7,21 @@ function v = validityMasks(res, geom, o)
 %     v.measured      frequencies present in the data / analysis band
 %     v.geometryOK    permitted by tube geometry (spacing limits, mode cut-on,
 %                     decomposition conditioning)
-%     v.qualityOK     signal quality (coherence, SNR) and calibration validity
+%     v.qualityOK     signal quality (coherence, SNR; stepped sine also the
+%                     settled check) and calibration validity
 %     v.valid         measured & geometryOK & qualityOK & physical checks
 %     v.validated     subset of v.valid inside experimentally validated bands
 %                     (empty bands -> nothing is "validated")
 %   Every reason a bin is rejected is recorded in v.flags (logical columns).
 %   The flags and v.valid use BOTH microphone pairs (all four positions).
+%
+%   Settled check (stepped sine, 1.6.0; owner decision 2026-11-04): with
+%   o.quality.settleDrift (Nf x 4 positions, the excess drift of the channel
+%   ratio between the first and the last block, tim.app.processMeasurement)
+%   the flag notSettled rejects a line where any port exceeds
+%   o.settleDriftMax (R: M1/M2 only); NaN (one block) is not judged.
+%   v.settleDrift is the largest excess over the ports. Without the field (a
+%   sweep, noise, older callers) there is no flag notSettled.
 %
 %   Quantity-specific masks:
 %     v.validR        R at the front face is B1 e^{jkxF} / (A1 e^{-jkxF}): it
@@ -127,6 +136,21 @@ fl.outsideCalibration = false(Nf, 1);
 if isfield(o, 'calOutside') && numel(o.calOutside) == Nf, fl.outsideCalibration = logical(o.calOutside(:)); end
 qualityOK = ~fl.lowCoherence & ~fl.lowSNR & ~fl.calInvalid;
 qualityOKup = ~up.lowCoherence & ~up.lowSNR & ~up.calInvalid;
+% stepped sine: settled check (1.6.0, owner decision 2026-11-04). The excess
+% drift of the channel ratio between the first and the last block of a step
+% (beyond 4 noise standard deviations, tim.app.processMeasurement) above
+% settleDriftMax at any port: a transient that has not decayed. A quality
+% flag (rejects the line); NaN (one block, a skipped step) is not judged.
+% Only for results that carry the quality (the stepped sine)
+if isstruct(o.quality) && isfield(o.quality, 'settleDrift') && size(o.quality.settleDrift, 1) == Nf
+    sd = o.quality.settleDrift;
+    ns = sd > o.settleDriftMax;
+    fl.notSettled = any(ns, 2);
+    up.notSettled = any(ns(:, 1:2), 2);
+    v.settleDrift = max(sd, [], 2);              % largest excess over the ports (NaN: none judged)
+    qualityOK = qualityOK & ~fl.notSettled;
+    qualityOKup = qualityOKup & ~up.notSettled;
+end
 
 % 4) physical plausibility (passive sample), only where boundary data exist
 fl.nonPassive = false(Nf, 1); fl.velocityMismatch = false(Nf, 1); fl.terminationNotAnechoic = false(Nf, 1);
@@ -188,6 +212,7 @@ switch name
     case 'phaseSensitive', t = 'phase sensitivity';
     case 'lowCoherence', t = 'low coherence';
     case 'lowSNR', t = 'low SNR';
+    case 'notSettled', t = 'not settled (drift between the blocks)';
     case 'calInvalid', t = 'no valid calibration';
     case 'outsideCalibration', t = 'outside the calibration range';
     case 'nonPassive', t = 'not passive';

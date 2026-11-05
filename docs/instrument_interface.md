@@ -143,8 +143,12 @@ on the voice coil. Such a driver therefore
 | `tf = isOutputOn(timeout)` | the output state, of the kind `capabilities.source.readback` declares: **`'instrument'`** - an instrument query (33220A `OUTP?`), never a cached flag; throws if there is no answer; **`'device'`** - the state of the device session that produces the signal (task not running and 0 V written, or audio stream stopped); allowed only for a shared-clock combined device; **`'none'`** - the instrument cannot report its state: returns the last commanded state, which a caller must never present as confirmed. `timeout` [s] optional. |
 | `triggerSweep()` | starts the configured sweep now (bus trigger, software start or the shared clock, `capabilities.source.trigger`). Only in sweep mode (`tim:gen:mode`). |
 | `tf = waitComplete(timeout)` | `true` when the sweep has finished; **never `true` before the sweep has ended** (it may be time-based from the trigger, e.g. for a generator whose `*OPC?` is not documented to wait for the end of a sweep); waits up to `timeout` s. |
+| `setAmplitude(vpp)` | **optional** (1.6.0, WO-006; declared by `capabilities.source.levelWhileOn`, section 5): a new level `vpp` [Vpp] of the configured sine, the output state unchanged (on stays on, off stays off) - the level equalizer of the stepped sine changes the level at every step. Sine only (`tim:gen:mode`); the level is checked **before** the command (section 3.4, `tim:gen:amplitude`) and read back where the instrument allows (`tim:gen:verify`, output off); never a command that switches the output. `tim.instr.SignalSource` implements it as `tim:gen:unsupported` without any I/O, so a driver that does not declare the capability inherits the refusal. A planned source schedules it in the planning pass like `setFrequency` and raises `tim:gen:schedule` during the execution (section 8.3). |
 
-A waveform the source cannot produce raises `tim:gen:unsupported`.
+A waveform the source cannot produce raises `tim:gen:unsupported`; so does `setAmplitude` of a source
+without `levelWhileOn`. The session asks for it only with the equalizer on and refuses the
+equalizer before anything is armed when the source does not declare it (`tim:session:equalizer`,
+owner decision 2026-11-04, section 13.5).
 
 The window words the state after a Stop, an error or closing by the read-back kind (it calls
 `isOutputOn(1)`):
@@ -174,8 +178,9 @@ in hardware mode unless the owner sets `generator.allowUnconfirmedOff = true` (s
 
 ### 3.4 Level limit
 
-* Every method that sets a level checks it **first** and sends no level command when the check
-  fails (`tim:gen:amplitude`): a positive scalar, its **open-circuit voltage** at most
+* Every method that sets a level (`configure*`, and `setAmplitude` where declared) checks it
+  **first** and sends no level command when the check fails (`tim:gen:amplitude`): a positive
+  scalar, its **open-circuit voltage** at most
   `generator.maxVpp` (fixed at creation; since 1.3.0, WO-004: the limit is an open-circuit
   voltage at every load), within the level range of the source at the configured load
   (`tim.instr.SignalSource.levelRange`).
@@ -205,7 +210,8 @@ in hardware mode unless the owner sets `generator.allowUnconfirmedOff = true` (s
 
 For a source whose output is played from a plan (section 8.3):
 
-* `configure*` and `setFrequency` outside `acquire` set the initial state of the next plan;
+* `configure*`, `setFrequency` and `setAmplitude` (where declared) outside `acquire` set the
+  initial state of the next plan;
 * `outputOn` and `triggerSweep` outside `acquire` raise `tim:gen:schedule`;
 * `isOutputOn` is `false` outside `acquire` - unless 0 V could not be written after a stop (the
   state is then unknown and reported as on);
@@ -287,6 +293,7 @@ because the LAN-XI `info.unit` already is a per-signal cell stored in saved meas
 | `source.trigger` | how `triggerSweep` starts the sweep: `'bus'`, `'software'`, `'clock'` (sample-exact on the shared clock) | bus | - | clock | bus |
 | `source.readback` | kind of `isOutputOn` (section 3.2): `'instrument'`, `'device'`, `'none'` | instrument | - | device | instrument |
 | `source.levelKnown` | the driver programs absolute volts (section 3.4) | true | - | true | true |
+| `source.levelWhileOn` | optional (1.6.0, WO-006): the driver implements `setAmplitude`, a level change of the sine while the output is on (section 3.2); the stepped-sine equalizer needs it. A driver without the field counts as `false` (`tim.instr.SignalSource.levelWhileOn(source)`) | true | - | true (scheduled like `setFrequency`) | false |
 | `acquisition.channels` | analog inputs (≥ 4) | - | 4 | 4 | - |
 | `acquisition.simultaneous` | all inputs sampled at the same instant on one clock (must be true) | - | true | true | - |
 | `acquisition.sampleRates` | supported rates [S/s], or `[]` with a `sampleRateRange` | - | 4096 ... 65536 | 4096 ... 65536 | - |
@@ -467,7 +474,8 @@ Only when `ctx.roles` contains both roles (`s.Gen == s.Daq`) may the driver plan
    their actions in multiples of it);
    `isPlanning()` is `true`. Every source call made meanwhile is **scheduled** on the device
    timeline at the current `n` (sample-exact): `outputOn`, `triggerSweep`, `setFrequency`, a
-   level, and `outputOff` ("off at n", the normal end of the excitation). `waitComplete` returns
+   level (`configure*`, and `setAmplitude` where declared: the new level from that sample, phase
+   continuous), and `outputOff` ("off at n", the normal end of the excitation). `waitComplete` returns
    `true` when the timeline says the sweep has ended. **Only an error thrown out of `onBlock`**
    (e.g. a Stop: `tim:session:stopped`) discards the plan: nothing is played, the output stays at
    0 V, the error propagates (rule 3).
@@ -661,7 +669,11 @@ source in `TriggerLog`. A generator mock that is asked whether its sweep is comp
 (`MockLanXiStream`, registered with `setProducer`) produces samples until the triggered sweep
 has ended, as on the bench, where `*OPC?` blocks until the end of the sweep while the stream keeps
 filling. Before 2026-10-11 the mocks answered at once and the last 5-30 ms of every simulated
-sweep were cut (contract case `waitCompleteNotBeforeTheEndOfTheSweep`). A new real driver brings its own protocol mock (`docs/adding_an_instrument.md`
+sweep were cut (contract case `waitCompleteNotBeforeTheEndOfTheSweep`). A level change while the
+output is on (`setAmplitude`, 1.6.0) reaches the rig like every other change of the generator
+state: the 33220A mock passes the new `VOLT` to `setGeneratorState` and the next block the rig
+generates plays it, phase continuous; `simcombined` applies a scheduled level from its sample
+(contract cases `levelChangeWhileTheOutputPlays`, `levelChangeHeardInTheRecord`). A new real driver brings its own protocol mock (`docs/adding_an_instrument.md`
 step 5, from the templates) and runs in simulation mode like the two lab drivers.
 
 ## 11. Safety duties (checked by `tests/TestInstrumentContract.m`)
@@ -675,8 +687,10 @@ SignalSource:
 2. **Output off on `close`, in `delete` and after any error** a driver method raises after it may
    have changed the instrument (e.g. a read-back mismatch or an instrument error).
 3. **Level limit before every level command** (section 3.4): every method that sets a level checks
-   it first (`tim:gen:amplitude`) and sends no level command when it fails; `outputOn` re-checks
-   the programmed level (read back where possible).
+   it first (`tim:gen:amplitude`) and sends no level command when it fails - `setAmplitude`
+   (optional, 1.6.0) as well; `outputOn` re-checks the programmed level (read back where
+   possible). A source without `levelWhileOn` refuses `setAmplitude` with `tim:gen:unsupported`
+   and sends nothing (the base class).
 4. `outputOn` only when armed and configured; `configure*` leave the output off; `armOutput(false)`
    switches it off.
 5. **Read-back** of the declared kind (section 3.2); the window reports "confirmed off" only from
@@ -724,6 +738,20 @@ source (`armOutput(false)`, which also switches it off) and keeps the completed 
 between two repetitions. Before the first repetition nothing is sent (the source was never
 armed), so the fault-path bus traffic is unchanged.
 
+The level equalizer of the stepped sine (1.6.0, WO-006; owner decisions 2026-11-04, section 13.5)
+keeps these duties: the pre-measurement and the equalized measurement are both measurements of
+`measure*` (`measureStepped`, `measureEqualizerPlan`) with the same error paths (a pre-measurement
+that was recorded and then refused, or stopped while it was processed, is kept in `s.LastPartial`
+and an emergency file too); the equalizer is
+refused before anything is configured or armed when the source does not declare `levelWhileOn`,
+or without a calibration or the geometry (`tim:session:equalizer`); no step is ever played above
+the amplitude field (`excitation.stepped.amplitudeVpp`, the maximum), checked by the session
+before `configureSine` and by the driver before every level command; the operator confirmation and
+the loudspeaker power check use that maximum, asked once for the pre-measurement and the
+measurement. A level change rides with the frequency change of its step: a lower level before the
+new frequency, a higher one after it. With the equalizer off the stepped sine sends the same
+commands in the same order as before 1.6.0 (the bus-traffic fixtures are unchanged).
+
 ### 11.3 Contract tests and test hooks
 
 `tests/TestInstrumentContract.m` runs every registered driver in simulation mode on its mock
@@ -764,7 +792,17 @@ value is 0 after a normal plan, a Stop in either pass, an `onBlock` error and `c
 template mock keeps its last value after a stop like an analog output), and `estimateSweepLaw`
 of the played sweep is within tolerance. The block cases place their actions in multiples of the
 driver's block (`settings.blockSamples`), and `TestInstrumentTemplates` also runs them for a copy
-of `TemplateCombined` with a block of 4096 samples (review of 2026-10-11).
+of `TemplateCombined` with a block of 4096 samples (review of 2026-10-11). The optional
+`setAmplitude` (1.6.0): `levelWhileOn`, when present, is a logical scalar; a source without it
+refuses `setAmplitude` with `tim:gen:unsupported` and programs nothing; a source that declares it
+refuses it before `configureSine` and outside sine mode (`tim:gen:mode`) and for a level above the
+limit, of 0 or below the minimum (`tim:gen:amplitude`, nothing reaches the instrument), and sets
+the new level with the output state unchanged (`levelChangeOnlyWhereDeclared`); it changes the
+level of a playing sine and keeps the output on - a block device at its planned sample and never
+during the execution, `tim:gen:schedule` (`levelChangeWhileTheOutputPlays`); and every separate
+acquisition, run on one rig with the first separate source that declares it, records the level
+change (`levelChangeHeardInTheRecord`). These cases return early where they do not apply (no
+assumption, so that `TestInstrumentTemplates` sees no incomplete case).
 
 The configuration of the contract cases (`config(role, name)`) selects the driver for its role and
 keeps the default driver of the other; since stage 6 an acquisition driver gets **its own input
@@ -799,10 +837,12 @@ own driver tests (D42).
 | `tim:gen:load` | source | a load setting the driver does not accept (33220A: not `INF` or 1-10000 Ω written as a number; 1.3.0) |
 | `tim:gen:mode` | source | call not valid in the configured mode (unconfigured `outputOn`, `setFrequency` outside sine, `triggerSweep` outside sweep, a block source configured before any sample rate is known) |
 | `tim:gen:sweep` | source | invalid sweep settings |
-| `tim:gen:unsupported` | source | waveform or feature not in the capabilities |
+| `tim:gen:unsupported` | source | waveform or feature not in the capabilities (also `setAmplitude` of a source without `levelWhileOn`) |
 | `tim:gen:verify` | source | read-back differs from the request |
 | `tim:gen:schedule` | block source | level / frequency / trigger / `outputOn` during execution; `outputOn` / `triggerSweep` outside `acquire` |
 | `tim:session:stopped` | session (`onBlock`, steps) | operator Stop; passes through drivers unchanged |
+| `tim:session:equalizer` | session (1.6.0) | the stepped-sine equalizer refused: the source does not declare `levelWhileOn`, no calibration or geometry, no level from the pre-measurement, a step level above the amplitude field, or a plan that does not fit the session (`setEqualizerPlan`); nothing armed or nothing more played |
+| `tim:equalizer:*` | `tim.app.equalizerPlan` | the plan of the equalizer cannot be made (`mode`, `levels`) |
 | `tim:<driver>:*`, `tim:scpi:*` | driver | protocol and transport faults (e.g. `tim:lanxi:http`, `tim:scpi:timeout`, `tim:gen:scpiError`, `tim:<driver>:rate`); callers treat them as instrument faults |
 
 ## 13. Design decisions
@@ -925,6 +965,22 @@ The owner approved every pending recommendation on 2026-10-11. The owner's hardw
 | D45 | a driver's defaults only in its `describe().defaults`, not in `tim.app.defaultConfig` | as built |
 | Fault-fixture scenario "window closed twice inside a sweep" | the measurement ends with `tim:instr:closed`, without the status request the code before WO-001 sent after its error (the hand edit of stage B, section 14) | recorded from the code in the regenerated fault fixture; no hand edit left |
 | Bus order after a Stop during the LAN-XI connect step | the driver returns the module to Idle (status request) before the generator's close lines (section 13.3 #1) | as built; checked by `TestBusTraffic/stopDuringConnectReturnsTheModuleToIdle` |
+
+### 13.5 Owner decisions of 2026-11-04 (WO-006, 1.6.0)
+
+The level equalizer of the stepped sine (`docs/workorder_equalizer.md`) grows the contract by one
+**optional** capability, so every existing driver and every driver written with the guide stays
+valid.
+
+| Item | Decision - owner 2026-11-04 | As built |
+|---|---|---|
+| Method | `setAmplitude(vpp)` on `tim.instr.SignalSource`: sine only, output state unchanged, the level checked before the command (`tim:gen:amplitude`); the base class raises `tim:gen:unsupported` | section 3.2; the base class sends nothing |
+| Capability | `capabilities().source.levelWhileOn`, default `false`; a driver without the field counts as `false` | `tim.instr.SignalSource.levelWhileOn(source)`; section 5 |
+| A source without it | the equalizer is refused with a clear error before anything is armed (no switching of the output at every step) | `tim:session:equalizer` naming the display name |
+| 33220A | implements it: `VOLT` while the output is on, read back like its other level commands; the mock and the virtual rig follow a level change during an acquisition | `VOLT` with six significant digits, `SYST:ERR?`, `VOLT?` (`docs/ref_33220A_scpi.md`); the relay glitch is the hardware check WO-006 section 6 item 1 |
+| `simcombined` | implemented where its planned output allows a level per step | `levelWhileOn` true: a `level` event of the plan, scheduled like `setFrequency`, `tim:gen:schedule` during the execution |
+| Demo, templates | declare `false` (they inherit the refusal) | the templates mark it `TODO`, so a new driver decides it from its manual |
+| Bus traffic | the recorded fixtures stay unchanged: the default path (equalizer off) never uses it | the off path of `measureStepped` sends the calls of 1.5 in their order (`TestEqualizer/offPathUnchanged`); no fixture added or regenerated |
 
 ## 14. Implementation plan
 

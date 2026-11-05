@@ -185,6 +185,11 @@ classdef SimulatedRig < handle
             %   t.chain  (Nf x 4) microphone-chain response V/Pa (analytic)
             %   t.p      (Nf x 4) analytic pressure at the 4 POSITIONS per unit incident wave
             %   t.model  tubeModel output (R, tau, Zt, boundary values ...)
+            %   t.incidentPerVolt (Nf x 1) incident wave at xFront [Pa peak] per
+            %            generator volt peak (loudspeaker and bulk delay; 1.6.0, the
+            %            truth of the level at the specimen, WO-006): a sine of Vpp
+            %            volts gives 20 log10(|t.incidentPerVolt| Vpp/2 / sqrt(2) / 20 uPa)
+            %            dB SPL and |t.model.uL .* t.incidentPerVolt| Vpp/2 / sqrt(2) m/s
             if obj.Dirty, obj.design(); end
             f = f(:);
             t.G = zeros(numel(f), 4);
@@ -195,6 +200,7 @@ classdef SimulatedRig < handle
             t.model = tim.sim.tubeModel(f, obj.Geometry, obj.Environment, obj.Sample, obj.Termination, ...
                 'lossModel', obj.LossModel);
             t.p = t.model.p;
+            t.incidentPerVolt = obj.speaker(f) .* exp(-2j * pi * f * obj.BulkDelay);
         end
 
         function C = chainResponse(obj, f)
@@ -214,8 +220,7 @@ classdef SimulatedRig < handle
             fp = f; fp(1) = f(2) * 1e-3;    % avoid f = 0 in the tube model
             m = tim.sim.tubeModel(fp, obj.Geometry, obj.Environment, obj.Sample, obj.Termination, ...
                 'lossModel', obj.LossModel);
-            s = 1j * fp / obj.SpeakerFhp;
-            spk = obj.SourceGain * (s.^2 ./ (1 + 1.414 * s + s.^2));
+            spk = obj.speaker(fp);
             delay = exp(-2j * pi * fp * obj.BulkDelay);
             C = obj.chainResponse(fp);
             G = zeros(numel(f), 4);
@@ -231,6 +236,13 @@ classdef SimulatedRig < handle
             obj.H = h .* w;
             obj.Tail = zeros(N - 1, 4);
             obj.Dirty = false;
+        end
+
+        function spk = speaker(obj, f)
+            % loudspeaker: incident wave at xFront [Pa peak] per generator volt
+            % peak, a 2nd-order high-pass at SpeakerFhp (the bulk delay apart)
+            s = 1j * f / obj.SpeakerFhp;
+            spk = obj.SourceGain * (s.^2 ./ (1 + 1.414 * s + s.^2));
         end
 
         function x = sourceSignal(obj, n)

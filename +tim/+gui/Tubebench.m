@@ -68,6 +68,9 @@ classdef Tubebench < handle
         GainEntered logical = true  % the gain was entered after an amplifier was chosen
         DriveCheck struct = struct()  % the drive check below the EXCITATION fields (updateDrive): state of the
                                 % loudspeaker ('ok' | 'near' | 'over' | 'unknown'), binding criterion, ... (tests)
+        EqTargets struct = struct('incidentPressure', 94, 'faceVelocity', 2.4)   % the last equalizer target of
+                                % each controlled quantity (dB SPL, mm/s; 2.4 mm/s is about 1 Pa / ρc): switching
+                                % the mode never reads a dB value as mm/s (Equalizer row, 1.6.0)
         LastCheck char = ''     % last configuration warnings (logged once)
         LastTM = []             % transfer-matrix result shown (tim.app.processTwoLoad): two loads, or one
                                 % load of a symmetric specimen; [] = none (WO-005)
@@ -691,14 +694,17 @@ classdef Tubebench < handle
             % as a fallback for small screens.
             % 1.5.1 (owner decision 2026-11-04): a field row for the stepped-sine
             % cycles; the section bars 26 -> 22 px and the spacers 4 -> 3 px keep
-            % the panel within 930 px
+            % the panel within 930 px.
+            % 1.6.0 (owner decision 2026-11-04): one row for the equalizer below the
+            % cycles row without resizing any other row; the panel grows by 28 px
+            % (929 -> 957), to be checked on the lab screen
             bar = 22; rw = 24; sp = 3;
             rowH = {bar, 26, 22, 22, 45, ...                %  1- 5 INSTRUMENTS: bar, mode + connect, status, lamps, in use (3 lines)
                 sp, bar, rw, 16, rw, 30, ...                %  6-11 IMPEDANCE TUBE: spacer, bar, D/T/p, names, distances, info
-                sp, bar, rw, rw, rw, rw, rw, rw, rw, rw, 45, ...% 12-22 EXCITATION: spacer, bar, 8 field rows, drive check (3 lines)
-                sp, bar, 22, 28, ...                        % 23-26 CALIBRATION: spacer, bar, status, buttons
-                sp, bar, rw, rw, 36, ...                    % 27-31 MEASUREMENT: spacer, bar, specimen, method + background, start / stop
-                sp, bar, 22, 28};                           % 32-35 RESULTS: spacer, bar, status, buttons
+                sp, bar, rw, rw, rw, rw, rw, rw, rw, rw, rw, 45, ...% 12-23 EXCITATION: spacer, bar, 9 field rows, drive check (3 lines)
+                sp, bar, 22, 28, ...                        % 24-27 CALIBRATION: spacer, bar, status, buttons
+                sp, bar, rw, rw, 36, ...                    % 28-32 MEASUREMENT: spacer, bar, specimen, method + background, start / stop
+                sp, bar, 22, 28};                           % 33-36 RESULTS: spacer, bar, status, buttons
             left = uigridlayout(g, [numel(rowH) 1], 'RowHeight', rowH, 'ColumnWidth', {'1x'}, ...
                 'Scrollable', 'on', 'RowSpacing', 4, 'Padding', [10 8 10 8], 'BackgroundColor', P.ui.panel);
             left.Layout.Row = 1; left.Layout.Column = 1;
@@ -809,6 +815,20 @@ classdef Tubebench < handle
             h.recordCycLabel = app.label(rg, 'Measure [cycles]');
             h.recordCyc = uieditfield(rg, 'numeric', 'Limits', [0 1e4], 'RoundFractionalValues', 'on', ...
                 'ValueChangedFcn', @(~, ~) app.onCycles());
+            % the level equalizer of the stepped sine (1.6.0, WO-006; owner
+            % decision 2026-11-04): the controlled quantity at the specimen front
+            % face and its target; greyed like the cycles row for the swept sine
+            % and while an action runs, and for a signal source that cannot change
+            % its level while the output is on (eqEnable)
+            r = r + 1; rg = app.rowGrid(left, r, ex);
+            h.eqLabel = app.label(rg, 'Equalizer');
+            h.eqMode = uidropdown(rg, 'Items', {'Off', 'Incident [dB SPL]', 'Face velocity [mm/s]'}, ...
+                'ItemsData', {'off', 'incidentPressure', 'faceVelocity'}, ...
+                'ValueChangedFcn', @(~, ev) app.onEqualizer(ev.PreviousValue));
+            h.eqMode.Layout.Column = [2 3];
+            h.eqTarget = uieditfield(rg, 'numeric', 'Limits', [20 160], 'Value', 94, 'ValueDisplayFormat', '%.4g', ...
+                'ValueChangedFcn', @(~, ~) app.onEqualizer());
+            h.eqTarget.Layout.Column = 4;
             % the chain from the generator to the loudspeaker, then the level
             % (owner requests 2026-10-12, WO-003: the gain as a plain number,
             % the generator load in the window, the loudspeaker's two values on
@@ -1072,9 +1092,8 @@ classdef Tubebench < handle
             uilabel(go, 'Text', 'B level', 'HorizontalAlignment', 'right', 'Tooltip', ...
                 'Generator level of load B relative to load A (only lower; raising it needs the owner''s approval)');
             h.termLevelB = uidropdown(go, 'Items', {'as A', '−3 dB', '−6 dB', '−10 dB', '−20 dB'}, ...
-                'ItemsData', {0, -3, -6, -10, -20}, 'ValueChangedFcn', @(~, ~) app.onTermChanged(), 'Tooltip', ...
-                ['Generator level of load B relative to load A. A rigid cap raises the sound pressure at the tube ' ...
-                'resonances; a lower level keeps a specimen that is not linear at the level it meets with load A.']);
+                'ItemsData', {0, -3, -6, -10, -20}, 'ValueChangedFcn', @(~, ~) app.onTermChanged(), ...
+                'Tooltip', levelBTip());          % (while the equalizer is on: termLayout)
             h.termText = uilabel(gt, 'Text', '', 'FontSize', 11, 'FontColor', P.ui.muted, 'WordWrap', 'on', ...
                 'VerticalAlignment', 'top');
             h.termText.Layout.Row = 4; h.termText.Layout.Column = [1 4];
@@ -2020,8 +2039,10 @@ classdef Tubebench < handle
             end
             st = ex.stepped;                   % the cycles row always shows the stepped sine's values
             h.settleCyc.Value = cyclesOf(st, 'settleCycles'); h.recordCyc.Value = cyclesOf(st, 'recordCycles');
+            app.eqToUi();                      % the Equalizer row: the stepped sine's equalizer (1.6.0)
             app.cycleEnable();
             app.updateDrive();
+            app.eqDependents();                % the B level and the two-load steps follow the signal
         end
 
         function uiToExcitation(app, mode)
@@ -2071,6 +2092,8 @@ classdef Tubebench < handle
             % the cycles row: for the stepped sine; greyed for the swept sine and
             % while an action runs. The tooltips give the times at the first and
             % the last step; fewer than 4 measured cycles per block are marked.
+            % The Equalizer row below follows the same rules (eqEnable).
+            app.eqEnable();
             h = app.H; P = tim.gui.palette();
             stepped = strcmp(h.exMode.Value, 'stepped');
             set([h.settleCyc, h.recordCyc, h.settleCycLabel, h.recordCycLabel], 'Enable', ...
@@ -2087,8 +2110,8 @@ classdef Tubebench < handle
             s.settleCycles = h.settleCyc.Value; s.recordCycles = h.recordCyc.Value;
             p = tim.app.steppedPlan(s);
             h.settleCyc.Tooltip = sprintf(['Cycles every step waits after its frequency change before it is measured, ' ...
-                'at least %g s (excitation.stepped.settleTime): %.2g s at %g Hz, %.2g s at %g Hz. A reflecting ' ...
-                'termination (rigid cap) needs more than the absorber.'], s.settleTime, p.settle_s(1), p.freqs(1), ...
+                'at least %g s (excitation.stepped.settleTime): %.2g s at %g Hz, %.2g s at %g Hz. A specimen with ' ...
+                'a sharp resonance can need more (Validity: Rejected: not settled).'], s.settleTime, p.settle_s(1), p.freqs(1), ...
                 p.settle_s(end), p.freqs(end));
             h.recordCyc.Tooltip = sprintf(['Cycles of every step used for the sine fit (%d blocks), at least %g s ' ...
                 '(excitation.stepped.recordTime): %.2g s at %g Hz, %.2g s at %g Hz.'], s.nBlocks, s.recordTime, ...
@@ -2099,6 +2122,174 @@ classdef Tubebench < handle
                 h.recordCyc.Tooltip = sprintf('%s Only %.1f cycles per block at %g Hz: measure more cycles.', ...
                     h.recordCyc.Tooltip, perBlock, p.freqs(k));
             end
+        end
+
+        %% -------------------------- level equalizer of the stepped sine (1.6.0, WO-006)
+        function eqToUi(app)
+            % excitation.stepped.equalizer -> the Equalizer row; the target of the
+            % mode in the configuration becomes the remembered one of its quantity
+            h = app.H;
+            eq = tim.app.equalizerSettings(app.Cfg.excitation.stepped);
+            if ~any(strcmp(eq.mode, h.eqMode.ItemsData)), eq.mode = 'off'; end
+            if ~strcmp(eq.mode, 'off') && isscalar(eq.target) && isfinite(eq.target)
+                app.EqTargets.(eq.mode) = double(eq.target);
+            end
+            h.eqMode.Value = eq.mode;
+            app.eqTargetToUi();
+        end
+
+        function eqTargetToUi(app)
+            % the target field in the unit of the mode, with the target last used
+            % for that quantity (Off: the incident-pressure target, greyed)
+            h = app.H;
+            if strcmp(h.eqMode.Value, 'faceVelocity')
+                lim = [0.001 1e4]; v = app.EqTargets.faceVelocity;            % mm/s rms
+            else
+                lim = [20 160]; v = app.EqTargets.incidentPressure;           % dB SPL (validateConfig)
+            end
+            % (through the union of the old and the new limits: the value is never
+            % outside the limits while they change)
+            old = h.eqTarget.Limits;
+            h.eqTarget.Limits = [min(old(1), lim(1)), max(old(2), lim(2))];
+            h.eqTarget.Value = min(max(v, lim(1)), lim(2));
+            h.eqTarget.Limits = lim;
+        end
+
+        function eq = equalizerFromUi(app)
+            % the Equalizer row -> excitation.stepped.equalizer; the level of the
+            % pre-measurement and the tolerance stay those of the configuration
+            h = app.H;
+            eq = tim.app.equalizerSettings(app.Cfg.excitation.stepped);
+            eq.mode = h.eqMode.Value;
+            if ~strcmp(eq.mode, 'off'), eq.target = h.eqTarget.Value; end
+        end
+
+        function onEqualizer(app, previous)
+            % the Equalizer row changed: a new mode (previous given) shows the
+            % target last used for its quantity and keeps that of the previous
+            % one; then the configuration, the enable state, the level label and
+            % the duration (updateDrive), the B level of two loads and the
+            % two-load steps
+            h = app.H;
+            if nargin > 1
+                if any(strcmp(previous, {'incidentPressure', 'faceVelocity'}))
+                    app.EqTargets.(previous) = h.eqTarget.Value;
+                end
+                app.eqTargetToUi();
+            elseif ~strcmp(h.eqMode.Value, 'off')
+                app.EqTargets.(h.eqMode.Value) = h.eqTarget.Value;
+            end
+            app.Cfg.excitation.stepped.equalizer = app.equalizerFromUi();
+            app.cycleEnable();                 % (with eqEnable)
+            app.updateDrive();
+            app.eqDependents();
+        end
+
+        function eqDependents(app)
+            % what follows the equalizer when it or the signal changes: the B
+            % level of two loads (greyed while the equalizer is on) and the
+            % operator steps of the Two-load view (a pre-measurement per load)
+            if app.isBuilt('tube'), app.termLayout(); end
+            if app.isBuilt('twoload') && app.TwStep == 0, app.buildTwSteps(); end
+        end
+
+        function tf = eqSourceCan(app)
+            % the configured signal source can change its level while the output
+            % is on (capabilities().source.levelWhileOn; an unknown driver: no)
+            tf = false;
+            try
+                tf = tim.instr.SignalSource.levelWhileOn( ...
+                    tim.instr.driverInfo(app.Cfg.generator.driver).capabilities.source);
+            catch
+            end
+        end
+
+        function n = sourceName(app)
+            % display name of the configured signal source (for the texts)
+            n = sprintf('signal source "%s"', char(string(app.Cfg.generator.driver)));
+            try
+                n = tim.instr.driverInfo(app.Cfg.generator.driver).displayName;
+            catch
+            end
+        end
+
+        function tf = eqActive(app)
+            % the next measurement is equalized: the stepped sine with a mode on
+            % and a signal source that can change its level while the output is on
+            h = app.H;
+            tf = strcmp(h.exMode.Value, 'stepped') && ~strcmp(h.eqMode.Value, 'off') && app.eqSourceCan();
+        end
+
+        function eqEnable(app)
+            % the Equalizer row (owner decision 2026-11-04): the stepped sine only,
+            % greyed for the swept sine and while an action runs (as the cycles
+            % row, cycleEnable); a signal source that cannot change its level
+            % while the output is on offers no equalizer (a mode a configuration
+            % file switched on stays selectable, so that it can be set to Off).
+            % The target is greyed while the equalizer is off. The tooltips give
+            % the level of the pre-measurement and the tolerance (also called by
+            % updateDrive, so that they follow the level field).
+            h = app.H;
+            stepped = strcmp(h.exMode.Value, 'stepped');
+            off = strcmp(h.eqMode.Value, 'off');
+            can = app.eqSourceCan();
+            onoff = @(tf) matlab.lang.OnOffSwitchState(tf);
+            set([h.eqLabel, h.eqMode], 'Enable', onoff(stepped && ~app.Busy && (can || ~off)));
+            h.eqTarget.Enable = onoff(stepped && ~app.Busy && can && ~off);
+            eq = tim.app.equalizerSettings(app.Cfg.excitation.stepped);
+            if ~stepped
+                tip = ['Stepped sine only: a pre-measurement of the steps at a low level, then every step at the ' ...
+                    'voltage that gives the target level at the specimen front face.'];
+                h.eqMode.Tooltip = tip; h.eqTarget.Tooltip = tip;
+                return
+            end
+            if ~can
+                tip = sprintf(['The %s cannot change its level while the output is on ' ...
+                    '(capabilities().source.levelWhileOn): no equalizer.'], app.sourceName());
+                if ~off, tip = [tip ' Set it to Off: a stepped measurement with it is refused.']; end
+                h.eqMode.Tooltip = tip; h.eqTarget.Tooltip = tip;
+                return
+            end
+            % the pre-measurement level as the session plays it (at least the
+            % smallest level of the source at its load)
+            [lo, ~] = app.generatorLimits();
+            vPre = min(app.ampFromUi(), max(app.ampFromUi() * 10^(eq.preLevel_dB / 20), lo));
+            h.eqMode.Tooltip = sprintf(['Stepped sine only: a pre-measurement of the same steps at %+g dB of the ' ...
+                'level field (%.3g Vpk at the generator), then every step at the voltage that gives the target at the ' ...
+                'specimen front face (linear scaling), never above the level field, which is the MAXIMUM. Tolerance ' ...
+                '±%g dB: a step outside it is reported in Results > Validity, not masked. Needs a calibration and ' ...
+                'L1, d, L2.'], eq.preLevel_dB, vPre, eq.tolerance_dB);
+            switch h.eqMode.Value
+                case 'incidentPressure'
+                    h.eqTarget.Tooltip = sprintf(['Target: rms level of the incident wave at the specimen front ' ...
+                        'face [dB SPL] (±%g dB; pre-measurement at %+g dB).'], eq.tolerance_dB, eq.preLevel_dB);
+                case 'faceVelocity'
+                    h.eqTarget.Tooltip = sprintf(['Target: rms particle velocity at the specimen front face ' ...
+                        '[mm/s] (±%g dB; pre-measurement at %+g dB).'], eq.tolerance_dB, eq.preLevel_dB);
+                otherwise
+                    h.eqTarget.Tooltip = 'Target of the equalizer: choose the controlled quantity first.';
+            end
+        end
+
+        function t = eqText(~, eq)
+            % 'incident pressure, target 94 dB SPL ± 1 dB' (log lines)
+            if strcmp(eq.mode, 'faceVelocity')
+                t = sprintf('face velocity, target %g mm/s ± %g dB', eq.target, eq.tolerance_dB);
+            else
+                t = sprintf('incident pressure, target %g dB SPL ± %g dB', eq.target, eq.tolerance_dB);
+            end
+        end
+
+        function requireEqualizerSource(app)
+            % a stepped sine with the equalizer on needs a signal source that can
+            % change its level while the output is on (owner decision
+            % 2026-11-04): refused here, before any operator step (the session
+            % refuses it too, before anything is armed)
+            if ~strcmp(app.Cfg.excitation.mode, 'stepped'), return; end
+            eq = tim.app.equalizerSettings(app.Cfg.excitation.stepped);
+            if strcmp(eq.mode, 'off') || app.eqSourceCan(), return; end
+            error('tim:gui:input', ['EXCITATION: the %s cannot change its level while the output is on, so the ' ...
+                'stepped-sine equalizer cannot be used. Set Equalizer to Off.'], app.sourceName());
         end
 
         function n = signalName(~, mode)
@@ -2284,9 +2475,32 @@ classdef Tubebench < handle
             L = tim.app.driveLimits(c, kind);
             direct = startsWith(lower(h.ampModel.Value), 'none');
             g = @(v) sprintf('%.3g', v);
-            % Vrms of the field: the loudspeaker's, or the generator level's
+            % Vrms of the field: the loudspeaker's, or the generator level's. With
+            % the equalizer on the field is the MAXIMUM of every step (owner
+            % decision 2026-11-04): 'max ...', and the tooltip of the field says so
+            % (ampToUi writes its base text); the drive check below uses it as is
             if strcmp(h.ampAt.Value, 'loudspeaker'), fv = d.Vspk_pk; else, fv = gen; end
-            h.ampRms.Text = sprintf('= %s Vrms', g(fv / d.crest));
+            % the Equalizer tooltips give the level of the pre-measurement, which
+            % follows the level field, the amplifier and the load (review
+            % 2026-11-05: they went stale; eqEnable only sets enable states and texts)
+            app.eqEnable();
+            eqOn = app.eqActive();
+            sfx = [' Equalizer on: this is the MAXIMUM level; no step is played above it and the drive check ' ...
+                'uses it.'];
+            tip = char(h.amp.Tooltip);
+            if endsWith(tip, sfx), tip = tip(1:end - numel(sfx)); end
+            if eqOn
+                h.ampRms.Text = sprintf('max %s Vrms', g(fv / d.crest));
+                h.ampRms.Tooltip = ['The level of the field as rms voltage: the maximum of every step while the ' ...
+                    'equalizer is on.'];
+                h.amp.Tooltip = [tip sfx];
+                h.durEst.Tooltip = 'Expected duration of one measurement (with the equalizer: including its pre-measurement).';
+            else
+                h.ampRms.Text = sprintf('= %s Vrms', g(fv / d.crest));
+                h.ampRms.Tooltip = 'The level of the field as rms voltage.';
+                h.amp.Tooltip = tip;
+                h.durEst.Tooltip = 'Expected duration of one measurement.';
+            end
             % (1) the path
             if strcmp(d.load, 'INF'), where = 'open circuit'; else, where = sprintf('into %s Ω', d.load); end
             if direct
@@ -2365,6 +2579,9 @@ classdef Tubebench < handle
                 st.fStart = h.fStart.Value; st.fStop = h.fStop.Value;
                 st.settleCycles = h.settleCyc.Value; st.recordCycles = h.recordCyc.Value;
                 T = n * tim.app.steppedPlan(st).total_s;
+                % the equalizer's pre-measurement plays the same steps and
+                % repetitions first (MeasurementSession.measureStepped): about twice
+                if app.eqActive(), T = 2 * T; end
             else
                 sw = ex.sweep;
                 T = n * (sw.preRoll + h.dur.Value + sw.postRoll + 0.2);
@@ -2396,6 +2613,8 @@ classdef Tubebench < handle
             % the stepped sine's cycles (their row is greyed for the swept sine)
             app.Cfg.excitation.stepped.settleCycles = h.settleCyc.Value;
             app.Cfg.excitation.stepped.recordCycles = h.recordCyc.Value;
+            % the stepped sine's equalizer (1.6.0; its row is greyed for the swept sine)
+            app.Cfg.excitation.stepped.equalizer = app.equalizerFromUi();
             % GUI in Vpk (of the loudspeaker, or the generator's level: open
             % circuit / amplifier input), config / generator in Vpp of the generator
             gen = app.ampFromUi();
@@ -2668,8 +2887,9 @@ classdef Tubebench < handle
         function c = inputControls(app)
             % every field / selector of the control panel and the drawing options
             h = app.H;
-            c = {h.mode, h.exMode, h.fStart, h.fStop, h.dur, h.amp, h.reps, h.settleCyc, h.recordCyc, h.ampModel, ...
-                h.ampGain, h.genLoad, h.spkZ, h.spkP, h.ampAt, h.tubeD, h.s1, h.L1, h.dTh, h.L2, h.s2, h.temp, h.pres, h.specimen, h.method};
+            c = {h.mode, h.exMode, h.fStart, h.fStop, h.dur, h.amp, h.reps, h.settleCyc, h.recordCyc, h.eqMode, ...
+                h.eqTarget, h.ampModel, h.ampGain, h.genLoad, h.spkZ, h.spkP, h.ampAt, h.tubeD, h.s1, h.L1, h.dTh, ...
+                h.L2, h.s2, h.temp, h.pres, h.specimen, h.method};
             if app.isBuilt('tube')
                 c = [c, {h.secChk, h.dimChk}];   % 3D redraw (~1 s) would stall the data stream
                 % the terminations (termLayout sets them again after an action: the
@@ -3159,9 +3379,16 @@ classdef Tubebench < handle
         function doStart(app)
             app.readCfgFromUi();
             app.requireGain();
+            app.requireEqualizerSource();
             app.syncSession();
             app.log('Start: %s measurement of "%s" (started by the operator).', ...
                 app.signalName(app.Cfg.excitation.mode), app.specimenName());
+            if app.eqActive()
+                eq = tim.app.equalizerSettings(app.Cfg.excitation.stepped);
+                app.log(['Equalizer on (%s): a pre-measurement of the steps at %+g dB of the level field first, then ' ...
+                    'every step at its own voltage, never above the level field (the maximum).'], app.eqText(eq), ...
+                    eq.preLevel_dB);
+            end
             app.ensureBuilt('wave');                     % live view: prepared BEFORE the data stream
             app.showTab(app.H.waveTab);
             app.prepareLive();
@@ -3702,10 +3929,19 @@ classdef Tubebench < handle
             onoff = @(tf) matlab.lang.OnOffSwitchState(tf);
             set([h.termLabelB, h.termKindB, h.termPlaceB, h.termRepeat, h.termLevelB], 'Visible', onoff(two));
             free = ~app.Busy;
+            % the equalizer sets the level of every load (owner decision
+            % 2026-11-04): the B level is ignored and greyed while it is on
+            eqOn = app.eqActive();
             h.termKindA.Enable = onoff(free); h.termKindB.Enable = onoff(free);
             h.termPlaceA.Enable = onoff(free && ~strcmp(ms.loadA.kind, 'absorber'));
             h.termPlaceB.Enable = onoff(free && ~strcmp(ms.loadB.kind, 'absorber'));
-            h.termRepeat.Enable = onoff(free); h.termLevelB.Enable = onoff(free);
+            h.termRepeat.Enable = onoff(free); h.termLevelB.Enable = onoff(free && ~eqOn);
+            if eqOn
+                h.termLevelB.Tooltip = ['Ignored while the equalizer is on (EXCITATION): every load is equalized ' ...
+                    'to the target, load A again with the voltages of load A.'];
+            else
+                h.termLevelB.Tooltip = levelBTip();
+            end
             if ~two, app.TermShown = 'A'; end
             % what is mounted and where (English, as every window text)
             dA = tim.app.describeLoad(ms.loadA, app.Cfg); dB = tim.app.describeLoad(ms.loadB, app.Cfg);
@@ -3718,7 +3954,9 @@ classdef Tubebench < handle
                 col = P.fail;
             else
                 txt = sprintf('A: %s.\nB: %s.', mt(dA), mt(dB));
-                if ms.loadBLevel_dB < 0
+                if eqOn && ms.loadBLevel_dB < 0
+                    txt = sprintf('%s\nLoad B: equalized like load A (B level ignored).', txt);
+                elseif ms.loadBLevel_dB < 0
                     txt = sprintf('%s\nLoad B at %s%g dB of the level of load A.', txt, char(8722), abs(ms.loadBLevel_dB));
                 end
             end
@@ -3740,6 +3978,7 @@ classdef Tubebench < handle
             app.ensureBuilt({'twoload', 'wave'});
             app.readCfgFromUi();
             app.requireGain();
+            app.requireEqualizerSource();
             app.syncSession();
             ms = app.Cfg.measurement;
             dA = tim.app.describeLoad(ms.loadA, app.Cfg); dB = tim.app.describeLoad(ms.loadB, app.Cfg);
@@ -3766,17 +4005,40 @@ classdef Tubebench < handle
             rep = ''; if ms.repeatLoadA, rep = ', load A repeated at the end'; end
             app.log('Start: two-load measurement of "%s" (%s): load A "%s", load B "%s"%s (started by the operator).', ...
                 app.specimenName(), app.signalName(app.Cfg.excitation.mode), dA.label, dB.label, rep);
+            if app.eqActive()
+                % owner decisions 2026-11-04: a pre-measurement after every change
+                % of termination, load A again with the voltages of load A, the B
+                % level not used (tim.app.runTwoLoad)
+                eq = tim.app.equalizerSettings(app.Cfg.excitation.stepped);
+                bl = '';
+                if ms.loadBLevel_dB < 0
+                    bl = sprintf('; the B level (%s%g dB) is ignored', char(8722), abs(ms.loadBLevel_dB));
+                end
+                rp = ''; if ms.repeatLoadA, rp = ', load A again with the voltages of load A'; end
+                app.log('Equalizer on (%s): a pre-measurement at %+g dB after every change of termination (loads A and B)%s%s.', ...
+                    app.eqText(eq), eq.preLevel_dB, rp, bl);
+            end
             app.LastLoads = []; app.LastTM = []; app.LastMeas = []; app.LastRes = []; app.LastCfg = app.Cfg;
             app.Saved = true; app.SavedDir = ''; app.Opened = false; app.ReprocessMics = [];
             app.TwStep = 0; app.buildTwSteps();
             app.showTab(app.H.twoLoadTab);
             app.refreshViews();
             figOpt = struct('Visible', 'off');
-            out = tim.app.runTwoLoad(app.Session, struct('cfg', app.Cfg, 'specimen', app.specimenName(), ...
-                'prompt', @(msg, load, k, n) app.twStep(msg, load, k, n), 'report', @(q) app.twReport(q), ...
-                'figures', @(res, meas) tim.app.plotResults(res, meas, figOpt), ...
-                'pairFigures', @(tm, loads) tim.app.plotResults(loads(1).res, loads(1).meas, ...
-                setfield(figOpt, 'transferMatrix', tm))));
+            try
+                out = tim.app.runTwoLoad(app.Session, struct('cfg', app.Cfg, 'specimen', app.specimenName(), ...
+                    'prompt', @(msg, load, k, n) app.twStep(msg, load, k, n), 'report', @(q) app.twReport(q), ...
+                    'figures', @(res, meas) tim.app.plotResults(res, meas, figOpt), ...
+                    'pairFigures', @(tm, loads) tim.app.plotResults(loads(1).res, loads(1).meas, ...
+                    setfield(figOpt, 'transferMatrix', tm))));
+            catch err
+                % the step that was running (a load, or the equalizer's
+                % pre-measurement of a load, 1.6.0) is marked with the reason, as in
+                % the calibration; the loads measured so far stay
+                if isvalid(app) && app.isBuilt('twoload')
+                    for k = app.TwList.runningKeys(), app.TwList.set(k{1}, 'fail', err.message); end
+                end
+                rethrow(err);
+            end
             app.LastLoads = out.loads; app.LastTM = out.tl;
             app.Saved = true; app.SavedDir = out.folder; app.Opened = false;
             app.showLoad('A');
@@ -3786,15 +4048,21 @@ classdef Tubebench < handle
         function twStep(app, msg, load, k, n)
             % one operator step: the model shows the termination to mount (glowing),
             % then (hardware, or practice) the operator confirms in the bar; in
-            % simulation the virtual rig mounts the load
+            % simulation the virtual rig mounts the load. With the equalizer
+            % (1.6.0) loads A and B start with their pre-measurement, a step of
+            % its own in the list (eqA / eqB; twReport 'pre'); load A again plays
+            % the voltages of load A
             app.ensureBuilt('twoload');
             app.TwStep = k;
             key = app.twKey(k);
+            pre = any(strcmp(app.TwList.Keys, ['eq' key]));      % this load starts with a pre-measurement
+            eqRun = any(startsWith(app.TwList.Keys, 'eq'));    % an equalized run
+            first = key; if pre, first = ['eq' key]; end       % the step the operator action belongs to
             L = app.Cfg.ui.language;
             app.drawTwModel(load, true);
             app.setTwText(msg, tim.app.msg(L, 'tlStepHeader', k, n));
             app.showTab(app.H.twoLoadTab);
-            app.TwList.set(key, 'run', 'operator: terminate the tube as shown');
+            app.TwList.set(first, 'run', 'operator: terminate the tube as shown');
             hw = strcmp(app.Session.Cfg.mode, 'hardware');
             if hw || app.PromptInSimulation
                 ok = tim.app.msg(L, 'tlMeasureButton');
@@ -3802,11 +4070,19 @@ classdef Tubebench < handle
                 sel = app.askTwBar({ok, tim.app.msg(L, 'tlAbortButton')}, 1, 2);
                 app.stopPulse();
                 if ~strcmp(sel, ok)
-                    app.TwList.set(key, 'fail', 'cancelled by the operator');
+                    app.TwList.set(first, 'fail', 'cancelled by the operator');
                     error('tim:gui:abort', 'Two-load measurement cancelled by the operator.');
                 end
             end
-            app.TwList.set(key, 'run', sprintf('measuring (%s) ...', app.signalName(app.Session.Cfg.excitation.mode)));
+            sig = app.signalName(app.Session.Cfg.excitation.mode);
+            if pre
+                eq = tim.app.equalizerSettings(app.Session.Cfg.excitation.stepped);
+                app.TwList.set(first, 'run', sprintf('pre-measurement at %+g dB (%s) ...', eq.preLevel_dB, sig));
+            elseif eqRun && strcmp(key, 'A2')
+                app.TwList.set(key, 'run', sprintf('measuring (%s, the voltages of load A) ...', sig));
+            else
+                app.TwList.set(key, 'run', sprintf('measuring (%s) ...', sig));
+            end
             % the live time signals while the load is measured; back to the
             % Two-load view when it is done (twReport; owner 2026-10-14)
             app.showTab(app.H.waveTab);
@@ -3818,6 +4094,22 @@ classdef Tubebench < handle
             % after every load (quality, saved folder; shown at once) and at the end
             app.ensureBuilt('twoload');
             switch q.kind
+                case 'pre'
+                    % the equalizer's pre-measurement of load A or B (1.6.0):
+                    % its step done, then the load measured with the plan
+                    eqKey = ['eq' app.twKey(q.k)];
+                    if strcmp(q.state, 'start')
+                        app.TwList.set(eqKey, 'run');
+                    else
+                        p = q.plan; nMax = nnz(strcmp(p.limited, 'max'));
+                        st = 'ok'; if nMax > 0, st = 'warn'; end
+                        app.TwList.set(eqKey, st, sprintf('%.3g–%.3g Vpk, %d capped at the maximum', ...
+                            min(p.vpp) / 2, max(p.vpp) / 2, nMax));
+                        app.TwList.set(app.twKey(q.k), 'run', sprintf('measuring (%s, equalized) ...', ...
+                            app.signalName(app.Session.Cfg.excitation.mode)));
+                        app.showTab(app.H.waveTab);
+                        app.prepareLive();                  % the live view starts again for the load
+                    end
                 case 'load'
                     v = q.res.analysis.valid; inB = ~v.flags.outsideBand;
                     frac = nnz(v.valid & inB) / max(1, nnz(inB));
@@ -3830,6 +4122,9 @@ classdef Tubebench < handle
                     if ~isempty(fn), txt = [txt ' · saved ' fn]; end
                     if ~q.meas.integrityOk, txt = ['data integrity failed – ' txt]; end
                     app.TwList.set(app.twKey(q.k), st, txt);
+                    if isfield(q.res, 'equalizer')    % an equalized load (1.6.0): report only
+                        app.log('Load %s: %s', q.role, q.res.equalizer.text);
+                    end
                     Lq = struct('role', q.role, 'load', q.load, 'meas', q.meas, 'res', q.res, 'folder', q.folder, ...
                         'cfg', q.cfg);
                     if isempty(app.LastLoads), app.LastLoads = Lq; else, app.LastLoads(end + 1) = Lq; end
@@ -3872,13 +4167,27 @@ classdef Tubebench < handle
             if ~app.isBuilt('twoload'), return; end
             ms = app.Cfg.measurement;
             dA = tim.app.describeLoad(ms.loadA, app.Cfg); dB = tim.app.describeLoad(ms.loadB, app.Cfg);
-            lb = ''; if ms.loadBLevel_dB < 0, lb = sprintf(' (%s%g dB)', char(8722), abs(ms.loadBLevel_dB)); end
-            keys = [app.twKeys(), {'result'}];
-            labels = {['Load A: ' dA.label], ['Load B: ' dB.label lb]};
-            if ms.repeatLoadA, labels{end + 1} = ['Load A again: ' dA.label]; end
+            if app.eqActive()
+                % the equalizer (owner decisions 2026-11-04): a pre-measurement after
+                % every change of termination as its own step, load A again with
+                % the voltages of load A, no B level
+                pre = sprintf('equalizer pre-measurement (%+g dB)', ...
+                    tim.app.equalizerSettings(app.Cfg.excitation.stepped).preLevel_dB);
+                keys = {'eqA', 'A', 'eqB', 'B'};
+                labels = {['Load A: ' pre], ['Load A: ' dA.label], ['Load B: ' pre], ['Load B: ' dB.label]};
+                if ms.repeatLoadA
+                    keys{end + 1} = 'A2'; labels{end + 1} = ['Load A again: ' dA.label ' (voltages of load A)'];
+                end
+            else
+                lb = ''; if ms.loadBLevel_dB < 0, lb = sprintf(' (%s%g dB)', char(8722), abs(ms.loadBLevel_dB)); end
+                keys = app.twKeys();
+                labels = {['Load A: ' dA.label], ['Load B: ' dB.label lb]};
+                if ms.repeatLoadA, labels{end + 1} = ['Load A again: ' dA.label]; end
+            end
+            keys{end + 1} = 'result';
             labels{end + 1} = 'Transfer matrix, figures and the pair folder';
             app.TwList.rebuild(keys, labels);
-            app.TwSteps = numel(keys) - 1;
+            app.TwSteps = numel(app.twKeys());     % the operator steps: one per load
         end
 
         function sel = askTwBar(app, options, defaultIdx, cancelIdx)
@@ -4265,6 +4574,9 @@ classdef Tubebench < handle
                 app.log('One load, symmetric specimen ASSUMED: transfer matrix %s.', app.LastTM.valid.summary);
             end
             app.log('%s', app.LastRes.summary);
+            if isfield(app.LastRes, 'equalizer')        % an equalized stepped sine (1.6.0): report only
+                app.log('%s', app.LastRes.equalizer.text);
+            end
             app.log('Processed with calibration %s%s; L1/d/L2 = %s/%s/%s mm, T = %g °C.', ...
                 app.LastRes.calibration.version, src, app.H.L1.Value, app.H.dTh.Value, app.H.L2.Value, app.H.temp.Value);
             if ~isempty(recorded)
@@ -4807,4 +5119,10 @@ function n = cyclesOf(st, name)
 % cycles of the stepped sine (0 = fixed times; a file before 1.5.0 has none)
 n = 0;
 if isfield(st, name) && ~isempty(st.(name)), n = double(st.(name)); end
+end
+
+function t = levelBTip()
+% tooltip of the B level (Setup > Tube setup, Termination) while the equalizer is off
+t = ['Generator level of load B relative to load A. A rigid cap raises the sound pressure at the tube ' ...
+    'resonances; a lower level keeps a specimen that is not linear at the level it meets with load A.'];
 end

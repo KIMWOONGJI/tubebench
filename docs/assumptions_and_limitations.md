@@ -98,6 +98,37 @@
 * Thin elements of low impedance (`|Z_t|/(ρc)` below about 0.2) are sensitive to the inter-pair
   phase residual of the calibration and to errors in `c` (temperature, humidity); no validity mask
   covers this (assumption 4).
+* **Mains hum at a step frequency** is not detected: the stepped-sine fit cannot tell a hum
+  harmonic within its resolution from the excitation, and neither the coherence nor the SNR sees
+  it. The default steps lie on 120 and 4500 Hz (harmonics of 60 Hz) and 1 Hz from 1620 Hz. Options
+  are recorded in `workorder_mains_hum.md` (WO-007, not built).
+* **Level at the specimen** (1.6.0, `res.levels`; `theory.md` section 3C): the absolute incident
+  pressure and particle velocity at the front face rest on the sensitivity layer of the reference
+  microphone (a nominal sensitivity can be 1–2 dB off) and on the complex calibration (a residual
+  `δ` of M2 against M1 changes `|A1|` by about `δ/(2 sin(ks))`, 0.2 dB at 200 Hz for 0.5 %). The
+  value of a swept sine is the sine-equivalent, steady-state level; it ripples near the ends of the
+  sweep and of the gate ramps (smooth only on the scale of the square root of the sweep rate), and
+  while the sweep passes a sharp resonance the actual level in the tube is lower. Random noise gets
+  no level. Not yet compared with an independent level measurement on the bench (calibrated sound
+  level meter or pistonphone; `hardware_status.md`).
+* **Level equalizer of the stepped sine** (1.6.0, WO-006; `theory.md` section 3C): feedforward from
+  a pre-measurement at −20 dB with a transfer taken as linear. For a specimen that is not linear,
+  or a loudspeaker that compresses, the achieved level differs from the target; it is reported per
+  step (`res.equalizer`), not corrected (no correction pass in 1.6.0) and not masked. A step that
+  needs more than the amplitude field is played at it and misses the target. The absolute target
+  carries the uncertainty of the level at the specimen (item above). The level change of the
+  33220A while its output is on is not yet checked on the instrument (`hardware_status.md`).
+* **Settled check of the stepped sine** (1.6.0; `theory.md` section 5 step 7) compares the first
+  and the last block of a step only. A transient much slower than the record changes little
+  within it and passes (it shows only when the settling time is changed); a drift between
+  repetitions is not judged; one block (`nBlocks` 1) is not judged at all. A stray line that
+  beats against the tone within the record (mains hum a few hertz from a step) is flagged like a
+  transient, one within the resolution of the fit is not (item on mains hum above). The noise it
+  is judged against is that of the 0.5 s before the output goes on: noise much louder during the
+  steps (a noise burst in the room) can be flagged like a transient. The limit
+  0.01 is a default of this program, checked against the measured decay of the empty lab tube
+  with the absorber and with the rigid cap (2026-11-05; `theory.md` section 5 step 0), not with
+  a specimen that has a sharp resonance of its own (`hardware_status.md`).
 * The calibration is not temperature compensated. Recalibrate after temperature changes > 3 K.
 * Uncertainty: the software reports diagnostics (condition number, coherence, SNR, phase
   sensitivity, calibration repeatability, block scatter for stepped sine) but **no complete

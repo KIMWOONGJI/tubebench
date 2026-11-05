@@ -52,6 +52,16 @@ switch key
     case 'nearLimit'           % appended to the drive line from 80 % of the test limit
         t.ko = ' – 한계 근처: 실제 임피던스가 낮은 주파수에서는 한계에 닿을 수 있습니다';
         t.en = ' – near the limit: at frequencies where the real impedance is lower the limit may be reached';
+    case 'eqConfirm'           % pre-measurement level dB, its Vpk, tolerance dB (appended to confirmExcitation, 1.6.0)
+        t.ko = ['이퀄라이저: 먼저 모든 스텝을 %+g dB (%.3g Vpk)로 사전 측정한 뒤, 각 스텝을 목표 레벨(±%g dB)이 되는 ' ...
+            '전압으로 재생합니다. 위 레벨을 넘는 스텝은 없습니다.'];
+        t.en = ['Equalizer: a pre-measurement of the steps at %+g dB (%.3g Vpk), then every step at the voltage that ' ...
+            'gives the target (±%g dB), never above the level shown.'];
+    case 'eqConfirmPlan'       % tolerance dB (a plan made before: load A again of two loads, 1.6.0)
+        t.ko = ['이퀄라이저: 앞서 측정한 계획의 전압으로 각 스텝을 재생합니다 (목표 ±%g dB, 사전 측정 없음). ' ...
+            '위 레벨을 넘는 스텝은 없습니다.'];
+        t.en = ['Equalizer: every step at the voltage of the plan measured before (target ±%g dB, no new ' ...
+            'pre-measurement), never above the level shown.'];
     case 'speakerPower'        % P mW, limit mW
         t.ko = ['예상 스피커 전력 %.3g mW가 스피커 전력 상한 %.4g mW를 넘습니다 (loudspeaker.maxPower_W). ' ...
             '발생기 진폭 또는 앰프 게인을 낮추세요.'];

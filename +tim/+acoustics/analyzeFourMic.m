@@ -26,8 +26,12 @@ function res = analyzeFourMic(f, H, geom, env, opts)
 %                         calibration, for the low-frequency sensitivity
 %                         estimate (default 0.002 rad)
 %        maxPhaseSensitivity   allowed relative error from phase uncertainty (0.05)
-%        quality          struct with coherence (Nf x 4) and snr_dB (Nf x 4)
+%        quality          struct with coherence (Nf x 4) and snr_dB (Nf x 4);
+%                         stepped sine also settleDrift (Nf x 4, the excess
+%                         drift of the settled check, 1.6.0; without it there
+%                         is no flag notSettled)
 %        coherenceMin     (0.98)   snrMin_dB (20)
+%        settleDriftMax   limit of quality.settleDrift (0.01; Inf: no check)
 %        calValid         (Nf x 1 logical) calibration validity
 %        calOutside       (Nf x 1 logical, optional) lines outside the range of the
 %                         calibration (flag outsideCalibration; calValid is false there)
@@ -174,7 +178,8 @@ end
 function o = fillDefaults(o)
 d = struct('lossModel', 'kirchhoff', 'velocityRef', 'mean', 'condMax', 40, ...
     'phaseUncertainty_rad', 0.002, 'maxPhaseSensitivity', 0.05, 'quality', [], ...
-    'coherenceMin', 0.98, 'snrMin_dB', 20, 'calValid', [], 'calValidPos', [], 'calOutside', [], 'fRange', [], ...
+    'coherenceMin', 0.98, 'snrMin_dB', 20, 'settleDriftMax', 0.01, ...
+    'calValid', [], 'calValidPos', [], 'calOutside', [], 'fRange', [], ...
     'validatedBands', zeros(0, 2), 'passivityTol', 0.05, 'velocityMismatchMax', 0.10, ...
     'anechoicRmax', 0.1, 'lowerFraction', 0.01, 'upperFraction', 0.40);
 fn = fieldnames(d);

@@ -129,10 +129,24 @@ cfg.excitation.sweep = struct('fStart', 80, 'fStop', 5500, 'duration', 5, 'spaci
 % stepped: every step settles max(settleTime, settleCycles/f) after its
 % frequency command and records max(recordTime, recordCycles/f), so low
 % frequencies get more cycles and high ones no more than the minimum time
-% (tim.app.steppedPlan; cycles 0 = the fixed times alone)
+% (tim.app.steppedPlan; cycles 0 = the fixed times alone). settleTime 0.3 s
+% (owner decision 2026-11-05, was 0.2 s): measured in the lab tube, the new
+% frequency reaches the recording 35-140 ms after the command, and the tube
+% decays within some tens of cycles after that (theory.md section 5 step 0)
 cfg.excitation.stepped = struct('fStart', 120, 'fStop', 4500, 'nPoints', 40, 'spacing', 'log', ...
-    'amplitudeVpp', 0.2, 'settleTime', 0.2, 'settleCycles', 50, 'recordTime', 0.2, 'recordCycles', 100, ...
+    'amplitudeVpp', 0.2, 'settleTime', 0.3, 'settleCycles', 50, 'recordTime', 0.2, 'recordCycles', 100, ...
     'nBlocks', 4, 'repetitions', 1);
+% level equalizer of the stepped sine (1.6.0, WO-006; owner decisions
+% 2026-11-04; defaults from tim.app.equalizerSettings): mode 'off' |
+% 'incidentPressure' (target in dB SPL of the rms incident wave at the
+% specimen front face) | 'faceVelocity' (target in mm/s rms at the front
+% face); a pre-measurement of the same steps at preLevel_dB relative to the
+% amplitude, then every step at the voltage that gives the target (within
+% +/- tolerance_dB). While it is on, amplitudeVpp is the MAXIMUM of every
+% step; a step that needs more is played at it and reported, never masked.
+% Needs a signal source that changes its level while the output is on
+% (capabilities().source.levelWhileOn), a calibration and the geometry.
+cfg.excitation.stepped.equalizer = tim.app.equalizerSettings(struct());
 cfg.excitation.noise = struct('amplitudeVpp', 0.2, 'duration', 20, 'nfft', 8192, 'preRoll', 1.0);
 
 % ---------------- measurement method and terminations (WO-005) ----------------
@@ -163,10 +177,14 @@ cfg.measurement = struct('method', 'oneLoad', ...
 % condition number of the two loads' boundary states (columns scaled to unit
 % length); reciprocityTol flags |det T - 1|; repeatTol limits the median
 % difference of T(A,B) and T(A',B) relative to |T| (the repeat of load A).
+% settleDriftMax (stepped sine, 1.6.0, owner decision 2026-11-04): settled
+% check, the largest relative drift of a channel ratio from the first to the
+% last block of a step beyond 4 noise standard deviations (flag notSettled);
+% Inf switches the check off.
 cfg.analysis = struct('refChannel', 1, 'fMin', 120, 'fMax', 4500, 'bandMode', 'fixed', 'df', 2, ...
     'lossModel', 'kirchhoff', 'velocityRef', 'mean', 'condMax', 40, ...
     'phaseUncertainty_rad', 0.002, 'maxPhaseSensitivity', 0.05, ...
-    'coherenceMin', 0.98, 'snrMin_dB', 20, 'validatedBands', zeros(0, 2), ...
+    'coherenceMin', 0.98, 'snrMin_dB', 20, 'settleDriftMax', 0.01, 'validatedBands', zeros(0, 2), ...
     'lowerFraction', 0.01, 'upperFraction', 0.40, 'passivityTol', 0.05, ...
     'velocityMismatchMax', 0.10, 'anechoicRmax', 0.1, ...
     'condQMax', 10, 'reciprocityTol', 0.1, 'repeatTol', 0.05);

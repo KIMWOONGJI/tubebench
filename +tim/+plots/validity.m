@@ -10,7 +10,9 @@ function info = validity(ax, res, opts)
 %   Rows (top to bottom): Measured (in band), Geometry OK, Quality OK,
 %   Passive, Valid, Valid R, Valid tau / TL, Valid thin Z_t, Validated
 %   (experiment); below a thin separator every rejection flag of
-%   res.analysis.valid.flags as 'rejected by <flag>', red where it rejects.
+%   res.analysis.valid.flags as 'rejected by <flag>', red where it rejects
+%   (a stepped sine, 1.6.0, also 'Rejected: not settled', the settled check;
+%   the empty state shows the flags of every excitation, without it).
 %   Swept sine / noise: contiguous bins are drawn as bands (bin edges at the
 %   geometric mid-points). Stepped sine: one square marker per step - EVERY
 %   step, also one without a value (light grey with a darker edge, so it
@@ -22,6 +24,11 @@ function info = validity(ax, res, opts)
 %   second separator the rows of the transfer matrix - both loads valid,
 %   loads differ (condQ), Valid T, reciprocal, the repeat of load A - the
 %   last two report only).
+%   An equalized stepped sine (res.equalizer, 1.6.0, WO-006; owner decision
+%   2026-11-04) gets below a last separator the report-only row "Target level
+%   not reached (±tol dB)", red at the steps outside the tolerance of the
+%   target (Passing = the steps within it). It masks nothing, like the
+%   reciprocity row of two loads.
 %
 %   info.summary  Criterion | Passing (bins) | % | Affects (which results
 %                 the criterion masks); note = res.analysis.valid.summary +
@@ -38,10 +45,11 @@ ax = ax(1);
 legend(ax, 'off'); cla(ax); hold(ax, 'on'); ax.XScale = 'log'; tim.plots.style(ax);
 cOn = [0.20 0.40 0.80]; cOff = [0.90 0.90 0.90]; cEdge = [0.60 0.60 0.60]; cRej = P.fail;
 
-rows = criteria(o.a, o.tl);
+rows = criteria(o.a, o.tl, o.eq);
 n = numel(rows);
 grp = [rows.group];
-y = (1:n) + 0.6 * (grp >= 1) + 0.6 * (grp >= 2);     % gaps: criteria | flags | transfer matrix
+% a gap at every change of group: criteria | flags | transfer matrix | equalizer
+y = (1:n) + 0.6 * [0, cumsum(diff(grp) ~= 0)];
 info = struct('summary', [], 'note', '', 'lines', gobjects(1, 0));
 xlabel(ax, 'Frequency [Hz]'); ylabel(ax, '');
 % rows are placed here, not by fitAxes: forget fitted y limits of an earlier
@@ -49,7 +57,7 @@ xlabel(ax, 'Frequency [Hz]'); ylabel(ax, '');
 if isappdata(ax, 'timFitAxes'), rmappdata(ax, 'timFitAxes'); end
 set(ax, 'YDir', 'reverse', 'YLim', [y(1) - 0.6, y(end) + 0.6], 'YGrid', 'off');
 set(ax, 'YTick', y, 'YTickLabel', {rows.label}, 'TickLabelInterpreter', 'tex');
-for g = 1:2
+for g = 1:3
     sepY = y(find(grp == g, 1)) - 0.8;
     if ~isempty(sepY)
         plot(ax, [1e-3 1e6], [sepY sepY], '-', 'Color', [0.80 0.80 0.82], 'LineWidth', 0.8, ...
@@ -88,6 +96,9 @@ if o.stepped, xr = [min([o.band(1); f(:)]) max([o.band(2); f(:)])]; end
 tim.plots.fitAxes(ax, 'Axis', 'x', 'XRange', xr);
 sn = [a.valid.summary ' ' rNote()];
 if ~isempty(o.tl), sn = sprintf('Transfer matrix: %s. Load shown: %s', o.tl.valid.summary, sn); end
+if ~isempty(o.eq) && numel(o.eq.reached) == numel(f)
+    sn = sprintf('%s Equalizer: %d of %d steps within the tolerance.', sn, nnz(o.eq.reached), numel(f));
+end
 info.summary = summaryTable(rows, numel(f), sn);
 nR = nnz(a.valid.validR);                             % R: upstream pair only (validityMasks)
 if isfield(res, 'calibration') && isfield(res.calibration, 'applied') && ~res.calibration.applied
@@ -109,12 +120,14 @@ end
 end
 
 % ---------------------------------------------------------------------------
-function rows = criteria(a, tl)
+function rows = criteria(a, tl, eq)
 % rows of the view: label (TeX), plain name, mask, flag row?, what it affects,
-% group (0 criteria, 1 rejection flags, 2 transfer matrix, WO-005).
+% group (0 criteria, 1 rejection flags, 2 transfer matrix, WO-005, 3 the
+% equalizer, 1.6.0).
 % Both-pair criteria mask τ, α_d, TL and Z_t; R (validR = upstream.valid) has
 % its own pair-1 version of them: '(R: M1/M2)', see rNote
 if nargin < 2, tl = []; end
+if nargin < 3, eq = []; end
 both = ['|τ|, α_d, TL, Z_t ' rOnly()];
 S = {'Measured (in band)',            'Measured (in band)',          'measured',    both
      'Geometry OK',                   'Geometry OK',                 'geometryOK',  both
@@ -126,11 +139,14 @@ S = {'Measured (in band)',            'Measured (in band)',          'measured',
      'Valid thin Z_t',                'Valid thin Z_t',              'validThinZt', 'Z_t, TL from Z_t'
      'Validated (experiment)',        'Validated (experiment)',      'validated',   'report only'};
 flags = {'outsideBand', 'belowSpacingLimit', 'aboveSpacingLimit', 'aboveModeCutOn', 'nearSingularity', ...
-    'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'calInvalid', 'outsideCalibration', 'nonPassive', ...
-    'velocityMismatch', 'terminationNotAnechoic'};
+    'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'notSettled', 'calInvalid', 'outsideCalibration', ...
+    'nonPassive', 'velocityMismatch', 'terminationNotAnechoic'};
 if ~isempty(a) && isfield(a.valid, 'flags')
     flags = [flags(ismember(flags, fieldnames(a.valid.flags))), ...
         setdiff(fieldnames(a.valid.flags).', flags, 'stable')];   % known order, then any new flag
+else
+    % empty state: the flags every result has (notSettled only for a stepped sine, 1.6.0)
+    flags = setdiff(flags, {'notSettled'}, 'stable');
 end
 nF = 0; if ~isempty(a), nF = numel(a.f); end
 rows = struct('label', {}, 'name', {}, 'mask', {}, 'flag', {}, 'affects', {}, 'group', {});
@@ -148,8 +164,21 @@ for i = 1:numel(flags)
     rows(end + 1) = struct('label', ['Rejected: ' flagName(flags{i})], 'name', ['Rejected: ' flagName(flags{i})], ...
         'mask', m, 'flag', true, 'affects', flagAffects(flags{i}), 'group', 1); %#ok<AGROW>
 end
-if isempty(tl) || isempty(a) || numel(tl.f) ~= nF, return; end
-% ---- transfer matrix (two loads, or one load of a symmetric specimen)
+if ~isempty(tl) && ~isempty(a) && numel(tl.f) == nF
+    rows = [rows, transferMatrixRows(tl)];
+end
+% ---- the equalizer of the stepped sine (owner decision 2026-11-04): report
+% only, red where a step missed the target (a flag row: Passing = reached)
+if ~isempty(eq) && ~isempty(a) && numel(eq.reached) == nF
+    lbl = sprintf('Target level not reached (%s%g dB)', char(177), eq.tolerance_dB);
+    rows(end + 1) = struct('label', lbl, 'name', lbl, 'mask', ~logical(eq.reached(:)), 'flag', true, ...
+        'affects', 'report only (equalizer; not masked)', 'group', 3);
+end
+end
+
+function rows = transferMatrixRows(tl)
+% the rows of a transfer-matrix result (two loads, or one load of a symmetric specimen)
+rows = struct('label', {}, 'name', {}, 'mask', {}, 'flag', {}, 'affects', {}, 'group', {});
 v = tl.valid; aff = 'T, TL, R_a, α';
 if strcmp(tl.method, 'oneLoadSymmetric')
     T = {'Load valid (symmetric assumed)', v.base, aff
@@ -184,6 +213,7 @@ switch name
     case 'phaseSensitive', t = 'phase sensitivity';
     case 'lowCoherence', t = 'low coherence';
     case 'lowSNR', t = 'low SNR';
+    case 'notSettled', t = 'not settled';
     case 'calInvalid', t = 'no valid calibration';
     case 'outsideCalibration', t = 'outside the calibration range';
     case 'nonPassive', t = 'not passive';
@@ -200,7 +230,8 @@ function t = flagAffects(name)
 switch name
     case 'aboveModeCutOn', t = 'all results';
     case {'outsideBand', 'belowSpacingLimit', 'aboveSpacingLimit', 'nearSingularity', ...
-            'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'calInvalid', 'outsideCalibration'}, t = ['|τ|, α_d, TL, Z_t ' rOnly()];
+            'illConditioned', 'phaseSensitive', 'lowCoherence', 'lowSNR', 'notSettled', 'calInvalid', ...
+            'outsideCalibration'}, t = ['|τ|, α_d, TL, Z_t ' rOnly()];
     case 'nonPassive', t = '|τ|, α_d, TL, Z_t (R: |R| > 1)';
     case 'velocityMismatch', t = 'Z_t, TL from Z_t';
     case 'terminationNotAnechoic', t = '|τ|, α_d, TL';
@@ -270,5 +301,10 @@ if isfield(opts, 'stepped') && ~isempty(opts.stepped), o.stepped = logical(opts.
 o.tl = [];                                            % transfer-matrix result (tim.app.processTwoLoad)
 if isfield(opts, 'transferMatrix') && isstruct(opts.transferMatrix) && ~isempty(opts.transferMatrix)
     o.tl = opts.transferMatrix;
+end
+o.eq = [];                                            % the equalizer of a stepped sine (res.equalizer, 1.6.0)
+if ~isempty(o.a) && isfield(res, 'equalizer') && isstruct(res.equalizer) && isscalar(res.equalizer) && ...
+        all(isfield(res.equalizer, {'reached', 'tolerance_dB'})) && numel(res.equalizer.reached) == numel(o.a.f)
+    o.eq = res.equalizer;
 end
 end

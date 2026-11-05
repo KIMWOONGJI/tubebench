@@ -7,6 +7,13 @@ classdef MeasurementSession < handle
     %   meas = s.measure();           % USER START: arms output, runs cfg.excitation.mode
     %   s.close();
     %
+    %   Level equalizer of the stepped sine (1.6.0, WO-006): with
+    %   cfg.excitation.stepped.equalizer.mode 'incidentPressure' or
+    %   'faceVelocity' (and a calibration in s.Calibration), measure('stepped')
+    %   runs the pre-measurement and then every step at its own level, never
+    %   above excitation.stepped.amplitudeVpp; plan = s.measureEqualizerPlan()
+    %   runs only the pre-measurement and arms the plan for the next stepped
+    %   measurement, s.setEqualizerPlan(plan) arms a plan made before.
     %   The instruments are the drivers the configuration selects
     %   (generator.driver, daq.driver), built by the registry tim.instr.create
     %   (contract: docs/instrument_interface.md): s.Gen is the signal source,
@@ -50,6 +57,10 @@ classdef MeasurementSession < handle
         Prepared logical = false
         Termination = []         % termination load mounted now (tim.app.describeLoad: kind, place);
                                  % setTermination; recorded with every measurement (metadata.termination)
+        EqualizerPlan = []       % level plan of the stepped-sine equalizer for the NEXT stepped measurement
+                                 % (measureEqualizerPlan / setEqualizerPlan; 1.6.0, WO-006); consumed by it,
+                                 % discarded when the termination, the stepped sine, the amplifier, the
+                                 % geometry or the virtual specimen changes
     end
     properties
         Calibration = []
@@ -345,56 +356,91 @@ classdef MeasurementSession < handle
         end
 
         function meas = measureStepped(obj)
+            %MEASURESTEPPED Stepped sine (cfg.excitation.stepped). With the
+            %   level equalizer off (excitation.stepped.equalizer.mode 'off', the
+            %   default) every step plays the amplitude field, with the same
+            %   instrument calls in the same order as before 1.6.0. With it on
+            %   (1.6.0, WO-006; owner decisions 2026-11-04): a pre-measurement of
+            %   the same steps at preLevel_dB below the amplitude field (or the
+            %   plan armed by measureEqualizerPlan / setEqualizerPlan), then
+            %   every step at the voltage that gives the target at the specimen
+            %   front face (tim.app.equalizerPlan) - never above the amplitude
+            %   field, which is the maximum of every step and of the drive check.
+            %   meas.equalizer holds the plan with the pre-measurement result,
+            %   meas.metadata.equalizer its summary, meas.settings.stepAmplitudeVpp
+            %   the level of every step.
+            % an armed plan is for THIS start only (one-shot): taken before
+            % anything that can refuse or stop it, so that a refused or stopped
+            % start never leaves it armed for a later one (review 2026-11-05)
+            plan = obj.EqualizerPlan;
+            obj.EqualizerPlan = [];
+            obj.requirePrepared();
+            obj.checkConnection();
+            eq = tim.app.equalizerSettings(obj.Cfg.excitation.stepped);
+            if strcmp(eq.mode, 'off')
+                meas = obj.runStepped([], 'stepped sine');
+                return
+            end
+            % refused before anything is configured or armed (owner decision
+            % 2026-11-04): a source that cannot change its level while the
+            % output is on, no calibration, no geometry
+            obj.checkEqualizerReady(eq);
+            st = obj.Cfg.excitation.stepped;
+            if isempty(plan)
+                plan = obj.premeasure(st, eq);      % (a Stop while it was processed: premeasure)
+                obj.checkConnection();
+            else
+                obj.checkPlan(plan, st, eq);
+                obj.log('Equalizer: the plan of %s used (%d steps between %.3g and %.3g Vpk; no new pre-measurement).', ...
+                    plan.created, numel(plan.vpp), min(plan.vpp) / 2, max(plan.vpp) / 2);
+            end
+            meas = obj.runStepped(plan.vpp, 'stepped sine (equalized)');
+            meas.equalizer = plan;
+            meas.metadata.equalizer = tim.app.MeasurementSession.equalizerSummary(plan);
+        end
+
+        function plan = measureEqualizerPlan(obj)
+            %MEASUREEQUALIZERPLAN The pre-measurement of the stepped-sine level
+            %   equalizer on its own (1.6.0, WO-006): the steps at preLevel_dB
+            %   below the amplitude field, the voltage of every step from its
+            %   levels (tim.app.equalizerPlan), ARMED for the next stepped
+            %   measurement of this session (EqualizerPlan, consumed by it). The
+            %   two-load sequence runs it after every change of termination
+            %   (owner decision 2026-11-04). Refused (tim:session:equalizer)
+            %   while the equalizer is off and, before anything is played, when
+            %   the signal source cannot change its level while the output is on
+            %   or the calibration or the geometry is missing. The output is off
+            %   and disarmed when it returns; a plan armed before is disarmed
+            %   first, and a refusal, an error or a Stop (also while the
+            %   pre-measurement is processed) arms none.
+            obj.EqualizerPlan = [];
             obj.requirePrepared();
             obj.checkConnection();
             st = obj.Cfg.excitation.stepped;
-            fs = obj.Cfg.acquisition.sampleRate;
-            % frequencies and the settling / recording samples of every step
-            % (longer at low frequencies when cycles are set: tim.app.steppedPlan)
-            plan = tim.app.steppedPlan(st, fs);
-            freqs = plan.freqs;
-            obj.Gen.configureSine(freqs(1), st.amplitudeVpp);
-            nSettle = plan.settleSamples; nRec = plan.recordSamples;
-            nPre = plan.preSamples;
-            stepEnd = cumsum(nSettle + nRec);       % end of step k after the output went on
-            % Steps are scheduled at FIXED targets onSample + stepEnd(k), so the
-            % block granularity of the received data (overshoot <= 1 block) does
-            % not accumulate over the steps (bug found on the bench test).
-            nTotal = nPre + stepEnd(end) + plan.postSamples;
-            ev = struct('stepStart', nan(1, numel(freqs)), 'freqs', freqs, 'onSample', NaN);
-            k = 0;
-            function onBlock(n)
-                obj.checkStop();
-                if isnan(ev.onSample) && n >= nPre
-                    obj.Gen.outputOn(); ev.onSample = n; k = 1; ev.stepStart(1) = n;
-                elseif k >= 1 && k < numel(freqs) && n >= ev.onSample + stepEnd(k)
-                    k = k + 1;
-                    obj.Gen.setFrequency(freqs(k));
-                    ev.stepStart(k) = n;
-                elseif k == numel(freqs) && n >= ev.onSample + stepEnd(k)
-                    obj.Gen.outputOff(); k = k + 1;
-                end
+            eq = tim.app.equalizerSettings(st);
+            if strcmp(eq.mode, 'off')
+                error('tim:session:equalizer', ['The stepped-sine equalizer is off ' ...
+                    '(excitation.stepped.equalizer.mode): no pre-measurement.']);
             end
-            records = {}; infos = {}; evs = {};
-            % an interrupt (Ctrl+C) between two repetitions: never left armed
-            disarm = obj.disarmOnExit(); %#ok<NASGU>
-            obj.AcquireFailed = false;
-            try
-                for r = 1:st.repetitions
-                    ev.stepStart(:) = NaN; ev.onSample = NaN; k = 0;
-                    if r > 1, obj.Gen.setFrequency(freqs(1)); end
-                    [data, info] = obj.guardedAcquire(nTotal, @onBlock, 'stepped sine', records, infos, st.amplitudeVpp);
-                    obj.Gen.outputOff();
-                    records{end+1} = data; infos{end+1} = info; %#ok<AGROW>
-                    evs{r} = ev; %#ok<AGROW>
-                end
-            catch err
-                obj.failedOutsideAcquisition(err, 'stepped sine', records, infos);
-                rethrow(err);
-            end
-            obj.Gen.armOutput(false);
-            st.frequencies = freqs; st.settleSamples = nSettle; st.recordSamples = nRec;   % per step
-            meas = obj.packMeasurement('stepped', records, infos, st, evs);
+            obj.checkEqualizerReady(eq);
+            plan = obj.premeasure(st, eq);
+            obj.EqualizerPlan = plan;
+        end
+
+        function setEqualizerPlan(obj, plan)
+            %SETEQUALIZERPLAN Arm a plan made before for the next stepped
+            %   measurement, without a new pre-measurement: load A again with
+            %   the voltages of load A (tim.app.runTwoLoad; owner decision
+            %   2026-11-04: the repeat then compares only the mounting). The plan
+            %   must fit the session now - the equalizer settings, the steps,
+            %   the amplitude field (its maximum), the termination, the amplifier,
+            %   the generator load and the calibration it was measured with -
+            %   otherwise tim:session:equalizer. setEqualizerPlan([]) disarms the
+            %   plan (sends nothing).
+            if isempty(plan), obj.EqualizerPlan = []; return; end
+            st = obj.Cfg.excitation.stepped;
+            obj.checkPlan(plan, st, tim.app.equalizerSettings(st));
+            obj.EqualizerPlan = plan;
         end
 
         function meas = measureNoise(obj)
@@ -455,6 +501,7 @@ classdef MeasurementSession < handle
             tim.app.validateConfig(c, 'instruments');
             obj.Cfg = c;
             obj.ConfirmedExcitation = '';
+            obj.discardEqualizerPlan('the amplifier was set');   % another gain: another transfer
             if isfinite(gainFactor)
                 gainTxt = sprintf('gain ×%.3g (%.1f dB)', gainFactor, a.gain_dB);
             else
@@ -489,6 +536,9 @@ classdef MeasurementSession < handle
             %SETGEOMETRYENVIRONMENT Update tube geometry / air conditions (metadata).
             c = obj.Cfg; c.geometry = geometry; c.environment = environment;
             tim.app.validateConfig(c, 'instruments');
+            if ~isequaln(c.geometry, obj.Cfg.geometry)
+                obj.discardEqualizerPlan('the geometry changed');   % the levels at the front face move with it
+            end
             obj.Cfg = c;
         end
 
@@ -523,8 +573,12 @@ classdef MeasurementSession < handle
 
         function setExcitation(obj, ex)
             %SETEXCITATION Change excitation settings between measurements (validated).
+            %   A change of the stepped sine discards an armed equalizer plan.
             c = obj.Cfg; c.excitation = ex;
             tim.app.validateConfig(c, 'instruments');
+            if ~isequaln(c.excitation.stepped, obj.Cfg.excitation.stepped)
+                obj.discardEqualizerPlan('the stepped-sine settings changed');
+            end
             obj.Cfg = c;
         end
 
@@ -562,6 +616,7 @@ classdef MeasurementSession < handle
             if isempty(obj.Rig), error('tim:session:sim', 'Only available in simulation mode.'); end
             prev = obj.Rig.Sample;
             obj.Rig.Sample = sample;          % setter marks the FIR for re-design
+            obj.discardEqualizerPlan('another virtual specimen was mounted');
             if strcmp(sample.type, 'air')
                 obj.log('Simulation: empty specimen section mounted in the virtual tube.');
             else
@@ -573,10 +628,15 @@ classdef MeasurementSession < handle
             %SETTERMINATION The termination load mounted now (WO-005): recorded
             %   with every following measurement (metadata.termination). In
             %   simulation the virtual rig gets that termination
-            %   (tim.app.terminationModel). Returns the previous load.
+            %   (tim.app.terminationModel). Returns the previous load. Another
+            %   termination discards an armed equalizer plan (1.6.0: the
+            %   transfer to the specimen depends on it).
             d = tim.app.describeLoad(load, obj.Cfg);      % checks kind and place
             prev = obj.Termination;
             obj.Termination = struct('kind', d.kind, 'place', d.place);
+            if ~isequal(prev, obj.Termination)
+                obj.discardEqualizerPlan('the termination changed');
+            end
             if ~isempty(obj.Rig)
                 t = tim.app.terminationModel(obj.Cfg, obj.Termination);
                 if ~isequal(obj.Rig.Termination, t)
@@ -799,6 +859,269 @@ classdef MeasurementSession < handle
             c = onCleanup(@() tim.app.MeasurementSession.disarmSource(gen));
         end
 
+        function meas = runStepped(obj, vpp, what)
+            % One stepped-sine measurement of measure*(): the steps of
+            % tim.app.steppedPlan, scheduled on the received samples.
+            % vpp [] (the equalizer off): every step at the amplitude field,
+            % with the instrument calls and their order of the stepped sine
+            % before 1.6.0 (bus-traffic fixtures unchanged).
+            % vpp (1 x n): the level of every step (the equalizer, 1.6.0; owner
+            % decisions 2026-11-04): checked against the amplitude field before
+            % anything is configured - no step above it; the operator
+            % confirmation and the loudspeaker power check use the amplitude
+            % field, the maximum (metadata.drive is that of the maximum). A level
+            % change goes with the frequency change of its step (setAmplitude,
+            % output on): a lower level before the new frequency, a higher one
+            % after it, so that no frequency plays at more than its own level
+            % or that of the step before. A planned (combined) device schedules
+            % it in its planning pass like setFrequency. Its errors take the
+            % error path of the acquisition (output off first, partial data).
+            st = obj.Cfg.excitation.stepped;
+            fs = obj.Cfg.acquisition.sampleRate;
+            % frequencies and the settling / recording samples of every step
+            % (longer at low frequencies when cycles are set: tim.app.steppedPlan)
+            plan = tim.app.steppedPlan(st, fs);
+            freqs = plan.freqs;
+            perStep = ~isempty(vpp);
+            level = st.amplitudeVpp;
+            if perStep
+                vpp = reshape(double(vpp), 1, []);
+                if ~(numel(vpp) == numel(freqs) && all(isfinite(vpp) & vpp > 0 & vpp <= st.amplitudeVpp * (1 + 1e-9)))
+                    error('tim:session:equalizer', ['Equalizer: %d step level(s) for %d steps, between %.4g and %.4g ' ...
+                        'Vpp; every level must be positive and at most the amplitude, %.4g Vpp. Nothing was played.'], ...
+                        numel(vpp), numel(freqs), min(vpp), max(vpp), st.amplitudeVpp);
+                end
+                level = vpp(1);
+            end
+            obj.Gen.configureSine(freqs(1), level);
+            nSettle = plan.settleSamples; nRec = plan.recordSamples;
+            nPre = plan.preSamples;
+            stepEnd = cumsum(nSettle + nRec);       % end of step k after the output went on
+            % Steps are scheduled at FIXED targets onSample + stepEnd(k), so the
+            % block granularity of the received data (overshoot <= 1 block) does
+            % not accumulate over the steps (bug found on the bench test).
+            nTotal = nPre + stepEnd(end) + plan.postSamples;
+            ev = struct('stepStart', nan(1, numel(freqs)), 'freqs', freqs, 'onSample', NaN);
+            k = 0;
+            function onBlock(n)
+                obj.checkStop();
+                if isnan(ev.onSample) && n >= nPre
+                    obj.Gen.outputOn(); ev.onSample = n; k = 1; ev.stepStart(1) = n;
+                elseif k >= 1 && k < numel(freqs) && n >= ev.onSample + stepEnd(k)
+                    k = k + 1;
+                    if perStep && vpp(k) < vpp(k - 1), obj.Gen.setAmplitude(vpp(k)); end
+                    obj.Gen.setFrequency(freqs(k));
+                    if perStep && vpp(k) > vpp(k - 1), obj.Gen.setAmplitude(vpp(k)); end
+                    ev.stepStart(k) = n;
+                elseif k == numel(freqs) && n >= ev.onSample + stepEnd(k)
+                    obj.Gen.outputOff(); k = k + 1;
+                end
+            end
+            records = {}; infos = {}; evs = {};
+            % an interrupt (Ctrl+C) between two repetitions: never left armed
+            disarm = obj.disarmOnExit(); %#ok<NASGU>
+            obj.AcquireFailed = false;
+            try
+                for r = 1:st.repetitions
+                    ev.stepStart(:) = NaN; ev.onSample = NaN; k = 0;
+                    if r > 1
+                        if perStep && vpp(1) < vpp(end), obj.Gen.setAmplitude(vpp(1)); end
+                        obj.Gen.setFrequency(freqs(1));
+                        if perStep && vpp(1) > vpp(end), obj.Gen.setAmplitude(vpp(1)); end
+                    end
+                    [data, info] = obj.guardedAcquire(nTotal, @onBlock, what, records, infos, st.amplitudeVpp);
+                    obj.Gen.outputOff();
+                    records{end+1} = data; infos{end+1} = info; %#ok<AGROW>
+                    evs{r} = ev; %#ok<AGROW>
+                end
+            catch err
+                obj.failedOutsideAcquisition(err, what, records, infos);
+                rethrow(err);
+            end
+            obj.Gen.armOutput(false);
+            st.frequencies = freqs; st.settleSamples = nSettle; st.recordSamples = nRec;   % per step
+            if perStep, st.stepAmplitudeVpp = vpp; end    % the level of every step (res.levels.generatorVpp)
+            meas = obj.packMeasurement('stepped', records, infos, st, evs);
+        end
+
+        function plan = premeasure(obj, st, eq)
+            % The equalizer's pre-measurement (owner decisions 2026-11-04): the
+            % steps of the stepped sine at preLevel_dB below the amplitude field
+            % (at least the smallest level of the source), processed with the
+            % session's calibration; the voltage of every step from its levels
+            % (tim.app.equalizerPlan). The output is off and disarmed when it
+            % returns; a pre-measurement without a level at the specimen or with
+            % data integrity problems stops here (tim:session:equalizer), and so
+            % does a Stop while it is processed (tim:session:stopped) - each
+            % keeping the recorded pre-measurement (LastPartial, an emergency
+            % file), as every other error path keeps its data.
+            freqs = tim.app.steppedPlan(st).freqs;
+            [vPre, vMin, raised] = obj.equalizerPreLevel(st, eq);
+            unit = 'dB SPL'; if strcmp(eq.mode, 'faceVelocity'), unit = 'mm/s'; end
+            note = '';
+            if raised, note = ', raised to the smallest level of the signal source'; end
+            obj.log(['Equalizer (%s, target %g %s ± %g dB): pre-measurement of the %d steps at %+g dB of the ' ...
+                'maximum (%.3g Vpk%s).'], eq.mode, eq.target, unit, eq.tolerance_dB, numel(freqs), eq.preLevel_dB, ...
+                vPre / 2, note);
+            pre = obj.runStepped(repmat(vPre, 1, numel(freqs)), 'stepped sine (equalizer pre-measurement)');
+            try
+                if ~pre.integrityOk
+                    error('tim:session:equalizer', ['Equalizer: the pre-measurement has data integrity problems (see ' ...
+                        'the log) - the steps were not played. Repeat it.']);
+                end
+                res = tim.app.processMeasurement(pre, obj.Cfg, obj.Calibration);
+                if ~res.levels.available
+                    error('tim:session:equalizer', ['Equalizer: the pre-measurement gives no level at the specimen ' ...
+                        '(%s) - the steps were not played.'], regexprep(res.levels.note, '\.$', ''));
+                end
+                plan = tim.app.equalizerPlan(eq, freqs, res.levels, vPre, st.amplitudeVpp, vMin);
+                plan.pre.timestamp = pre.timestamp;
+                plan.pre.integrityOk = pre.integrityOk;
+                plan.pre.calibration = res.calibration.version;
+                plan.termination = obj.Termination;
+                plan.chain = obj.equalizerChain();
+                obj.checkStop();                    % a Stop while the pre-measurement was processed: no plan
+            catch err
+                obj.keepPreMeasurement(pre, err);
+                rethrow(err);
+            end
+            obj.logPlan(plan);
+        end
+
+        function keepPreMeasurement(obj, pre, err)
+            % the recorded pre-measurement of the equalizer when it is refused or
+            % stopped after its acquisition (review 2026-11-05): kept in
+            % LastPartial and an emergency file like the data of every other error
+            % path, with its settings and events, so that it can be processed
+            % again. runStepped ended normally: the output is off and disarmed
+            % (disarmed once more here, which sends nothing then).
+            tim.app.MeasurementSession.disarmSource(obj.Gen);
+            partial = struct('records', {pre.records}, 'infos', {pre.channelInfo}, 'error', err.message, ...
+                'what', 'stepped sine (equalizer pre-measurement)', 'settings', pre.settings, 'events', {pre.events});
+            obj.LastPartial = partial;
+            f = tim.app.saveEmergency(obj, partial);
+            obj.setStatus('error');
+            obj.log('Error after the equalizer pre-measurement: %s. Its %d repetition(s) were saved to %s.', ...
+                regexprep(err.message, '\.$', ''), numel(pre.records), f);
+        end
+
+        function [vPre, vMin, raised] = equalizerPreLevel(obj, st, eq)
+            % level of the pre-measurement [Vpp]: preLevel_dB below the amplitude
+            % field on the 0.1 mVpp grid of tim.app.equalizerPlan, at least the
+            % smallest level of the source at its load, at most the amplitude
+            src = obj.driverInfo('source').capabilities.source;
+            vMin = tim.instr.SignalSource.levelRange(src, obj.Cfg.generator.load);
+            if ~(isscalar(vMin) && isfinite(vMin) && vMin >= 0), vMin = 0; end
+            dv = 1e-4;
+            v = round(st.amplitudeVpp * 10^(eq.preLevel_dB / 20) / dv) * dv;
+            vLo = ceil(vMin / dv - 1e-9) * dv;
+            raised = v < vLo;
+            vPre = min(st.amplitudeVpp, max(v, vLo));
+        end
+
+        function checkEqualizerReady(obj, eq)
+            % owner decision 2026-11-04: the equalizer is refused before anything
+            % is configured or armed when the signal source cannot change its
+            % level while the output is on (capabilities().source.levelWhileOn);
+            % the levels at the specimen need the calibrated decomposition and
+            % the positions of the microphones and of the front face
+            d = obj.driverInfo('source');
+            if ~tim.instr.SignalSource.levelWhileOn(d.capabilities.source)
+                error('tim:session:equalizer', ['The stepped-sine equalizer (%s) needs a signal source that can change ' ...
+                    'its level while the output is on; the %s cannot (capabilities().source.levelWhileOn). Switch the ' ...
+                    'equalizer off (excitation.stepped.equalizer.mode ''off''). Nothing was played.'], eq.mode, d.displayName);
+            end
+            if isempty(obj.Calibration)
+                error('tim:session:equalizer', ['The stepped-sine equalizer needs a switching calibration: the level at ' ...
+                    'the specimen comes from the calibrated decomposition. Load or run a calibration first. Nothing was ' ...
+                    'played.']);
+            end
+            g = obj.Cfg.geometry;
+            if ~(all(isfinite(g.micPositions)) && isfinite(g.xFront))
+                error('tim:session:equalizer', ['The stepped-sine equalizer needs the microphone positions and the ' ...
+                    'position of the specimen front face (geometry). Nothing was played.']);
+            end
+        end
+
+        function checkPlan(obj, plan, st, eq)
+            % a plan made before must fit the session now (setEqualizerPlan, an
+            % armed plan): otherwise tim:session:equalizer, nothing is played
+            need = {'mode', 'target', 'tolerance_dB', 'freqs', 'vpp', 'limited', 'maxVpp', 'termination', 'chain'};
+            if ~(isstruct(plan) && isscalar(plan) && all(isfield(plan, need)))
+                error('tim:session:equalizer', ['Not an equalizer plan of this session (measureEqualizerPlan, ' ...
+                    'tim.app.equalizerPlan).']);
+            end
+            freqs = tim.app.steppedPlan(st).freqs;
+            why = '';
+            if ~(strcmp(plan.mode, eq.mode) && isequal(plan.target, eq.target) && isequal(plan.tolerance_dB, eq.tolerance_dB))
+                why = 'the equalizer settings changed';
+            elseif numel(plan.freqs) ~= numel(freqs) || any(abs(plan.freqs(:).' - freqs) > 1e-9 * freqs)
+                why = 'the steps changed';
+            elseif abs(plan.maxVpp - st.amplitudeVpp) > 1e-9 * st.amplitudeVpp || numel(plan.vpp) ~= numel(freqs) || ...
+                    any(~(plan.vpp > 0 & plan.vpp <= st.amplitudeVpp * (1 + 1e-9)))
+                why = sprintf('the amplitude changed (plan: maximum %.4g Vpp, now %.4g Vpp)', plan.maxVpp, st.amplitudeVpp);
+            elseif ~isequal(plan.termination, obj.Termination)
+                why = 'another termination is mounted';
+            elseif ~isequaln(plan.chain, obj.equalizerChain())
+                why = 'the amplifier or the generator load changed';
+            elseif isfield(plan, 'pre') && isstruct(plan.pre) && isscalar(plan.pre) && ...
+                    isfield(plan.pre, 'calibration') && ~strcmp(char(string(plan.pre.calibration)), obj.calibrationVersion())
+                % the levels of the plan came from the calibrated decomposition
+                % (review 2026-11-05: loadCalibration does not discard a plan)
+                why = sprintf('the calibration changed (plan: %s, now: %s)', char(string(plan.pre.calibration)), ...
+                    obj.calibrationVersion());
+            end
+            if ~isempty(why)
+                error('tim:session:equalizer', ['Equalizer plan not used: %s since its pre-measurement. A stepped ' ...
+                    'measurement without an armed plan measures a new one. Nothing was played.'], why);
+            end
+        end
+
+        function v = calibrationVersion(obj)
+            % version of the session's calibration as processMeasurement records
+            % it (res.calibration.version): 'none' without one
+            v = 'none';
+            if ~isempty(obj.Calibration) && isstruct(obj.Calibration) && isfield(obj.Calibration, 'version')
+                v = char(string(obj.Calibration.version));
+            end
+        end
+
+        function c = equalizerChain(obj)
+            % the drive chain a plan belongs to: generator load and amplifier
+            a = obj.Cfg.amplifier;
+            c = struct('load', char(obj.Cfg.generator.load), 'model', char(a.model), 'gainFactor', a.gainFactor, ...
+                'gainSetting', char(a.gainSetting));
+        end
+
+        function discardEqualizerPlan(obj, why)
+            % an armed plan that no longer fits is dropped (logged)
+            if isempty(obj.EqualizerPlan), return; end
+            obj.EqualizerPlan = [];
+            obj.log('Equalizer plan discarded: %s.', why);
+        end
+
+        function logPlan(obj, plan)
+            % one log line: the levels of the plan and the steps it cannot equalize
+            parts = '';
+            lim = plan.limited;
+            hz = @(m) strjoin(arrayfun(@(f) sprintf('%.0f', f), plan.freqs(m), 'UniformOutput', false), ', ');
+            m = strcmp(lim, 'max');
+            if any(m)
+                parts = sprintf('%s; %d at the maximum, the target not reachable there (%s Hz)', parts, nnz(m), hz(m));
+            end
+            m = strcmp(lim, 'min');
+            if any(m)
+                parts = sprintf('%s; %d at the smallest level of the source, above the target (%s Hz)', parts, nnz(m), hz(m));
+            end
+            m = strcmp(lim, 'unknown');
+            if any(m)
+                parts = sprintf('%s; %d without a level from the pre-measurement, played at its level (%s Hz)', ...
+                    parts, nnz(m), hz(m));
+            end
+            obj.log('Equalizer plan: %d steps between %.3g and %.3g Vpk (maximum %.3g Vpk)%s.', numel(plan.vpp), ...
+                min(plan.vpp) / 2, max(plan.vpp) / 2, plan.maxVpp / 2, parts);
+        end
+
         function info = checkRate(obj, info)
             % data at another rate than the configured one would shift the
             % frequency axis: a fatal integrity problem for every driver
@@ -867,6 +1190,18 @@ classdef MeasurementSession < handle
             lang = obj.lang();
             msg = tim.app.msg(lang, 'confirmExcitation', what, amplitudeVpp, obj.Cfg.generator.maxVpp, ...
                 obj.amplifierLine(amplitudeVpp, kind), obj.Cfg.generator.load, d.Voc_pp);
+            if startsWith(what, 'stepped sine (equal')
+                % the equalizer (1.6.0): the level above is the maximum; the
+                % pre-measurement and the main measurement are confirmed once
+                % (the same signature)
+                st = obj.Cfg.excitation.stepped; eq = tim.app.equalizerSettings(st);
+                if contains(what, 'pre-measurement')
+                    msg = sprintf('%s\n%s', msg, tim.app.msg(lang, 'eqConfirm', eq.preLevel_dB, ...
+                        obj.equalizerPreLevel(st, eq) / 2, eq.tolerance_dB));
+                else
+                    msg = sprintf('%s\n%s', msg, tim.app.msg(lang, 'eqConfirmPlan', eq.tolerance_dB));
+                end
+            end
             fcn = obj.ExcitationConfirm;
             if isempty(fcn), fcn = @(m) tim.app.MeasurementSession.consoleConfirm(m, lang, obj.ConsoleInput); end
             if ~fcn(msg)
@@ -931,6 +1266,18 @@ classdef MeasurementSession < handle
             catch err
                 warning('tim:session:outputGuard', 'Output guard: %s', err.message);
             end
+        end
+        function s = equalizerSummary(plan)
+            %EQUALIZERSUMMARY The equalizer plan of a measurement for its
+            %   metadata (metadata.json; 1.6.0): settings, levels, the steps at
+            %   a limit, the level of every step and the pre-measurement time.
+            %   The whole plan with the pre-measurement result is meas.equalizer.
+            lim = plan.limited;
+            s = struct('mode', plan.mode, 'unit', plan.unit, 'target', plan.target, 'tolerance_dB', plan.tolerance_dB, ...
+                'preLevel_dB', plan.preLevel_dB, 'preVpp', plan.preVpp, 'maxVpp', plan.maxVpp, 'minVpp', plan.minVpp, ...
+                'nSteps', numel(plan.vpp), 'nAtMaximum', nnz(strcmp(lim, 'max')), 'nAtMinimum', nnz(strcmp(lim, 'min')), ...
+                'nWithoutLevel', nnz(strcmp(lim, 'unknown')), 'reusedFrom', plan.reusedFrom, ...
+                'preTimestamp', plan.pre.timestamp, 'frequencies', plan.freqs, 'stepVpp', plan.vpp);
         end
         function s = sourceName(key)
             %SOURCENAME Operator name of a sensitivity source key ('teds' -> 'TEDS').

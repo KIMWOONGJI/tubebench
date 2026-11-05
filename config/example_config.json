@@ -118,7 +118,7 @@
       "nPoints": 40,
       "spacing": "log",
       "amplitudeVpp": 0.2,
-      "settleTime": 0.2,
+      "settleTime": 0.3,
       "settleCycles": 50,
       "recordTime": 0.2,
       "recordCycles": 100,

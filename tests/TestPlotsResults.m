@@ -283,6 +283,47 @@ classdef TestPlotsResults < matlab.unittest.TestCase
             tc.verifySubstring(info.note, 'Step 120 Hz not evaluated');
         end
 
+        function validityEqualizerRow(tc)
+            % 1.6.0 (owner decision 2026-11-04): an equalized stepped sine gets the
+            % report-only row "Target level not reached (±tol dB)" below a last
+            % separator, red at the steps that missed the target (like the
+            % reciprocity row of two loads); it masks nothing
+            r = tc.step; f = r.analysis.f; n = numel(f);
+            reached = true(n, 1); reached([3 9]) = false;
+            r.equalizer = struct('mode', 'incidentPressure', 'unit', 'dB SPL', 'target', 90, 'tolerance_dB', 1, ...
+                'f', f(:), 'vpp', repmat(0.2, n, 1), 'limited', {repmat({''}, n, 1)}, 'achieved', 90 + 2 * ~reached, ...
+                'deviation_dB', 2 * double(~reached), 'reached', reached, 'nReached', nnz(reached), 'text', '');
+            ax = tc.axesRows(1);
+            info = tim.plots.validity(ax, r);
+            ticks = cellstr(ax.YTickLabel);
+            name = sprintf('Target level not reached (%s1 dB)', char(177));
+            i = find(strcmp(ticks, name));
+            tc.assertNumElements(i, 1, 'the equalizer row');
+            tc.verifyEqual(i, numel(ticks), 'the last row');
+            tc.verifyEqual(numel(info.lines), numel(ax.YTick));
+            tc.verifyGreaterThan(ax.YTick(i) - ax.YTick(i - 1), 1.5, 'below a separator');
+            red = info.lines(i);
+            tc.verifyEqual(red.MarkerFaceColor, tim.gui.palette().fail, 'red where a step missed the target');
+            tc.verifyEqual(find(isfinite(red.XData(:))), [3; 9]);
+            tc.verifyEqual(red.YData(3), ax.YTick(i), 'AbsTol', 1e-9);
+            d = info.summary.data;
+            k = find(strcmp(d(:, 1), name));
+            tc.assertNumElements(k, 1);
+            tc.verifyEqual(d{k, 2}, n - 2, 'Passing = the steps within the tolerance');
+            tc.verifyEqual(d{k, 4}, 'report only (equalizer; not masked)');
+            tc.verifySubstring(info.summary.note, sprintf('Equalizer: %d of %d steps within the tolerance.', n - 2, n));
+            % it masks nothing: every other row as without the equalizer
+            clf(tc.fig); ax = tc.axesRows(1);
+            info0 = tim.plots.validity(ax, tc.step);
+            tc.verifyEqual(numel(info0.lines), numel(info.lines) - 1);
+            tc.verifyEqual(info0.summary.data, d(1:end - 1, :));
+            % an equalizer result of another number of steps: no row
+            r.equalizer.reached = reached(1:end - 1);
+            clf(tc.fig); ax = tc.axesRows(1);
+            tim.plots.validity(ax, r);
+            tc.verifyFalse(any(strcmp(cellstr(ax.YTickLabel), name)));
+        end
+
         function validityRowsLineUpWithLabels(tc)
             ax = tc.axesRows(1);
             info = tim.plots.validity(ax, tc.noCal);

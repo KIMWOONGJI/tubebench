@@ -312,6 +312,106 @@ a quality indicator, not a mask; a passive linear specimen without flow is recip
 `symmetryError = |T11 − T22| / (|T11| + |T22|)` (zero for a symmetric specimen: it tells whether
 the one-load method would apply).
 
+### C. Sound level at the specimen (1.6.0, WO-006)
+
+The ratios above do not depend on the excitation level for a linear specimen. The level matters
+for specimens that are not linear (the resistance of necks and perforates depends on the particle
+velocity) and for the SNR. Every swept or stepped measurement therefore reports, per frequency
+line, the incident pressure at the front face and the particle velocity there (`res.levels`,
+`tim.app.processMeasurement`; owner decisions 2026-11-04, `docs/workorder_equalizer.md` stage 1).
+The equalizer of the stepped sine (stage 2) uses the same values.
+
+The decomposition uses pressures relative to the reference microphone, `H = p/p_ref` (section 2),
+so `A1`, `B1` and `u_L` are relative to `p_ref`. With `p̂_ref` the absolute pressure amplitude
+(peak) at the reference microphone (DAQ channel `analysis.refChannel`):
+
+    |p_inc|   = |A1 e^{−jk x_L}| · p̂_ref / √2       incident wave at the front face [Pa rms]
+    L_inc     = 20·log10(|p_inc| / 20 µPa)            [dB SPL]
+    |u_L|_rms = |u_L| · p̂_ref / √2                   particle velocity at the front face [m/s; shown in mm/s]
+
+with `u_L` of section 2 (`Z_c` of the loss model) and `p̂_ref = Ŷ_ref / S_ref`, `S_ref` the
+sensitivity of the reference microphone from the sensitivity layer (certificate, TEDS or nominal,
+`acquisition.sensitivityPolicy`); the complex calibration is relative (`C_ref = 1`) and does not
+enter `p̂_ref`.
+
+* **Stepped sine**: `Ŷ_ref` is the fitted tone amplitude of the step (section 5, the mean of
+  `|Y_ref,i|` over the blocks and the repetitions), the tone level of the reference channel in the
+  Spectrum view.
+* **Swept sine**: the **sine-equivalent amplitude** of the sweep as it passes the line
+  (`tim.dsp.sweepEquivalentAmplitude`):
+
+        Ŷ_ref(f) = (2/f_s)·√(ḟ(f)·P_ref(f)),   P_ref = Σ|Y_ref|² / n
+        ḟ = f·ln(f_stop/f_start)/T  (logarithmic),   ḟ = (f_stop − f_start)/T  (linear)
+
+  `Σ|Y_ref|²` and `n` (= `nAvg`) are those of the H1 sums of section 4, step 3 (the FFT bins of the
+  line with their edge weights, and the repetitions; `Y` the unnormalised DFT of the windowed
+  segment; `res.spectra.refPower` = `P_ref`). `T` is the sweep duration on the DAQ clock from the
+  matched filter of the sweep gate (mean over the gated repetitions; the programmed duration when
+  no repetition was gated). Derivation (Parseval): a sine of amplitude `A` that sweeps at the rate
+  `ḟ` stays `Δf/ḟ` in a line of width `Δf`, so the line holds the energy `A²·Δf/(2ḟ)`; the
+  one-sided DFT energy of the line is `2·Σ|Y|²/(N·f_s)` with `n = Δf·N/f_s` bins (`N` the FFT
+  length), hence `A² = 4ḟ·Σ|Y|²/(n·f_s²)`. Stationary phase gives the same, `|X(f)|² = A²/(4ḟ)`
+  and `|Y| = f_s·|X|` ([18]). The FFT length (zero padding) and the number of repetitions cancel.
+  The window is 1 inside the band (the sweep gate, section 4 step 2; the 10 ms tapers of step 2'
+  lie at the ends of the excitation), so no window correction enters. For a linear tube the
+  channel spectrum is the drive spectrum times the response of the channel, so `Ŷ_ref(f)` is the
+  steady-state amplitude a stepped sine of the same generator level would give at `f`. Only the
+  drive spectrum itself is smooth just on the scale of `√ḟ` (15 Hz at 150 Hz and 80 Hz at 4.5 kHz
+  for a 3 s logarithmic sweep 80–5500 Hz): near the ends of the sweep and the ramps of the gate
+  (the lowest lines of the band, within a few `√ḟ` of `f_lo/1.1`) the value ripples by up to a few
+  0.1 dB. NaN outside `[f_start, f_stop]`. While a sweep passes a sharp resonance the level in the
+  tube has no time to build up: the instantaneous level is lower than this steady-state value,
+  which is one reason why a level-controlled measurement uses the stepped sine (WO-006).
+
+Conditions (otherwise NaN, `res.levels.note` says why): a **calibrated** result (owner decision
+2026-11-04: without the calibration the chain mismatch of M2 enters `A1` amplified by
+`1/(2 sin(ks))`; the 2 % of the virtual rig give 16 %, 1.3 dB, at 120 Hz), the front face known
+(`x_L`), data in volts and a valid `S_ref`; `res.levels.refAmplitude_Pa` (the reference
+microphone alone) is kept when only the calibration or the face is missing. A line is valid with
+`valid.validR` (section 8): `A1` and `u_L` need only the upstream pair, as `R`. Accuracy: the absolute value rests on `S_ref` (a nominal
+sensitivity can be 1–2 dB off; use the certificate or TEDS). A relative calibration residual `δ`
+of M2 against M1 changes `|A1|` by about `δ/(2 sin(ks))`: 0.5 % gives 2.4 % (0.2 dB) at 200 Hz and
+0.5 % at 1 kHz for `s` = 29 mm; `|u_L|` is affected similarly. Random noise gets no level in 1.6.0
+(no sine amplitude; a level per line would depend on the line width).
+
+*Verification (simulation, `TestSpecimenLevels`; limits of the test, not measured values):* ideal
+synthetic sweeps of known amplitude (median error below 0.05 dB from 150 Hz up for a log sweep,
+also behind a linear filter and over repetitions), the face values of an analytic field (exact),
+the virtual rig against its own incident wave (steps within 0.3 dB, face velocity within 5 %; the
+sweep within 0.2 dB median) and the sweep against the steps at the same generator level (0.5 dB).
+Not yet compared on the bench with an independent level (`hardware_status.md`).
+
+**Level equalizer of the stepped sine** (stage 2; owner decisions 2026-11-04,
+`tim.app.equalizerPlan`). The controlled quantity `q` is either the incident pressure
+`|p_inc|` (dB SPL above, used as Pa rms) or the face velocity `|u_L|_rms` [mm/s]. A
+pre-measurement plays the same steps at `V_pre = V_max·10^(preLevel_dB/20)` (default −20 dB;
+`V_max` = the amplitude field, at least the smallest level of the source) and gives `q_pre,k` per
+step. With the transfer from the generator voltage to the field at the specimen taken as linear,
+the voltage that gives the target `t` is
+
+    V_k = min(V_max, V_pre · t / q_pre,k)
+
+on a 0.1 mVpp grid (at most 0.04 dB at 20 mVpp). A step with `V_pre·t/q_pre,k > V_max` is played at
+`V_max` and cannot reach `t`; a step below the smallest level of the source is played there
+(above `t`); a step without a level from the pre-measurement at `V_pre`. The achieved value is
+taken from the equalized measurement itself (`res.levels`, recomputed on Reprocess), not from the
+plan: `ΔL_k = L_k − L_t` (incident pressure, dB) or `ΔL_k = 20·log10(|u_L,k| / t)` (face velocity),
+and the step reaches the target when `|ΔL_k| ≤ tolerance_dB` (default 1 dB; `ΔL_k`, not the drift
+`Δ_k` of the settled check in section 5 step 7). This is **reported, never
+masked**: the ratios of sections 2-3 do not depend on the level for a linear specimen, so a missed
+target is no reason to reject a line. For a specimen that is not linear the transfer between
+`V_pre` and `V_k` is not proportional; the reported `ΔL_k` then shows how far the feedforward missed
+(no correction pass in 1.6.0). The transfer from the generator to the field at the specimen
+depends on the termination (the waves reflected by the specimen and the termination return to
+the loudspeaker), so a plan belongs to the termination it was measured with: with two loads a
+pre-measurement follows every change of termination (loads A and B), and load A again is played
+with the voltages of load A, so that the repeat check of section 3B compares only the mounting
+(owner decisions 2026-11-04). For a specimen that is not linear the two-load T stays an
+approximation: at the same incident pressure the faces still see other states with A and B; the
+equalizer reduces the difference, it does not remove it. *Verification (simulation,
+`TestEqualizer`):* both quantities within 0.3 dB of the target at every step of the virtual tube
+(linear), capped steps reported. The playing of the steps is described in section 5, step 6.
+
 ## 4. Swept-sine estimator without generator synchronisation
 
 The 33220A and the LAN-XI have independent clocks. The sweep is BUS-triggered by software, so its
@@ -517,18 +617,41 @@ settling time, over its recording time (`N_rec` samples).
 
         T_settle(f) = max(settleTime, settleCycles / f),   T_rec(f) = max(recordTime, recordCycles / f)
 
-   Defaults 0.2 s / 50 cycles and 0.2 s / 100 cycles: below 250 Hz the settling, below 500 Hz the
+   Defaults 0.3 s / 50 cycles and 0.2 s / 100 cycles: below 167 Hz the settling, below 500 Hz the
    recording holds the given number of cycles (120 Hz: 0.42 s + 0.83 s), above that the minimum
-   time applies (40 log steps from 120 to 4500 Hz: 22 s per repetition instead of 33 s with the
-   former fixed 0.3 s + 0.5 s). The recording is chosen so that every one of the 4 blocks holds at
-   least 25 cycles and the noise bandwidth of the whole record stays at or below 5 Hz. The settling
-   has to cover the decay of the tube after a frequency change, which depends on the termination
-   and the specimen more than on the frequency: about 0.15 s for 60 dB with the lab absorber at
-   125 Hz (|R_term| 0.85, round trip about 3.5 ms), but longer with a rigid cap (|R_term| near 1)
-   at every frequency. The cycle numbers and minimum times are therefore a starting point to be set
-   from a measurement of the decay (a stepped run with a long settling time, absorber and rigid
-   cap). A remaining transient shows as scatter between the blocks: lower coherence, a larger σ_H.
-   Configurations without `settleCycles` / `recordCycles` (or with 0) keep fixed times.
+   time applies (40 log steps from 120 to 4500 Hz: about 25 s per repetition, 33 s with the
+   fixed 0.3 s + 0.5 s before 1.5.0). The recording is chosen so that every one of the 4 blocks
+   holds at least 25 cycles and the noise bandwidth of the whole record stays at or below 5 Hz.
+   The settling has to cover two things after the frequency command: the delay until the new
+   frequency reaches the recording, and the decay of the tube. Both were measured in the lab tube
+   (2026-11-05; empty 75 mm section, lab absorber and rigid cap, 1.45 Vpp, the 40 default steps
+   with a settling of 1000 cycles, the record of every step analysed again with starts from 0 to
+   900 cycles after the command):
+
+   - The new frequency reached the recording 35–140 ms after the command (median about 50 ms):
+     the command is scheduled on the samples received, which lag the sound by the latency of the
+     stream and of the generator. This delay does not depend on the tube.
+   - After the change the tube decayed within some tens of cycles, with the rigid cap as well.
+     That is shorter than the visco-thermal estimate of the tube resonances (Q about 80 at 300 Hz
+     and 150 at 1 kHz, 1 % after about 1.5 Q cycles) allows; the loudspeaker and the ports add
+     damping.
+   - The settling the settled check (step 7, limit 0.01) needed was shorter than the default at
+     every step; the smallest margin was at 2348 Hz with the absorber (400 of 470 cycles, delay
+     140 ms). Every re-analysed record whose H was more than 1 % from the settled value was flagged
+     (161 of 1360); the limit corresponds to an error of H of about 0.3 %.
+   - With the 0.2 s / 50 cycles of 1.5.x no step was flagged, and H agreed with the long settling
+     within 0.5 %, except at the two steps of the lowest SNR (45 dB, a microphone near a pressure
+     node of the rigid cap: 2.2 % and 1.4 %), where the re-analysis gives about 0.1 % from the
+     settling: the rest is the repeatability of the two runs.
+
+   Above about 300 Hz the minimum time therefore covers mainly the delay, and its margin over the
+   longest delay plus the decay was about 40 ms; it was raised from 0.2 s to 0.3 s (owner decision
+   2026-11-05; about 3 s more per repetition). A specimen with a sharp resonance of its own
+   (membrane, plate, resonator) can ring longer than the empty tube at that resonance. A remaining
+   transient shows as scatter between the blocks: lower coherence, a larger σ_H, and a drift of the
+   channel ratios from the first to the last block, which the settled check (step 7) flags; the
+   remedy is a longer settling. Configurations without `settleCycles` / `recordCycles` (or with 0)
+   keep fixed times.
 
 1. **Frequency.** The generator and LAN-XI clocks differ by up to ~10⁻⁴, so the frequency seen by
    the LAN-XI module is estimated on the reference channel (mean removed, Hann window `w`):
@@ -565,6 +688,83 @@ settling time, over its recording time (`N_rec` samples).
    spl_dB − snr_dB`).
 5. **Repetitions.** `H` is the mean over the repetitions, `γ²` and SNR the minimum, and the
    standard error `√(mean σ_H²)/√n_rep`.
+6. **Level per step (level equalizer, 1.6.0; owner decisions 2026-11-04).** With
+   `excitation.stepped.equalizer.mode` on, `MeasurementSession.measureStepped` first plays the
+   same steps and repetitions at `V_pre = V_max·10^(preLevel_dB/20)` (the pre-measurement,
+   processed with the session's calibration), then every step at its own generator level `V_k`
+   of section 3C, never above the amplitude `V_max`. The level command (the optional contract
+   method `setAmplitude`, `VOLT` on the 33220A; `docs/instrument_interface.md` section 3.2) is
+   sent with the frequency command of the step while the output stays on: a lower level before
+   the new frequency, a higher one after it, so that no frequency is played above its own level or
+   that of the step before. The settling of the step (step 0) covers the level change as it covers
+   the frequency change; a glitch of the level change on the 33220A is still to be checked on the
+   instrument (`hardware_status.md`). The analysis of a step does not change: the transfer
+   functions are ratios of the channels of the same step, so `V_k` enters only the level at the
+   specimen (`res.levels.generatorVpp`) and the report of the equalizer (`res.equalizer`). The
+   expected duration doubles (the pre-measurement has the same steps and repetitions).
+7. **Settled check (1.6.0, owner decision 2026-11-04).** A transient that has not decayed when the
+   record of a step begins (the tube or a resonant specimen after the frequency change, a settling
+   time that is too short) makes the ratio of the channels change from block to block. Averaged
+   into `H_k^m` it biases the result, while the coherence and the SNR can stay high: a weak first
+   block counts little in the coherence, and a slowly changing tone hardly reaches the noise band
+   10–100 Hz away from `f̂` (step 4). Per step, repetition and channel `k ≠ ref`, with the block
+   ratios of step 3 (`tim.dsp.sineResponse`: `drift`, `driftSigma`):
+
+        H_k,i = Y_k,i / Y_ref,i,     Δ_k = |H_k,n_b − H_k,1| / |H_k^m|
+
+   The ratio removes what all channels share: a level change of the generator, the frequency
+   estimate (a phase rotation from block to block, equal in every channel) and the clocks. Noise
+   alone: by step 4 one block has `E|ΔY|²/2 = G_n·f_s/N = (|Y|²/2)/SNR`, i.e. `E|ΔY/Y|² = 1/SNR`
+   with the per-block SNR, so the relative change between two independent blocks has the variance
+
+        σ_Δ,k² = 2·(10^(−SNR⁰_k/10) + 10^(−SNR⁰_ref/10))
+
+   `SNR⁰` is the per-block SNR of step 4 with `G_n` taken from the **pre-roll** of the repetition
+   (the 0.5 s before the output goes on, noise only; the same band 10–100 Hz from `f̂` and the same
+   trimming; Welch segments of about 0.25 s), not from the residual of the step. The residual of the
+   fit over the whole record holds the transient under test: an abrupt one (the sound of the step
+   arriving during the record, a settling of 0 s) spreads into the band and would raise its own
+   `σ_Δ,k` in proportion to its size, so that whether it is flagged would depend on its shape, not
+   on its size (review 2026-11-05). The pre-roll is free of it. A record with less than 0.1 s of
+   pre-roll (synthetic data) uses the residual. Noise from the loudspeaker side (its rattle, the
+   generator) reaches every microphone through the same transfer function as the tone and does not
+   change the ratio; what changes it - electrical and room noise - is in the pre-roll.
+   For complex Gaussian noise `Δ_k²/σ_Δ,k²` is exponentially distributed, `P(Δ_k > z·σ_Δ,k) =
+   e^(−z²)`. The indicator is the excess over four standard deviations,
+
+        e_k = max(0, Δ_k − 4·σ_Δ,k)
+
+   which noise alone exceeds with the probability `e^(−16) ≈ 10⁻⁷` per channel and step; `e_k > 0`
+   is a systematic change. With several repetitions the largest `e_k` counts. The flag
+   `notSettled` (section 8) rejects a line when `e_k > analysis.settleDriftMax` at any port (for
+   `R`: at M1 or M2); it is a quality flag (`qualityOK`). With one block (`nBlocks` 1) or a skipped
+   repetition the step is not judged (`NaN`). The limit 0.01 (1 % of `|H_k|`, about 0.09 dB or
+   0.57°): a transient that decays within the record biases the averaged `H_k^m` by at most about
+   half the change (a drift linear over the record), 0.5 %, the size of the tolerance of the
+   switching calibration on the virtual rig in the tests (5·10⁻³) and of the phase uncertainty
+   0.002 rad of the masks (section 8). The limit is a default of this program.
+   `analysis.settleDriftMax` = Inf switches the check off (in a script). Stored per step and DAQ
+   channel in `res.spectra.settleDrift` (`e_k`) and `blockDrift` (`Δ_k`), the largest `e_k` over
+   the ports in `res.analysis.valid.settleDrift`, and in `results.csv` (`settleDrift`,
+   `flag_notSettled`) and `spectra.csv` (`settleDrift<c>`). The check uses the recorded data only,
+   so a stepped measurement of an older version gets it when it is reprocessed.
+   Limits: a transient much slower than the record changes little between the first and the last
+   block and passes (it shows only as a dependence of `H_k` on the settling time); a stray line
+   within about `1/T_block` of the tone (mains hum and its harmonics, `workorder_mains_hum.md`)
+   beats against it and is flagged too when it reaches about half the limit relative to the tone
+   (one exactly on the step frequency does not beat and is not seen); drifts between repetitions
+   are not judged; noise that is much louder during the steps than in the pre-roll (a noise burst in
+   the room) changes the ratios like a transient and can be flagged as well.
+   Verification (simulation only, `tests/TestSettledCheck.m`): the virtual rig delays the sound by
+   0.1 s from the generator to the front face, with its absorbing termination the other decays are
+   shorter than 10 ms, and its first-order chain high-passes (2.6–4.2 Hz, time constants 38–61 ms, a transient of about
+   f_hp/f) leave a drift far below 10⁻³ after the default settling; the default
+   timing flags no step, and a settling of 0 s with four 80 ms blocks (the first block ends before
+   the new tone reaches the microphones) is flagged at (nearly) every step, its excess equal to the
+   drift within the noise of the pre-roll; an abrupt change of 1.2 % within a synthetic record is
+   flagged against the pre-roll noise while the residual of the same record gives a sigma many
+   times larger. On the bench the limit
+   has still to be checked against the decay measurement of step 0 (`hardware_status.md`).
 
 *Change 2026-10-09 (formula review dsp-1/dsp-2/formulatab-10).* The SNR used to divide the
 one-sided PSD by 2 and to take the plain median of an unaveraged periodogram (−1.59 dB). Together
@@ -652,13 +852,15 @@ s = 29 mm). For thin elements of low impedance the inter-pair phase matters more
    amplitudes of both pairs;
 2. `geometryOK`: geometric validity range, singularity proximity, condition number, low-frequency
    phase sensitivity, each for both pairs;
-3. `qualityOK`: coherence and SNR at all four ports, **and a valid complex calibration**. Without
-   calibration nothing is ever valid.
+3. `qualityOK`: coherence and SNR at all four ports, for a stepped sine the settled check (1.6.0,
+   section 5 step 7), **and a valid complex calibration**. Without calibration nothing is ever
+   valid.
 
 `valid = measured & geometryOK & qualityOK & ~nonPassive`. An unknown coherence or SNR (NaN, e.g.
 the swept-sine SNR when no repetition had ≥ 0.1 s of noise-only pre-roll, section 4 step 5) fails
 its criterion, as in the switching calibration (`tim.cal.switchingCorrection`); before 2026-10-11
-it passed silently. `tim.app.validateConfig` reports a sweep pre-roll below 0.15 s. Criteria and
+it passed silently. A step the settled check cannot judge (one block) is not flagged: that check
+only adds to the coherence and the SNR, which still apply. `tim.app.validateConfig` reports a sweep pre-roll below 0.15 s. Criteria and
 defaults (`cfg.analysis`; every threshold is a configurable default of this program, not a value of a
 standard, and the geometric limits are those of section 7):
 
@@ -673,6 +875,7 @@ standard, and the geometric limits are those of section 7):
 | `phaseSensitive` | `phaseUncertainty_rad/(k′·min(s)) > maxPhaseSensitivity` | 0.002 rad, 0.05 |
 | `lowCoherence` | `γ_k² < coherenceMin` at any port | 0.98 |
 | `lowSNR` | `SNR_k < snrMin_dB` at any port (SNR of the estimator, sections 4–6) | 20 dB |
+| `notSettled` | stepped sine only (1.6.0): `Δ_k − 4·σ_Δ,k > settleDriftMax` at any port, the drift of the channel ratio from the first to the last block beyond four noise standard deviations (section 5 step 7); a step with one block is not judged; sweep and noise results have no such flag | 0.01 |
 | `calInvalid` | no valid calibration at this line for all four channels | – |
 | `outsideCalibration` | outside the frequency range of the calibration: corrected with the nearest calibrated line, a value for information only (also `calInvalid`; stepped sine: hollow diamonds) | – |
 | `nonPassive` | `\|R\| > 1 + passivityTol`, or `\|R\|² + \|τ\|² > 1 + passivityTol` with `\|R_term\| ≤ anechoicRmax` | 0.05 |
@@ -716,6 +919,7 @@ they reject `R` only through their upstream part (`valid.upstream`).
 | `p`, `u`, `Z_t`, `ρc` | Pa, m/s, Pa·s/m; `Z_t/(ρc)`, `R`, `τ`, `α_d`, `γ²`, `C_k`, `H_k` dimensionless |
 | `k`, `f`, positions | rad/m, Hz, m (mm in the GUI) |
 | Sound pressure level | `L_p = 20·log10(p_rms / 20 µPa)` dB SPL (reference value: ISO 1683 [5]); tone of a step: `p_rms = \|Y\|/(√2·sensitivity)` |
+| Level at the specimen (section 3C) | incident wave at the front face `L_inc = 20·log10(\|p_inc\|_rms / 20 µPa)` dB SPL; particle velocity at the front face `\|u_L\|` in mm/s rms |
 | PSD | `10·log10(G_pp / (20 µPa)²)` dB re (20 µPa)²/Hz, one-sided Welch estimate |
 | Without sensitivities | dB re 1 V and dB re 1 V²/Hz |
 | `\|H_k\|`, `\|C_k\|` | `20·log10\|·\|` dB; phases in degrees |

@@ -799,7 +799,8 @@ classdef TestGui < matlab.unittest.TestCase
             rh = L.RowHeight;
             tc.verifyTrue(all(cellfun(@isnumeric, rh)), 'left panel uses fixed row heights only');
             content = sum([rh{:}]) + (numel(rh) - 1) * L.RowSpacing + L.Padding(2) + L.Padding(4);
-            tc.verifyLessThanOrEqual(content, 930, sprintf('control panel content %g px (restored window on the lab screen: 935 px)', content));
+            % owner decision 2026-11-04: one more row without resizing; to be checked on the lab screen
+            tc.verifyLessThanOrEqual(content, 960, sprintf('control panel content %g px (1.6.0: the Equalizer row)', content));
             ch = L.Children; rows = zeros(1, numel(ch));
             for i = 1:numel(ch), rows(i) = ch(i).Layout.Row; end
             tc.verifyEqual(sort(rows), 1:numel(rh), 'one child per row, every row used');
@@ -814,7 +815,7 @@ classdef TestGui < matlab.unittest.TestCase
             for n = {'mode','connect','disconnect','exMode','fStart','fStop','dur','amp','reps', ...
                     'ampModel','ampGain','genLoad','spkZ','spkP','ampAt','start','stop','background','tubeD','s1','L1','dTh','L2','s2', ...
                     'temp','pres','loadCal','runCal','save','reprocess','status','drive','drivePath','driveMax','spkState','genState','fLimits','calLabel', ...
-                    'specimen','resultStatus','durEst','instr','ampRms','genLoadLabel','method'}
+                    'specimen','resultStatus','durEst','instr','ampRms','genLoadLabel','method','eqMode','eqTarget','eqLabel'}
                 tc.verifyTrue(isfield(app.H, n{1}) && isvalid(app.H.(n{1})), n{1});
             end
         end
@@ -828,7 +829,7 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual(h.durLabel.Text, 'Number of steps');
             tc.verifyEqual(h.dur.Value, c.excitation.stepped.nPoints);
             % steps timed by the frequency (owner decision 2026-11-04): tooltip and Duration
-            tc.verifySubstring(h.dur.Tooltip, 'max(0.2 s, 50 cycles) settling + max(0.2 s, 100 cycles) measurement');
+            tc.verifySubstring(h.dur.Tooltip, 'max(0.3 s, 50 cycles) settling + max(0.2 s, 100 cycles) measurement');
             tc.verifyEqual(h.durEst.Text, sprintf('about %.0f s', tim.app.steppedPlan(c.excitation.stepped).total_s));
             % the cycles row (owner decision 2026-11-04, 1.5.1): the stepped sine's
             % cycles, the duration and the tooltips follow; too few cycles per block marked
@@ -856,6 +857,148 @@ classdef TestGui < matlab.unittest.TestCase
             tc.verifyEqual([h.settleCyc.Enable h.recordCyc.Enable], [off off], 'greyed for the swept sine');
             tc.verifySubstring(h.settleCyc.Tooltip, 'Stepped sine only');
             tc.verifyEqual([h.settleCyc.Value h.recordCyc.Value], [50 100], 'the stepped values stay shown');
+        end
+
+        function equalizerRowFollowsTheSignal(tc)
+            % 1.6.0 (owner decisions 2026-11-04, WO-006): the Equalizer row directly
+            % below the cycles row, greyed like it for the swept sine; while it is
+            % on the level field is the MAXIMUM ('max ...' Vrms, tooltip) and the
+            % expected duration includes the pre-measurement (the same steps and
+            % repetitions: twice); the target is kept per controlled quantity (a
+            % dB value is never read as mm/s); the configuration follows the row
+            % and a saved file brings it back
+            app = tim.gui.Tubebench('', 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H; c = tim.app.defaultConfig();
+            on = matlab.lang.OnOffSwitchState.on; off = matlab.lang.OnOffSwitchState.off;
+            % the place and the controls
+            tc.verifyEqual(h.eqMode.Parent.Layout.Row, h.settleCyc.Parent.Layout.Row + 1, 'below the cycles row');
+            tc.verifySameHandle(h.eqLabel.Parent, h.eqMode.Parent);
+            tc.verifySameHandle(h.eqTarget.Parent, h.eqMode.Parent);
+            tc.verifyEqual(h.eqLabel.Text, 'Equalizer');
+            tc.verifyEqual(h.eqMode.Items, {'Off', 'Incident [dB SPL]', 'Face velocity [mm/s]'});
+            tc.verifyEqual(h.eqMode.ItemsData, {'off', 'incidentPressure', 'faceVelocity'});
+            tc.verifyEqual(h.eqMode.Layout.Column, [2 3]);
+            tc.verifyEqual(h.eqTarget.Layout.Column, 4);
+            tc.verifyEqual(h.eqMode.Value, 'off', 'off by default');
+            % the swept sine: the whole row greyed
+            tc.verifyEqual(h.exMode.Value, 'sweep');
+            tc.verifyEqual([h.eqLabel.Enable h.eqMode.Enable h.eqTarget.Enable], [off off off]);
+            tc.verifySubstring(h.eqMode.Tooltip, 'Stepped sine only');
+            % the stepped sine: the mode can be chosen, the target is greyed while off
+            h.exMode.Value = 'stepped'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'sweep'));
+            tc.verifyEqual([h.eqLabel.Enable h.eqMode.Enable h.eqTarget.Enable], [on on off]);
+            T1 = h.reps.Value * tim.app.steppedPlan(c.excitation.stepped).total_s;
+            tc.verifyEqual(h.durEst.Text, sprintf('about %.0f s', T1));
+            tc.verifyTrue(startsWith(h.ampRms.Text, '= '), h.ampRms.Text);
+            tc.verifyFalse(contains(h.amp.Tooltip, 'MAXIMUM'));
+            % the incident pressure: target field in dB SPL, the level field the maximum
+            h.eqMode.Value = 'incidentPressure';
+            feval(h.eqMode.ValueChangedFcn, h.eqMode, struct('PreviousValue', 'off'));
+            tc.verifyEqual(h.eqTarget.Enable, on);
+            tc.verifyEqual(h.eqTarget.Limits, [20 160]);
+            tc.verifyEqual(h.eqTarget.Value, 94);
+            tc.verifyTrue(startsWith(h.ampRms.Text, 'max '), h.ampRms.Text);
+            tc.verifySubstring(h.amp.Tooltip, 'MAXIMUM');
+            tc.verifyEqual(h.durEst.Text, sprintf('about %.0f s', 2 * T1), 'with the pre-measurement: twice');
+            tc.verifySubstring(h.durEst.Tooltip, 'pre-measurement');
+            tc.verifySubstring(h.eqMode.Tooltip, '-20 dB');
+            tc.verifySubstring(h.eqMode.Tooltip, '±1 dB');
+            tc.verifySubstring(h.eqMode.Tooltip, 'MAXIMUM');
+            tc.verifySubstring(h.eqTarget.Tooltip, 'dB SPL');
+            tc.verifySubstring(h.eqTarget.Tooltip, '-20 dB');
+            tc.verifySubstring(h.eqTarget.Tooltip, '1 dB');
+            % the level of the pre-measurement in the tooltip follows the level
+            % field (review 2026-11-05: it went stale; updateDrive refreshes it)
+            amp0 = h.amp.Value;
+            h.amp.Value = 0.2; feval(h.amp.ValueChangedFcn, h.amp, []);
+            tc.verifySubstring(h.eqMode.Tooltip, '(0.02 Vpk at the generator)', 'pre-measurement at -20 dB of 0.2 Vpk');
+            h.amp.Value = amp0; feval(h.amp.ValueChangedFcn, h.amp, []);
+            if abs(amp0 - 0.2) > 1e-9
+                tc.verifyFalse(contains(h.eqMode.Tooltip, '(0.02 Vpk at the generator)'), 'back with the field');
+            end
+            tc.verifyEqual(app.Cfg.excitation.stepped.equalizer.mode, 'incidentPressure');
+            tc.verifyEqual(app.Cfg.excitation.stepped.equalizer.target, 94);
+            h.eqTarget.Value = 80; feval(h.eqTarget.ValueChangedFcn, h.eqTarget, []);
+            tc.verifyEqual(app.Cfg.excitation.stepped.equalizer.target, 80);
+            % the face velocity: its own target and unit; back again: the dB value kept
+            h.eqMode.Value = 'faceVelocity';
+            feval(h.eqMode.ValueChangedFcn, h.eqMode, struct('PreviousValue', 'incidentPressure'));
+            tc.verifyEqual(h.eqTarget.Value, 2.4, 'a dB value is never read as mm/s');
+            tc.verifyEqual(h.eqTarget.Limits, [0.001 1e4]);
+            tc.verifySubstring(h.eqTarget.Tooltip, 'mm/s');
+            h.eqTarget.Value = 3; feval(h.eqTarget.ValueChangedFcn, h.eqTarget, []);
+            tc.verifyEqual(app.Cfg.excitation.stepped.equalizer.target, 3);
+            h.eqMode.Value = 'incidentPressure';
+            feval(h.eqMode.ValueChangedFcn, h.eqMode, struct('PreviousValue', 'faceVelocity'));
+            tc.verifyEqual(h.eqTarget.Value, 80, 'the incident target kept');
+            eq = app.Cfg.excitation.stepped.equalizer;
+            tc.verifyEqual({eq.mode, eq.target, eq.preLevel_dB, eq.tolerance_dB}, {'incidentPressure', 80, -20, 1}, ...
+                'the row reaches the configuration; the pre-measurement level and the tolerance stay');
+            % a saved configuration brings the row back
+            cs = app.Cfg; cs = rmfield(cs, intersect(fieldnames(cs), {'configFile'}));
+            cs.excitation.mode = h.exMode.Value;          % (the Signal reaches app.Cfg when an action reads the fields)
+            file = fullfile(tc.tmp, 'eq.json'); tim.app.saveConfig(cs, file);
+            app2 = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app2));
+            tc.verifyEqual(app2.H.exMode.Value, 'stepped');
+            tc.verifyEqual({app2.H.eqMode.Value, app2.H.eqTarget.Value}, {'incidentPressure', 80});
+            tc.verifyTrue(startsWith(app2.H.ampRms.Text, 'max '), app2.H.ampRms.Text);
+            app2.H.eqMode.Value = 'faceVelocity';
+            feval(app2.H.eqMode.ValueChangedFcn, app2.H.eqMode, struct('PreviousValue', 'incidentPressure'));
+            tc.verifyEqual(app2.H.eqTarget.Value, 2.4, 'a new window: the default velocity target');
+            % the swept sine: greyed, never equalized; the stepped mode is kept
+            h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
+            tc.verifyEqual([h.eqLabel.Enable h.eqMode.Enable h.eqTarget.Enable], [off off off]);
+            tc.verifyTrue(startsWith(h.ampRms.Text, '= '), 'the swept sine is never equalized');
+            tc.verifyFalse(contains(h.amp.Tooltip, 'MAXIMUM'));
+            tc.verifyEqual(h.eqMode.Value, 'incidentPressure');
+            % Off again: '= ...' and the duration without the pre-measurement
+            h.exMode.Value = 'stepped'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'sweep'));
+            tc.verifyTrue(startsWith(h.ampRms.Text, 'max '));
+            h.eqMode.Value = 'off'; feval(h.eqMode.ValueChangedFcn, h.eqMode, struct('PreviousValue', 'incidentPressure'));
+            tc.verifyEqual(h.eqTarget.Enable, off);
+            tc.verifyTrue(startsWith(h.ampRms.Text, '= '), h.ampRms.Text);
+            tc.verifyEqual(h.durEst.Text, sprintf('about %.0f s', T1));
+            tc.verifyFalse(contains(h.amp.Tooltip, 'MAXIMUM'));
+            tc.verifyEqual(app.Cfg.excitation.stepped.equalizer.mode, 'off');
+        end
+
+        function equalizerNotOfferedWithoutLevelChange(tc)
+            % owner decision 2026-11-04: a signal source that does not declare
+            % capabilities().source.levelWhileOn (the demo generator) offers no
+            % equalizer; a mode switched on in a configuration file stays
+            % selectable, so that it can be set to Off, and Start refuses it before
+            % anything is played
+            c = tim.app.defaultConfig(); c.mode = 'simulation'; c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tc.tmp, 'data'); c.output.calibrationDir = fullfile(tc.tmp, 'cal');
+            c.generator.driver = 'demo'; c.excitation.mode = 'stepped';
+            c.excitation.stepped.nPoints = 4;
+            file = fullfile(tc.tmp, 'demo.json'); tim.app.saveConfig(c, file);
+            app = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app));
+            h = app.H;
+            on = matlab.lang.OnOffSwitchState.on; off = matlab.lang.OnOffSwitchState.off;
+            tc.verifyEqual(h.exMode.Value, 'stepped');
+            tc.verifyEqual([h.eqLabel.Enable h.eqMode.Enable h.eqTarget.Enable], [off off off]);
+            tc.verifySubstring(h.eqMode.Tooltip, 'cannot change its level while the output is on');
+            tc.verifySubstring(h.eqMode.Tooltip, tim.instr.driverInfo('demo').displayName);
+            tc.verifyTrue(startsWith(h.ampRms.Text, '= '), h.ampRms.Text);
+            % switched on in the file: selectable (to set it Off); Start refused
+            c.excitation.stepped.equalizer.mode = 'incidentPressure'; c.excitation.stepped.equalizer.target = 77;
+            file = fullfile(tc.tmp, 'demo_eq.json'); tim.app.saveConfig(c, file);
+            app2 = tim.gui.Tubebench(file, 'Visible', 'off'); tc.addTeardown(@() delete(app2));
+            h2 = app2.H;
+            tc.verifyEqual(h2.eqMode.Value, 'incidentPressure');
+            tc.verifyEqual([h2.eqMode.Enable h2.eqTarget.Enable], [on off]);
+            tc.verifySubstring(h2.eqMode.Tooltip, 'Set it to Off');
+            tc.verifyTrue(startsWith(h2.ampRms.Text, '= '), 'not equalized: the field is the level of every step');
+            feval(h2.connect.ButtonPushedFcn, h2.connect, []);
+            tc.assertTrue(app2.Session.Prepared);
+            feval(h2.start.ButtonPushedFcn, h2.start, []);
+            tc.verifyEmpty(app2.LastMeas, 'nothing measured');
+            tc.verifyTrue(any(contains(cellstr(h2.log.Value), 'Set Equalizer to Off')), 'refused by the window');
+            h2.eqMode.Value = 'off';
+            feval(h2.eqMode.ValueChangedFcn, h2.eqMode, struct('PreviousValue', 'incidentPressure'));
+            tc.verifyEqual(h2.eqMode.Enable, off, 'Off: no longer offered');
+            tc.verifyEqual(app2.Cfg.excitation.stepped.equalizer.mode, 'off');
         end
 
         function calibrationPromptBar(tc)
