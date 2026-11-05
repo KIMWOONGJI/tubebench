@@ -6,6 +6,31 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## 1.6.2 - 2026-11-05
+
+### Fixed
+- **File dialogs** (Load calibration…, Open measurement…, Load / Save configuration…, Combine two
+  measurements) no longer make the main window disappear for a moment. `uigetfile` / `uiputfile`
+  open their dialog as a window of the MATLAB process (R2022b has no option to give it the
+  program's window as owner). When the dialog closed, Windows brought another window to the front
+  (the MATLAB command window or another program), and the main window only came back when it was
+  raised again. `tim.gui.fileDialog` now opens the same standard Windows dialog (.NET, with a
+  small helper compiled at run time; no C compiler needed) with the program's window as its owner.
+  Where that is not possible, `uigetfile` / `uiputfile` are used as before.
+- **Time signals during a measurement:** the live graphs and the progress strip no longer move
+  up and down. The y range followed every update; the tick labels and the ×10ⁿ label changed, and
+  with them the plot areas of the tiled layout and the header (the live-level line appeared only
+  with the first update). The range now only grows during an action, on the 1-2-5 series, with
+  fixed ticks and number format (`tim.gui.liveAxis`). The live-level line is there from the start.
+
+### Changed
+- **Progress strip** in the colours and fonts of the window:
+  - steps done in the dark slate of the section bars, the running step in the accent blue
+    (lighter while it settles), no amber;
+  - labels in the 11 pt normal font of the graphs: the left label in dark grey (green when done,
+    red when stopped), the time in grey on the same line, the octave frequencies in dark grey;
+  - no axis line under the strip.
+
 ## 1.6.1 - 2026-11-05 (`d836c32`)
 
 ### Added

@@ -100,29 +100,61 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             hp = findobj(ax, 'Tag', 'timProgressSteps');
             tc.assertNumElements(hp, 1);
             C = hp.FaceVertexCData;
-            tc.verifyEqual(C(2, :), P.ui.accent, 'AbsTol', 1e-12, 'step 1 measured: accent');
-            tc.verifyEqual(C(1, :), 1 - 0.45 * (1 - P.ui.accent), 'AbsTol', 1e-12, 'step 1 settled: lighter');
-            tc.verifyEqual(C(5, :), [0.89 0.90 0.92], 'AbsTol', 1e-12, 'step 3 to come: grey');
+            % 1.6.2: the colours of the window - the slate of the section bars for
+            % the steps done, the accent blue for the running step, no amber
+            K = tim.gui.progressStrip('colours');
+            tc.verifyEqual(K.done, P.ui.bar);
+            tc.verifyEqual(K.running, P.ui.accent);
+            tc.verifyEqual(C(2, :), P.ui.bar, 'AbsTol', 1e-12, 'step 1 measured: slate of the section bars');
+            tc.verifyEqual(C(1, :), 1 - 0.45 * (1 - P.ui.bar), 'AbsTol', 1e-12, 'step 1 settled: lighter');
+            tc.verifyEqual(C(5, :), K.track, 'AbsTol', 1e-12, 'step 3 to come: light grey');
             hf = findobj(ax, 'Tag', 'timProgressFill');
-            tc.verifyEqual(hf.FaceColor, P.warn, 'running step settling: amber');
+            tc.verifyEqual(hf.FaceColor, 1 - 0.45 * (1 - P.ui.accent), 'AbsTol', 1e-12, 'running step settling: light accent');
             tc.verifyEqual(max(hf.Vertices(:, 1)), t, 'AbsTol', 1e-3, 'filled up to now');
             tc.verifySubstring(ax.Title.String, 'step 2 of 3');
             tc.verifyEqual(ax.TitleHorizontalAlignment, 'left');
-            tc.verifyNotEmpty(findobj(ax, 'Tag', 'timProgressTime').String);
-            % the same objects updated: done = green, stopped = light red rest
+            tc.verifyEqual(ax.Title.FontWeight, 'normal', 'as the titles of the graphs');
+            tc.verifyEqual([ax.FontSize, ax.Title.FontSize], [11 11], 'the 11 pt of the graphs');
+            ht = findobj(ax, 'Tag', 'timProgressTime');
+            tc.verifyNotEmpty(ht.String);
+            tc.verifyEqual(ht.Position(2), ax.Title.Position(2), 'AbsTol', 1e-9, 'time on the line of the label');
+            % the same objects updated: done = slate with a green label, stopped = light red rest
             p = TestProgressStrip.at(prog, pl.total_s); p.state = 'done';
             tim.gui.progressStrip(ax, p);
             tc.verifyNumElements(findobj(ax, 'Tag', 'timProgressSteps'), 1, 'objects reused');
             C = findobj(ax, 'Tag', 'timProgressSteps').FaceVertexCData;
-            tc.verifyEqual(C(2:2:end, :), repmat(P.ok, 3, 1), 'AbsTol', 1e-12);
+            tc.verifyEqual(C(2:2:end, :), repmat(P.ui.bar, 3, 1), 'AbsTol', 1e-12);
+            tc.verifyEqual(ax.Title.Color, K.ok, 'AbsTol', 1e-12);
             p = TestProgressStrip.at(prog, t); p.state = 'stopped';
             tim.gui.progressStrip(ax, p);
             C = findobj(ax, 'Tag', 'timProgressSteps').FaceVertexCData;
-            tc.verifyEqual(C(end, :), 1 - 0.28 * (1 - P.fail), 'AbsTol', 1e-12);
+            tc.verifyEqual(C(end, :), K.notPlayed, 'AbsTol', 1e-12);
             tc.verifyEqual(ax.Title.Color, P.fail, 'AbsTol', 1e-12);
             tim.gui.progressStrip(ax, []);
             tc.verifyEmpty(findobj(ax, '-regexp', 'Tag', '^timProgress'));
             tc.verifyEqual(char(ax.Visible), 'off');
+        end
+
+        function liveAxesStayFixed(tc)
+            % 1.6.2 (owner report 2026-11-05): the live limits grow only, on the
+            % 1-2-5 series, with fixed ticks and number format and no exponent,
+            % so the plot areas (and the strip above) do not move
+            f = figure('Visible', 'off'); tc.addTeardown(@() close(f));
+            ax = axes(f);
+            L = tim.gui.liveAxis(ax, [], 0.31);
+            tc.verifyEqual(L, 0.5);
+            tc.verifyEqual(ax.YLim, [-0.5 0.5]); tc.verifyEqual(ax.XLim, [-0.5 0]);
+            tc.verifyEqual(ax.YTick, [-0.5 -0.25 0 0.25 0.5]);
+            tc.verifyEqual(double(ax.YAxis.Exponent), 0);
+            tc.verifyEqual(ax.YAxis.TickLabelFormat, '%.2f');
+            tc.verifyEqual(tim.gui.liveAxis(ax, L, 0.05), 0.5, 'a smaller peak keeps the limit');
+            tc.verifyEqual(ax.YLim, [-0.5 0.5]);
+            tc.verifyEqual(tim.gui.liveAxis(ax, L, 0.6), 1, 'a larger peak raises it');
+            tc.verifyEqual(ax.YAxis.TickLabelFormat, '%.1f');
+            tc.verifyEqual(tim.gui.liveAxis(ax, [], 0.0012), 0.002, 'mPa range');
+            tc.verifyEqual(double(ax.YAxis.Exponent), 0, 'no ×10^n label above the axes');
+            tc.verifyEqual(ax.YAxis.TickLabelFormat, '%.3f');
+            tc.verifyEqual(tim.gui.liveAxis(ax, [], 0), 1e-3, 'nothing yet');
         end
 
         function windowShowsTheStripForSteppedOnly(tc)

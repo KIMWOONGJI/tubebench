@@ -407,7 +407,10 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
   * "… (used at Connect)" (grey): a calibration file chosen while not connected; it is loaded at
     the next Connect. "… not found" (red): the configured file does not exist.
 * **Load calibration…** loads a `CAL-*.mat` file from the calibration folder. The file name is
-  also stored by File > Save configuration…, so the next session starts with it.
+  also stored by File > Save configuration…, so the next session starts with it. Since 1.6.2 the
+  file dialogs of the window (Load calibration…, File > Open measurement…, Load / Save
+  configuration…, Combine two measurements) belong to the program's window, so it no longer
+  disappears for a moment when a dialog closes (`tim.gui.fileDialog`).
 * **Run switching calibration…** runs the switching calibration with the empty specimen section
   (needs a connection; `calibration_procedure.md`). The new calibration becomes the configured
   calibration file in the same way, also when it was kept after a Cancel or Stop at the "return
@@ -729,20 +732,24 @@ switching calibration…".
 
 Sound pressure (voltage / sensitivity) of the four channels, one graph per channel on a common time
 axis, labelled "ch1 (M1) [Pa]" etc. During an acquisition: the last 0.5 s, about five updates per
-second, the header note gives the live level of every channel.
+second, the header note gives the live level of every channel. The live graphs keep their place
+(1.6.2): the y range only grows during an action, in steps of 1, 2, 5 (×10ⁿ) Pa, with the
+ticks at −L, −L/2, 0, L/2, L, one number format and no ×10ⁿ label, so the graphs and the strip
+above them no longer move with the level.
 
 **Progress of a stepped sine** (1.6.1): a strip above the graphs, exactly as wide as their plot
 area, shows the whole action as one time line: one block per step, its width the planned time of
 the step (the low frequencies take longest), each block split into its settling part (lighter)
-and its measured part. Steps done are blue, the running step fills amber while it settles and
-blue while it is measured, the steps to come are light grey, and a dark line marks "now". The
-octave frequencies (125 Hz … 4 kHz) are written under their steps. With the level equalizer the
-pre-measurement comes first on the same line, in slate; with repetitions every repetition is a
-group of its own (white gaps). The label on the left gives the pass, the step, its frequency and
-whether it settles or is measured (with two loads first the load, e.g. "Load A (1 of 3)"); on the
-right the time so far, the planned total and the time left. When the action ends the strip turns
-green ("Done · 40 steps · 25.3 s"); after Stop or an error the steps not played turn light red
-("Stopped at step 17 of 40"). It stays until the next measurement; a swept sine, noise, the
+and its measured part. The colours are those of the window (1.6.2): steps done in the dark slate
+of the section bars, the running step filling in the accent blue (lighter while it settles), the
+steps to come light grey, and a dark line marks "now". The octave frequencies (125 Hz … 4 kHz) are
+written under their steps, in the font of the graphs. With the level equalizer the
+pre-measurement comes first on the same line, in a light slate; with repetitions every repetition
+is a group of its own (white gaps). The label on the left gives the pass, the step, its frequency
+and whether it settles or is measured (with two loads first the load, e.g. "Load A (1 of 3)"); on
+the right, in grey, the time so far, the planned total and the time left. When the action ends
+the label turns green ("Done · 40 steps · 25.3 s"); after Stop or an error it turns red ("Stopped
+at step 17 of 40") and the steps not played light red. It stays until the next measurement; a swept sine, noise, the
 background noise, the calibration and an opened measurement show no strip. The time line is the
 plan; the time of processing between the pre-measurement and the measurement is not part of it.
 
