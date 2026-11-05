@@ -6,7 +6,7 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
-## 1.6.1 - 2026-11-05
+## 1.6.1 - 2026-11-05 (`d836c32`)
 
 ### Added
 - **Progress strip of the stepped sine** in Measurement > Time signals: one time line above the
@@ -22,7 +22,7 @@ automated tests verify the software's behaviour, not physical accuracy.
 - Measurement > Spectrum (window and saved figure): the legend stands above the plot area in up to
   four columns instead of inside it, so it no longer covers the curves.
 
-## 1.6.0 - 2026-11-05
+## 1.6.0 - 2026-11-05 (`a320845`, released on `main` with 1.6.1)
 
 ### Added
 - **Level at the specimen** (WO-006 stage 1): every processed measurement gives the incident
