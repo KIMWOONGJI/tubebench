@@ -6,7 +6,7 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
-## 1.6.3 - 2026-11-06
+## 1.6.3 - 2026-11-06 (`9a7856e`)
 
 ### Added
 - **Progress strip of the swept sine** (Measurement > Time signals, also for the loads of a
