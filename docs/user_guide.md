@@ -788,10 +788,14 @@ The legend stands above the plot area in up to four columns, so it never covers 
 (1.6.1).
 
 * Swept sine, random noise and background noise: **power spectral density** of the sound pressure
-  of repetition 1 in dB re (20 µPa)²/Hz (Welch, Hann window, 50 % overlap), one curve per channel,
+  of repetition 1 in dB re (20 µPa)²/Hz (Welch, Hann window, 75 % overlap), one curve per channel,
   the analysis band between two dashed lines. Summary **Levels**: the level in the analysis band
   and the overall level (20 Hz to half the sample rate), from the integrated PSD of the whole
-  record.
+  record. Up to 1.6.3 the segments overlapped by 50 %: the squared Hann windows then do not add
+  up to a constant, and a slow sweep, which passes each frequency within a few segments, showed a
+  ripple of up to about 3 dB peak to peak (the longer the sweep, the deeper and the denser; in
+  simulation 3.0 dB for a 10 s sweep 80–5500 Hz). With 75 % overlap the sum is constant and the
+  curve is smooth (0.01 dB). Display only: H, R, τ, TL and Zt never used this PSD.
 * Stepped sine: the PSD of a stepped record is a line spectrum (one line per step) and is no level
   display. After processing the view shows the **level of every step** (sine fit of the settled
   part, markers, dB SPL) and, dotted, the residual noise in the bandwidth of the fit. Summary

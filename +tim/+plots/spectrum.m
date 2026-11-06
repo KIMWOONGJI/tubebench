@@ -6,7 +6,7 @@ function info = spectrum(ax, meas, res, opts)
 %
 %   Swept sine, random noise, background noise: power spectral density of
 %   the sound pressure of repetition 1 in dB re (20 µPa)²/Hz (one-sided
-%   Welch estimate: Hann window, nfft = min(8192, 2^nextpow2(N)), 50 %
+%   Welch estimate: Hann window, nfft = min(8192, 2^nextpow2(N)), 75 %
 %   overlap - res.pressureSpectrum when res is given, else computed from
 %   meas in the same way). The analysis band is marked by two dashed lines.
 %   Without a valid sensitivity for every channel: PSD of the voltages in
@@ -194,7 +194,7 @@ end
 pa = all(isfinite(s) & s > 0);
 if pa, x = x ./ s; end
 nfft = min(8192, 2^nextpow2(size(x, 1)));
-[G, f] = pwelch(x, hann(nfft, 'periodic'), nfft / 2, nfft, fs);
+[G, f] = pwelch(x, hann(nfft, 'periodic'), 3 * nfft / 4, nfft, fs);   % as res.pressureSpectrum
 end
 
 function info = steppedLevels(ax, res, meas, o, P, info)

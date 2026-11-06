@@ -6,6 +6,21 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## 1.6.4 - 2026-11-06
+
+### Fixed
+- **Spectrum of a swept sine without ripple** (owner report 2026-11-06: the channel curves
+  wiggled, more for longer sweeps). The pressure PSD (Welch, Hann window) now overlaps its
+  segments by 75 % instead of 50 %. With 50 % the squared Hann windows do not add up to a
+  constant, so a slow sweep, which passes each frequency within a few segments, rippled by up to
+  about 3 dB peak to peak (10 s sweep 80–5500 Hz in simulation: 3.0 dB; with 75 %: 0.01 dB).
+  Display and level summary only (`res.pressureSpectrum`, `tim.plots.spectrum`): H, R, τ, TL and
+  Zt never used this PSD; the measurement is unchanged. Saved results keep their PSD until they
+  are reprocessed.
+- **Time ticks of the live graphs** (Time relative to now [s]): 1.6.3 removed the zoom handler that
+  had switched the fitted ticks of the view before to automatic, so the bottom graph showed no
+  time ticks. The live axes now get their own ticks at −0.5, −0.4, …, 0 s.
+
 ## 1.6.3 - 2026-11-06 (`9a7856e`)
 
 ### Added

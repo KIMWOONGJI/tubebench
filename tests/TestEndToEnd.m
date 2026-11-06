@@ -1012,7 +1012,7 @@ classdef TestEndToEnd < matlab.unittest.TestCase
             tc.verifyEqual(r.pressureSpectrum.channelOrder, 1:4);
             x = m.records{1}; x = x - mean(x, 1);
             nfft = min(8192, 2^nextpow2(size(x, 1)));
-            Pv = pwelch(x, hann(nfft, 'periodic'), nfft / 2, nfft, m.fs);
+            Pv = pwelch(x, hann(nfft, 'periodic'), 3 * nfft / 4, nfft, m.fs);
             sens = [s.Mics.sensitivity_VperPa];
             tc.verifyEqual(P, Pv ./ sens.^2, 'RelTol', 1e-9);
             m2 = m; m2.mics = m.mics([4 2 1 3]);                   % list order must not matter

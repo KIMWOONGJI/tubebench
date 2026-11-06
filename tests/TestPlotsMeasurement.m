@@ -216,6 +216,26 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
                 10 * log10(sum(ps.PSD_Pa2perHz(in, 4)) * df / 4e-10), 'AbsTol', 0.06);
         end
 
+        function spectrumOfASlowSweepHasNoRipple(tc)
+            % 1.6.4 (owner report 2026-11-06): with 50 % overlap the PSD of a slow
+            % sweep rippled by up to ~3 dB (squared Hann windows do not add up to a
+            % constant); with 75 % overlap it is smooth
+            m = tc.mBg; fs = m.fs; T = 10; f1 = 80; f2 = 5500;
+            t = (0:round(T * fs) - 1).' / fs; K = T / log(f2 / f1);
+            x = sin(2 * pi * f1 * K * (exp(t / K) - 1));
+            m.records{1} = x * [m.mics.sensitivity_VperPa];          % 1 Pa peak in every channel
+            ax = tc.axesFor(1);
+            info = tim.plots.spectrum(ax, m, []);
+            f = info.lines(1).XData(:); d = info.lines(1).YData(:);
+            % a log sweep has a PSD proportional to 1/f: what remains after adding
+            % 10 log10(f) is the ripple (50 % overlap: about 1-3 dB here)
+            for b = [400 600; 1000 1200; 3000 3400].'
+                i = f >= b(1) & f <= b(2);
+                r = d(i) + 10 * log10(f(i));
+                tc.verifyLessThan(max(r) - min(r), 0.3, sprintf('%d-%d Hz', b(1), b(2)));
+            end
+        end
+
         function spectrumBackgroundLevelMatchesTimeSignal(tc)
             % formula check: the integrated one-sided PSD equals the mean square
             % (Parseval) - overall level vs rms level of the same record
@@ -225,7 +245,7 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             x = tc.mBg.records{1}; x = x - mean(x, 1);
             p = x ./ [tc.mBg.mics.sensitivity_VperPa];
             nfft = min(8192, 2^nextpow2(size(p, 1)));
-            [G, f] = pwelch(p, hann(nfft, 'periodic'), nfft / 2, nfft, tc.mBg.fs);
+            [G, f] = pwelch(p, hann(nfft, 'periodic'), 3 * nfft / 4, nfft, tc.mBg.fs);
             tc.verifyEqual(sum(G) * (f(2) - f(1)), mean(p.^2), 'RelTol', 0.05);
             [b, a] = butter(4, 20 / (tc.mBg.fs / 2), 'high');
             ph = filtfilt(b, a, p);

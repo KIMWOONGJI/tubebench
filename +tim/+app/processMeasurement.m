@@ -140,11 +140,11 @@ try
     nfft = min(8192, 2^nextpow2(size(x, 1)));
     if volts
         p = tim.acq.voltsToPascal(x - mean(x, 1), mics, 'V');
-        [P, fp] = pwelch(p, hann(nfft, 'periodic'), nfft / 2, nfft, fs);
+        [P, fp] = pwelch(p, hann(nfft, 'periodic'), 3 * nfft / 4, nfft, fs);   % 75 %: no ripple for a sweep (1.6.4)
         res.pressureSpectrum = struct('f', fp, 'PSD_Pa2perHz', P, 'channelOrder', chCol, ...
             'note', 'Uses the sensitivity layer (TEDS/certificate/nominal) only.');
     else
-        [P, fp] = pwelch(x - mean(x, 1), hann(nfft, 'periodic'), nfft / 2, nfft, fs);
+        [P, fp] = pwelch(x - mean(x, 1), hann(nfft, 'periodic'), 3 * nfft / 4, nfft, fs);
         res.pressureSpectrum = struct('f', fp, 'PSD', P, 'unit', unit, 'channelOrder', chCol, ...
             'note', sprintf('Data in %s (input scale unknown): no sound pressure levels.', unit));
     end
