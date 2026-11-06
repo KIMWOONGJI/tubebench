@@ -13,8 +13,8 @@ abstract: >-
 authors:
   - family-names: Kim
     given-names: Woongji
-version: 1.6.2
-date-released: 2026-11-05
+version: 1.6.3
+date-released: 2026-11-06
 license: MIT
 repository-code: "https://github.com/kimwoongji/tubebench"
 keywords:

@@ -521,7 +521,7 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
    enter its name in **Specimen** (before Start measurement: the name at Start counts).
 9. Press **Start measurement**. In hardware mode confirm the excitation dialog (**Start
    excitation**). The Time signals view shows the last 0.5 s of every channel live ("LIVE · 3.2 s
-   recorded …"; a stepped sine shows its progress strip instead) with the level of every channel in
+   recorded …"; a stepped or swept sine shows its progress strip instead) with the level of every channel in
    the header. Stop ends the measurement at once;
    the views then show the last measurement again.
 10. Check the result: Measurement > Transfer functions (coherence and SNR against their limits),
@@ -733,11 +733,13 @@ switching calibration…".
 Sound pressure (voltage / sensitivity) of the four channels, one graph per channel on a common time
 axis, labelled "ch1 (M1) [Pa]" etc. During an acquisition: the last 0.5 s, about five updates per
 second, the header note gives the live level of every channel. The live graphs keep their place
-(1.6.2): the y range only grows during an action, in steps of 1, 2, 5 (×10ⁿ) Pa, with the
-ticks at −L, −L/2, 0, L/2, L, one number format and no ×10ⁿ label, so the graphs and the strip
-above them no longer move with the level.
+(1.6.2, 1.6.3): the y range only grows during an action, from ±0.1 Pa in steps of 1, 2, 5
+(×10ⁿ) Pa, with the ticks at −L, −L/2, 0, L/2, L, no ×10ⁿ label and tick labels of one width (two
+decimals, the digits right-aligned in fixed places up to 999 Pa), and the header line of the live
+levels, the title line of the first graph and the texts of the progress strip are there from the
+start to the end. So the graphs and the strip above them do not move while the level grows.
 
-**Progress of a stepped sine** (1.6.1): a strip above the graphs, exactly as wide as their plot
+**Progress of a stepped or swept sine** (stepped 1.6.1, swept 1.6.3): a strip above the graphs, exactly as wide as their plot
 area, shows the whole action as one time line: one block per step, its width the planned time of
 the step (the low frequencies take longest), each block split into its settling part (lighter)
 and its measured part. The colours are those of the window (1.6.2): steps done in the dark slate
@@ -749,8 +751,10 @@ is a group of its own (white gaps). The label on the left gives the pass, the st
 and whether it settles or is measured (with two loads first the load, e.g. "Load A (1 of 3)"); on
 the right, in grey, the time so far, the planned total and the time left. When the action ends
 the label turns green ("Done · 40 steps · 25.3 s"); after Stop or an error it turns red ("Stopped
-at step 17 of 40") and the steps not played light red. It stays until the next measurement; a swept sine, noise, the
-background noise, the calibration and an opened measurement show no strip. The time line is the
+at step 17 of 40") and the steps not played light red. A swept sine has one block per repetition: the label gives the frequency the sweep has reached
+("Swept sine · 1.2 kHz · sweeping · rep 2 of 4"), and the octave frequencies stand where the sweep
+passes them. It stays until the next measurement; random noise, the background noise, the
+calibration and an opened measurement show no strip. The time line is the
 plan; the time of processing between the pre-measurement and the measurement is not part of it.
 
 After the measurement: the whole

@@ -6,6 +6,40 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## 1.6.3 - 2026-11-06
+
+### Added
+- **Progress strip of the swept sine** (Measurement > Time signals, also for the loads of a
+  two-load run): one block per repetition (pre-roll, sweep, post-roll), the frequency the sweep has
+  reached ("Swept sine · 1.2 kHz · sweeping · rep 2 of 4"), the octave frequencies where the sweep
+  passes them, the time left; done / stopped as for the stepped sine. The session records the
+  progress (`MeasurementSession.Progress`, `newSweepProgress`; no instrument I/O, bus traffic
+  unchanged). Not for the calibration.
+
+### Fixed
+- **The live graphs still moved during a measurement on the instruments** (owner report
+  2026-11-05; found by replaying the recorded levels of real stepped and swept measurements):
+  - the y range grows several times during a real measurement (0.05 → 20 → 50 → 100 Pa), and
+    every change of the width of the tick labels moved all graphs and the strip sideways. The tick
+    labels now have one width (two decimals, digits in fixed places padded with figure spaces, up
+    to 999 Pa), and the range starts at ±0.1 Pa;
+  - at the start the header line of the live levels appeared and the title line of the first graph
+    was removed; at the end the title came back and the strip's texts changed. The note line of the
+    view is now always reserved (`ViewPage` option `KeepNote`), the title line stays, and the
+    strip's label, time and tick labels are there from the first drawing to the last;
+  - the main cause (found by logging the plot positions in the window): the time-signal axes kept
+    the zoom handler of `tim.plots.fitAxes` from the view drawn before. It took every change of the
+    live range for a user zoom and switched the ticks and labels back to automatic at the next
+    screen refresh, so between two updates the labels had another width and the hidden time labels
+    of the upper graphs took room: the graphs jumped sideways and up and down whenever the range
+    grew. `tim.gui.liveAxis` now removes that handler's record from the live axes;
+  - the live axes, the fixed-width tick labels and the titles are set before the data stream
+    starts, so the one change from the previous view to the live view happens before the
+    measurement, not at its first update;
+  - the strip's tile spans and the header heights are assigned only when they change, and a live
+    update of the strip only sets its colours, fill, "now" line and texts (the geometry and the
+    static properties once per plan).
+
 ## 1.6.2 - 2026-11-05 (`3c2ae6a`)
 
 ### Fixed
