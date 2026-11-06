@@ -29,6 +29,7 @@ classdef ViewPage < handle
         SummaryNote = []
         Strip = gobjects(0)          % axes of a strip above the stacked axes ('Strip' > 0)
         StripShown = false
+        KeepNote = false             % the note row keeps its height when the note is empty ('KeepNote')
     end
     properties (Access = private)
         StripPx = 0                  % height of the strip's tile when shown [px]
@@ -51,8 +52,10 @@ classdef ViewPage < handle
                 opts.SummaryTitle (1,:) char = 'Summary'
                 opts.ToolWidths cell = {}
                 opts.Strip double = 0        % [px] a strip axes above the stacked axes (hidden until showStrip)
+                opts.KeepNote logical = false   % the note row always keeps its height (no layout change)
             end
             P = tim.gui.palette();
+            p.KeepNote = opts.KeepNote;
             p.Grid = uigridlayout(parent, [2 1], 'RowHeight', {72, '1x'}, 'Padding', [0 0 0 0], ...
                 'RowSpacing', 0, 'BackgroundColor', 'w');
             % ---- header strip
@@ -65,6 +68,7 @@ classdef ViewPage < handle
             p.Description.Layout.Row = 2; p.Description.Layout.Column = 1;
             p.Note = uilabel(p.Header, 'Text', '', 'FontSize', 11, 'FontColor', [0.62 0.36 0.00], 'FontWeight', 'bold');
             p.Note.Layout.Row = 3; p.Note.Layout.Column = [1 2];
+            if opts.KeepNote, p.Header.RowHeight{3} = 18; p.Grid.RowHeight{1} = 92; end
             if nt > 0
                 p.Tools = uigridlayout(p.Header, [1 nt], 'ColumnWidth', opts.ToolWidths, 'RowHeight', {26}, ...
                     'Padding', [0 0 0 0], 'ColumnSpacing', 6, 'BackgroundColor', P.ui.header);
@@ -143,11 +147,17 @@ classdef ViewPage < handle
                 case 'info', col = P.ui.muted;
                 otherwise, col = [0.62 0.36 0.00];
             end
-            if nargin < 2 || isempty(txt)
-                p.Note.Text = ''; p.Header.RowHeight{3} = 0; p.Grid.RowHeight{1} = 72;
-            else
-                p.Note.Text = txt; p.Note.FontColor = col; p.Header.RowHeight{3} = 18; p.Grid.RowHeight{1} = 92;
-            end
+            % (1.6.3: the heights are set only when they change; with KeepNote the
+            % note row is always there, so the view below never moves when a note
+            % comes or goes - the Time signals during a measurement)
+            show = (nargin >= 2 && ~isempty(txt)) || p.KeepNote;
+            if nargin < 2 || isempty(txt), txt = ''; end
+            if ~strcmp(p.Note.Text, txt), p.Note.Text = txt; end
+            if ~isempty(txt) && ~isequal(p.Note.FontColor, col), p.Note.FontColor = col; end
+            h3 = 0; h1 = 72;
+            if show, h3 = 18; h1 = 92; end
+            if ~isequal(p.Header.RowHeight{3}, h3), p.Header.RowHeight{3} = h3; end
+            if ~isequal(p.Grid.RowHeight{1}, h1), p.Grid.RowHeight{1} = h1; end
         end
 
         function showStrip(p, tf)
@@ -171,10 +181,16 @@ classdef ViewPage < handle
             w = p.Weights; n = numel(p.Axes);
             span = floor((R - s) * w / sum(w));
             span(end) = R - s - sum(span(1:end - 1));   % the last takes the rounding rest
-            p.Strip.Layout.Tile = 1; p.Strip.Layout.TileSpan = [s 1];
+            % (assigned only when they change: a layout pass of the tiled layout
+            % for nothing could move the graphs during a measurement, 1.6.3)
+            if ~isequal(p.Strip.Layout.TileSpan, [s 1]) || p.Strip.Layout.Tile ~= 1
+                p.Strip.Layout.Tile = 1; p.Strip.Layout.TileSpan = [s 1];
+            end
             t = s + 1;
             for i = 1:n
-                p.Axes(i).Layout.Tile = t; p.Axes(i).Layout.TileSpan = [span(i) 1];
+                if p.Axes(i).Layout.Tile ~= t || ~isequal(p.Axes(i).Layout.TileSpan, [span(i) 1])
+                    p.Axes(i).Layout.Tile = t; p.Axes(i).Layout.TileSpan = [span(i) 1];
+                end
                 t = t + span(i);
             end
         end

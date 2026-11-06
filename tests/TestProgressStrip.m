@@ -54,7 +54,8 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             p = TestProgressStrip.at(prog, pl.total_s); p.state = 'done';
             g = tim.gui.stepProgress(p);
             tc.verifyEqual(g.label, sprintf('Done · 3 steps · %.1f s', pl.total_s));
-            tc.verifyEqual(g.status, 'ok'); tc.verifyEmpty(g.right);
+            tc.verifyEqual(g.status, 'ok');
+            tc.verifyEqual(g.right, sprintf('%.1f s', pl.total_s), 'the right text keeps its line (1.6.3)');
             p = TestProgressStrip.at(prog, t); p.state = 'stopped';
             g = tim.gui.stepProgress(p, 'Load A (1 of 3) · ');
             tc.verifyEqual(g.label, 'Load A (1 of 3) · Stopped at step 2 of 3 (Measurement)');
@@ -136,9 +137,10 @@ classdef TestProgressStrip < matlab.unittest.TestCase
         end
 
         function liveAxesStayFixed(tc)
-            % 1.6.2 (owner report 2026-11-05): the live limits grow only, on the
-            % 1-2-5 series, with fixed ticks and number format and no exponent,
-            % so the plot areas (and the strip above) do not move
+            % 1.6.2 / 1.6.3 (owner reports 2026-11-05): the live limits grow only,
+            % on the 1-2-5 series from 0.1 Pa, with fixed ticks, no exponent and
+            % tick labels of one width, so the plot areas (and the strip above)
+            % do not move when the limit grows during a measurement
             f = figure('Visible', 'off'); tc.addTeardown(@() close(f));
             ax = axes(f);
             L = tim.gui.liveAxis(ax, [], 0.31);
@@ -146,18 +148,78 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             tc.verifyEqual(ax.YLim, [-0.5 0.5]); tc.verifyEqual(ax.XLim, [-0.5 0]);
             tc.verifyEqual(ax.YTick, [-0.5 -0.25 0 0.25 0.5]);
             tc.verifyEqual(double(ax.YAxis.Exponent), 0);
-            tc.verifyEqual(ax.YAxis.TickLabelFormat, '%.2f');
+            fig = char(8199); mn = char(8722);
+            tc.verifyEqual(ax.YTickLabel(:).', {[mn fig fig '0.50'], [mn fig fig '0.25'], [fig fig fig '0.00'], ...
+                [fig fig fig '0.25'], [fig fig fig '0.50']});
             tc.verifyEqual(tim.gui.liveAxis(ax, L, 0.05), 0.5, 'a smaller peak keeps the limit');
             tc.verifyEqual(ax.YLim, [-0.5 0.5]);
             tc.verifyEqual(tim.gui.liveAxis(ax, L, 0.6), 1, 'a larger peak raises it');
-            tc.verifyEqual(ax.YAxis.TickLabelFormat, '%.1f');
-            tc.verifyEqual(tim.gui.liveAxis(ax, [], 0.0012), 0.002, 'mPa range');
-            tc.verifyEqual(double(ax.YAxis.Exponent), 0, 'no ×10^n label above the axes');
-            tc.verifyEqual(ax.YAxis.TickLabelFormat, '%.3f');
-            tc.verifyEqual(tim.gui.liveAxis(ax, [], 0), 1e-3, 'nothing yet');
+            tc.verifyEqual(tim.gui.liveAxis(ax, [], 0.0012), 0.1, 'from 0.1 Pa: noise before the output is on');
+            tc.verifyEqual(tim.gui.liveAxis(ax, [], 0), 0.1, 'nothing yet');
+            % every limit of a measurement up to 999 Pa: the same label pattern
+            % (sign slot, three integer slots, two decimals) -> one width
+            % (a figure space U+2007 is as wide as a digit)
+            slot = ['[' mn fig ']' '[0-9' fig ']{3}' '\.' '[0-9]{2}'];
+            for L = [0.1 0.2 0.5 1 2 5 10 20 50 100 200 500]
+                s = tim.gui.liveAxis('labels', L);
+                tc.verifyEqual(cellfun(@numel, s), 7 * ones(1, 5), sprintf('L = %g', L));
+                tc.verifyTrue(all(cellfun(@(x) ~isempty(regexp(x, ['^' slot '$'], 'once')), s)), ...
+                    sprintf('L = %g: sign slot, three integer slots, two decimals', L));
+            end
+            % 1.6.3 check: the axes of the view drawn before (tim.plots.fitAxes) took
+            % every live limit change for a zoom and switched the ticks and labels to
+            % automatic at the next drawnow, so the graphs jumped between updates
+            % (the callback does not fire in an invisible figure: it is called here)
+            ax2 = axes(f);
+            plot(ax2, [0 1], [-1 1]); tim.plots.fitAxes(ax2);
+            ax2.XTickLabel = {};                            % hidden labels of a stacked axes
+            tim.gui.liveAxis(ax2, [], 0);
+            tim.gui.liveAxis(ax2, 0.1, 3);                  % the limit grows during the action
+            feval(ax2.YAxis.LimitsChangedFcn, ax2.YAxis, []);
+            feval(ax2.XAxis.LimitsChangedFcn, ax2.XAxis, []);
+            tc.verifyEqual(ax2.YTickLabelMode, 'manual', 'the fixed labels stay');
+            tc.verifyEqual(ax2.YLim, [-5 5]);
+            tc.verifyEqual(ax2.XTickLabelMode, 'manual', 'hidden x labels stay hidden');
+            tc.verifyEmpty(ax2.XTickLabel);
         end
 
-        function windowShowsTheStripForSteppedOnly(tc)
+        function sweepFollowsTheSchedule(tc)
+            % 1.6.3 (owner request 2026-11-05): the strip of a swept sine - one
+            % block per repetition, the frequency of the sweep now, octave marks
+            sw = struct('fStart', 100, 'fStop', 6400, 'spacing', 'LOG', 'duration', 2, 'repetitions', 3, ...
+                'preRoll', 1, 'postRoll', 1);
+            prog = tim.app.MeasurementSession.newSweepProgress(sw, 1000);
+            pl = prog.plan;
+            tc.verifyEqual(pl.total_s, 1 + 2 + 1.2, 'AbsTol', 1e-12, 'pre-roll, sweep, post-roll + 0.2 s');
+            g = tim.gui.stepProgress(prog);
+            tc.verifyEqual(g.T, 3 * pl.total_s, 'AbsTol', 1e-12);
+            tc.verifySize(g.rect, [3 2], 'one block per repetition');
+            tc.verifyEqual(g.tickF, [125 250 500 1000 2000 4000]);
+            tc.verifyEqual(g.tickT(3), 1 + 2 * log(500 / 100) / log(64), 'AbsTol', 1e-12, '500 Hz when the sweep passes it');
+            tc.verifyEqual(g.tickLabel, {'125', '250', '500', '1k', '2k', '4k'});
+            tc.verifyEqual(g.label, 'Swept sine · rep 1 of 3 · starting');
+            % half way through the second sweep: 800 Hz (log sweep 100 -> 6400 Hz)
+            p = prog; p.rep = 2; p.n = 2000; p.onSample = 1000;
+            g = tim.gui.stepProgress(p, 'Load A (1 of 3) · ');
+            tc.verifyEqual(g.phase, 'sweeping');
+            tc.verifyEqual(g.f, 800, 'AbsTol', 1e-9);
+            tc.verifyEqual(g.x, pl.total_s + 1 + 1, 'AbsTol', 1e-9);
+            tc.verifyEqual(g.label, 'Load A (1 of 3) · Swept sine · 800 Hz · sweeping · rep 2 of 3');
+            p.state = 'done'; g = tim.gui.stepProgress(p);
+            tc.verifyEqual(g.label, sprintf('Done · 3 sweeps · %.1f s', 3 * pl.total_s));
+            p.state = 'stopped'; g = tim.gui.stepProgress(p);
+            tc.verifyEqual(g.label, 'Stopped in swept sine, repetition 2 of 3');
+            % drawn: one block per sweep, no separators between steps
+            f = figure('Visible', 'off'); tc.addTeardown(@() close(f));
+            ax = axes(f);
+            p.state = 'running'; tim.gui.progressStrip(ax, p);
+            tc.verifyEqual(size(findobj(ax, 'Tag', 'timProgressSteps').FaceVertexCData, 1), 3);
+            tc.verifyTrue(all(isnan(findobj(ax, 'Tag', 'timProgressSep').XData)), 'no step separators');
+            K = tim.gui.progressStrip('colours');
+            tc.verifyEqual(findobj(ax, 'Tag', 'timProgressFill').FaceColor, K.running, 'the running sweep: accent');
+        end
+
+        function windowShowsTheStripForSteppedAndSwept(tc)
             c = tim.app.defaultConfig();
             c.mode = 'simulation';
             c.geometry = c.simulation.Geometry;
@@ -180,10 +242,19 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             drawnow;
             pw = h.axW(1).InnerPosition; pp = h.axP.InnerPosition;
             tc.verifyEqual(pp([1 3]), pw([1 3]), 'AbsTol', 1e-6, 'same left edge and width as the time signals');
-            % a swept sine: no strip
+            % the note row of the header keeps its height (1.6.3: KeepNote)
+            tc.verifyEqual(app.Pages.wave.Grid.RowHeight{1}, 92);
+            app.Pages.wave.setNote('');
+            tc.verifyEqual(app.Pages.wave.Grid.RowHeight{1}, 92, 'no layout change when the note goes');
+            % a swept sine: its strip too (1.6.3)
             h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
             feval(h.start.ButtonPushedFcn, h.start, []);
-            tc.verifyEqual(char(h.axP.Visible), 'off', 'swept sine: no strip');
+            tc.verifyEqual(char(h.axP.Visible), 'on', 'swept sine: strip');
+            tc.verifySubstring(h.axP.Title.String, 'Done · 1 sweep');
+            tc.verifyEqual(app.Session.Progress.kind, 'sweep');
+            % background noise: no strip
+            feval(h.background.ButtonPushedFcn, h.background, []);
+            tc.verifyEqual(char(h.axP.Visible), 'off', 'background noise: no strip');
         end
     end
 end

@@ -1212,7 +1212,7 @@ classdef Tubebench < handle
             % a measurement / result view: header, stacked axes, summary
             % (titles and descriptions: tim.plots.viewText, shared with the saved figures)
             spec = struct( ...
-                'wave', {{'waveforms', 'axW', {'Axes', 4, 'Strip', 66}}}, ...
+                'wave', {{'waveforms', 'axW', {'Axes', 4, 'Strip', 66, 'KeepNote', true}}}, ...
                 'spec', {{'spectrum', 'axSpec', {'Axes', 1}}}, ...
                 'tf', {{'transfer', 'axH', {'Axes', 3}}}, ...
                 'refl', {{'reflection', 'axR', {'Axes', 2, 'AxesHeights', {'2x', '1x'}, 'SummaryTitle', 'Octave bands'}}}, ...
@@ -2953,17 +2953,22 @@ classdef Tubebench < handle
                     end
                     tim.plots.emptyState(ax, '');
                     set(app.WaveLines(c), 'XData', t, 'YData', y(:, c));
-                    ylabel(ax, sprintf('ch%d (M%d) [%s]', c, app.portOf(c), unit));
+                    yl = sprintf('ch%d (M%d) [%s]', c, app.portOf(c), unit);
+                    if ~strcmp(ax.YLabel.String, yl), ylabel(ax, yl); end    % (set only when it changes)
                     app.liveAxis(ax, c, max(abs(y(:, c))));
                     lv{c} = sprintf('ch%d %.1f dB', c, 20 * log10(sqrt(mean(x(:, c).^2, 'omitnan')) / sens(c) / 2e-5));
                 end
                 if app.Pages.wave.StripShown
-                    title(app.H.axW(1), '');                % the progress strip above says it (stepped sine)
+                    % the progress strip above says it (stepped / swept sine); the title
+                    % keeps its line (' ', 1.6.3: removing it moved the graphs)
+                    if ~strcmp(app.H.axW(1).Title.String, ' '), title(app.H.axW(1), ' '); end
                     app.drawProgress();
                 else
                     title(app.H.axW(1), sprintf('LIVE  %s  %.1f s recorded (%s)', char(183), total, app.Session.Status));
                 end
-                xlabel(app.H.axW(4), 'Time relative to now [s]');
+                if ~strcmp(app.H.axW(4).XLabel.String, 'Time relative to now [s]')
+                    xlabel(app.H.axW(4), 'Time relative to now [s]');
+                end
                 app.Pages.wave.setNote(sprintf('Live level (last 0.5 s, dB SPL): %s', strjoin(lv, '   ')));
                 app.LiveCount = app.LiveCount + 1;
             catch
@@ -2971,20 +2976,31 @@ classdef Tubebench < handle
             drawnow('limitrate');
         end
 
-        function prepareLive(app, stepped)
+        function prepareLive(app, strip)
             % time-signal view in its live state: labels and units of the
             % connected microphones; liveUpdate then only sets the line data.
-            % stepped (true): a stepped sine follows - the progress strip above
-            % the time signals is shown (1.6.1, owner request 2026-11-05) and
-            % filled by liveUpdate from the session's Progress; otherwise hidden
-            if nargin < 2, stepped = false; end
+            % strip (true): a stepped or swept sine follows - the progress strip
+            % above the time signals is shown (1.6.1 stepped, 1.6.3 swept; owner
+            % requests 2026-11-05) and filled by liveUpdate from the session's
+            % Progress; otherwise hidden
+            if nargin < 2, strip = false; end
             app.ensureBuilt('wave');
-            app.showProgress(stepped);
+            app.showProgress(strip);
             o = app.plotOpts(); o.mics = app.Session.Mics;
             o.emptyText = 'Waiting for data ...';
             info = tim.plots.timeSignals(app.H.axW, [], o);
             if isfield(info, 'lines'), app.WaveLines = info.lines; else, app.WaveLines = gobjects(0); end
             app.LiveYLim = [];
+            % the live axes and their fixed-width tick labels before the stream:
+            % else the first live update widened the labels and moved every graph
+            % and the strip once at the start (19 px, 1.6.3 check)
+            for c = 1:numel(app.H.axW)
+                tim.gui.liveAxis(app.H.axW(c), [], 0);
+            end
+            % and the titles of the live state (else the first update replaced
+            % the placeholder title and moved the graphs by a few pixels)
+            if strip, title(app.H.axW(1), ' '); end
+            xlabel(app.H.axW(end), 'Time relative to now [s]');
             % the note line is there from the start: the header keeps its height
             % when the live levels arrive (else the graphs moved down once, 1.6.2)
             app.Pages.wave.setNote(sprintf('Live level (last 0.5 s, dB SPL): %s', ...
@@ -3010,10 +3026,14 @@ classdef Tubebench < handle
             if ~app.isBuilt('wave') || ~isfield(app.H, 'axP'), return; end
             if tf
                 app.Pages.wave.showStrip(true);
-                st = app.Cfg.excitation.stepped;
-                if ~isempty(app.Session), st = app.Session.Cfg.excitation.stepped; end
-                tim.gui.progressStrip(app.H.axP, tim.app.MeasurementSession.newProgress(st, {'Stepped sine'}), ...
-                    app.ProgressPrefix);
+                ex = app.Cfg.excitation;
+                if ~isempty(app.Session), ex = app.Session.Cfg.excitation; end
+                if strcmp(ex.mode, 'sweep')
+                    prog = tim.app.MeasurementSession.newSweepProgress(ex.sweep);
+                else
+                    prog = tim.app.MeasurementSession.newProgress(ex.stepped, {'Stepped sine'});
+                end
+                tim.gui.progressStrip(app.H.axP, prog, app.ProgressPrefix);
             else
                 tim.gui.progressStrip(app.H.axP, []);
                 app.Pages.wave.showStrip(false);
@@ -3446,8 +3466,7 @@ classdef Tubebench < handle
             app.ensureBuilt('wave');                     % live view: prepared BEFORE the data stream
             app.showTab(app.H.waveTab);
             app.ProgressPrefix = '';
-            stepped = strcmp(app.Cfg.excitation.mode, 'stepped');
-            app.prepareLive(stepped);
+            app.prepareLive(ismember(app.Cfg.excitation.mode, {'stepped', 'sweep'}));   % strip: stepped and swept sine (1.6.3)
             app.Session.setTermination(app.Cfg.measurement.loadA);   % recorded with the data (Tube setup, WO-005)
             try
                 m = app.Session.measure(app.Cfg.excitation.mode);
@@ -4154,7 +4173,7 @@ classdef Tubebench < handle
             app.testPoint('twoload:measuring');
             nm = key; if strcmp(key, 'A2'), nm = ['A' char(8242)]; end
             app.ProgressPrefix = sprintf('Load %s (%d of %d) · ', nm, k, n);
-            app.prepareLive(strcmp(app.Session.Cfg.excitation.mode, 'stepped'));
+            app.prepareLive(ismember(app.Session.Cfg.excitation.mode, {'stepped', 'sweep'}));
         end
 
         function twReport(app, q)

@@ -311,6 +311,7 @@ classdef MeasurementSession < handle
         end
 
         function meas = measureSweep(obj)
+            obj.Progress = [];
             obj.requirePrepared();
             obj.checkConnection();                 % a dropped connection re-opened before anything is sent
             sw = obj.Cfg.excitation.sweep;
@@ -324,12 +325,17 @@ classdef MeasurementSession < handle
             nTotal = nPre + nSweep + round((sw.postRoll + 0.2) * fs);
             records = {}; infos = {}; events = {};
             ev = struct('triggerSample', NaN, 'offSample', NaN, 'opcOk', false);
+            % the progress for the window (Progress, 1.6.3): samples received and
+            % the trigger sample; no instrument I/O
+            obj.Progress = tim.app.MeasurementSession.newSweepProgress(sw, fs);
             function onBlock(n)
                 obj.checkStop();
+                obj.Progress.n = n;
                 if isnan(ev.triggerSample) && n >= nPre
                     obj.Gen.outputOn();
                     obj.Gen.triggerSweep();
                     ev.triggerSample = n;
+                    obj.Progress.onSample = n;
                 elseif ~isnan(ev.triggerSample) && isnan(ev.offSample) && n >= ev.triggerSample + nSweep
                     ev.opcOk = obj.Gen.waitComplete(5);   % true when the sweep has ended, never earlier
                     obj.Gen.outputOff();
@@ -343,6 +349,7 @@ classdef MeasurementSession < handle
                 for r = 1:sw.repetitions
                     obj.checkStop();
                     ev = struct('triggerSample', NaN, 'offSample', NaN, 'opcOk', false);
+                    obj.Progress.rep = r; obj.Progress.n = 0; obj.Progress.onSample = NaN;
                     [data, info] = obj.guardedAcquire(nTotal, @onBlock, sprintf('swept sine, repetition %d', r), records, infos, sw.amplitudeVpp);
                     if isnan(ev.offSample), obj.Gen.outputOff(); end
                     records{end+1} = data; infos{end+1} = info; events{end+1} = ev; %#ok<AGROW>
@@ -350,10 +357,12 @@ classdef MeasurementSession < handle
                         r, ev.triggerSample, ev.offSample, obj.okText(info.integrity));
                 end
             catch err
+                obj.Progress.state = 'stopped';
                 obj.failedOutsideAcquisition(err, 'swept sine', records, infos);
                 rethrow(err);
             end
             obj.Gen.armOutput(false);
+            obj.Progress.state = 'done';
             meas = obj.packMeasurement('sweep', records, infos, sw, events);
         end
 
@@ -1300,6 +1309,19 @@ classdef MeasurementSession < handle
             p = struct('kind', 'stepped', 'passes', {cellstr(passes)}, 'pass', 0, 'rep', 0, ...
                 'nReps', max(1, st.repetitions), 'plan', tim.app.steppedPlan(st), 'fs', 1, 'n', 0, ...
                 'onSample', NaN, 'state', 'running');
+        end
+
+        function p = newSweepProgress(sw, fs)
+            %NEWSWEEPPROGRESS Progress of a swept sine (1.6.3): one pass, the
+            %   repetitions of excitation.sweep; per repetition the pre-roll, the
+            %   sweep and the post-roll (+0.2 s) of measureSweep. fs [Hz] (1 before
+            %   the measurement: only the plan is used then).
+            if nargin < 2, fs = 1; end
+            pl = struct('fStart', sw.fStart, 'fStop', sw.fStop, 'log', strcmpi(sw.spacing, 'log'), ...
+                'pre_s', sw.preRoll, 'sweep_s', sw.duration, 'post_s', sw.postRoll + 0.2);
+            pl.total_s = pl.pre_s + pl.sweep_s + pl.post_s;
+            p = struct('kind', 'sweep', 'passes', {{'Swept sine'}}, 'pass', 1, 'rep', 0, ...
+                'nReps', max(1, sw.repetitions), 'plan', pl, 'fs', fs, 'n', 0, 'onSample', NaN, 'state', 'running');
         end
 
         function s = preName(eq)
