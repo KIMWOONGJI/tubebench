@@ -54,7 +54,6 @@ sim = isfield(opts, 'simulation') && ~isempty(opts.simulation) && opts.simulatio
 
 % ---- axes: cleared, house style, labels (also for the empty state)
 for ax = [axM axP]
-    if numel(ax.YAxis) > 1, cla(ax, 'reset'); end % axes used with yyaxis before (old GUI)
     cla(ax); legend(ax, 'off'); hold(ax, 'on');
     ax.XScale = 'log'; ax.YScale = 'linear';
     tim.plots.style(ax);

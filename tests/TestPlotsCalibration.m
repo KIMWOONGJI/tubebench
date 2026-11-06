@@ -233,15 +233,6 @@ classdef TestPlotsCalibration < matlab.unittest.TestCase
             tc.verifyEmpty(findobj(ax, 'Tag', 'timEmptyState'), 'message removed with data');
         end
 
-        function formerYyaxisAxesCleaned(tc)
-            % the old GUI drew the calibration with yyaxis into the same axes
-            ax = tc.newAxes();
-            yyaxis(ax(1), 'right'); plot(ax(1), 1:3, 1:3);
-            tim.plots.calibration(ax, tc.makeCal());
-            tc.verifyNumElements(ax(1).YAxis, 1, 'no second y axis left over');
-            tc.verifyNumElements(findobj(ax(1), 'Type', 'line'), 6);
-        end
-
         function steppedMarkers(tc)
             cal = tc.makeCal();
             idx = round(linspace(1, numel(cal.f), 12));

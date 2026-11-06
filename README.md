@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/MATLAB-R2022b-e16737" alt="MATLAB R2022b">
   <img src="https://img.shields.io/badge/toolbox-Signal%20Processing-lightgrey" alt="Signal Processing Toolbox">
   <img src="https://img.shields.io/badge/version-1.6.4-informational" alt="Version 1.6.4">
-  <img src="https://img.shields.io/badge/tests-441-brightgreen" alt="441 automated tests">
+  <img src="https://img.shields.io/badge/tests-440-brightgreen" alt="440 automated tests">
   <img src="https://img.shields.io/badge/method-ASTM%20E2611-555555" alt="ASTM E2611">
 </p>
 
@@ -219,7 +219,7 @@ instruments.
 
 | Area | Status |
 |---|---|
-| Software | ✅ complete; 441 automated tests in 30 classes (simulation and recorded hardware fixtures) |
+| Software | ✅ complete; 440 automated tests in 30 classes (simulation and recorded hardware fixtures) |
 | Instrument communication: 33220A SCPI, LAN-XI REST, recorder cycle, binary stream, TEDS | ✅ verified on the instruments |
 | Swept-sine measurements in the tube, sine excitation on the bench, microphone chain, switching calibration with its empty-tube check, measurement workflow in the window | ✅ done on the instruments (2026-10-08 to 2026-10-12) |
 | Instrument interface (1.2.0), connection check (1.2.1), generator load at the amplifier input (1.3.0) | ✅ owner's hardware checks passed (2026-10-12 / 2026-10-13) |
