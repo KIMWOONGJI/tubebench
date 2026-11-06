@@ -165,15 +165,6 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             tc.verifyEqual(findobj(ax(1), 'Tag', 'timEmptyState').String, 'Waiting for data');
             tc.verifySubstring(ax(3).YLabel.String, 'ch3 (M3) [Pa]');
             tc.verifyEqual(info.scale, 1 ./ [tc.mSweep.mics.sensitivity_VperPa], 'RelTol', 1e-12);
-            % live update as done by the GUI: set the line data, then fitAxes
-            n = 4096; v = tc.mSweep.records{1}(end - n + 1:end, :); t = ((1:n) - n) / tc.mSweep.fs;
-            for c = 1:4
-                set(info.lines(c), 'XData', t, 'YData', v(:, c) * info.scale(c));
-                tim.plots.fitAxes(info.axes(c));
-            end
-            tc.verifyLessThan(ax(1).XLim(1), t(1));
-            tc.verifyGreaterThan(ax(1).XLim(2), 0);
-            tc.verifyLessThanOrEqual(ax(2).YLim(1), min(v(:, 2) * info.scale(2)));
             % a new measurement replaces the lines (no accumulation)
             tim.plots.timeSignals(ax, tc.mStep);
             tc.verifyNumElements(findobj(ax(1), 'Type', 'line'), 1);

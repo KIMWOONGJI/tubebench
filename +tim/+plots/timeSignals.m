@@ -29,7 +29,7 @@ function info = timeSignals(ax, meas, opts)
 %         .unit     'Pa', 'mV' or 'FS'
 %         .scale    1 x C factors: displayed value = volts .* scale
 %   Live view (GUI): set(info.lines(c), 'XData', t, 'YData', v(:, c) * info.scale(c))
-%   and then tim.plots.fitAxes(info.axes(c)).
+%   and then tim.gui.liveAxis (fixed axes of the last 0.5 s, 1.6.2-1.6.4).
 
 if nargin < 3 || isempty(opts), opts = struct(); end
 P = tim.gui.palette();
