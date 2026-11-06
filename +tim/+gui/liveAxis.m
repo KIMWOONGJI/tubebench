@@ -29,6 +29,10 @@ if isappdata(ax, 'timFitAxes'), rmappdata(ax, 'timFitAxes'); end
 L = niceLimit(max(1.15 * pk, 0.1));
 if ~isempty(Lprev) && isfinite(Lprev) && Lprev >= L, L = Lprev; end
 if ~isequal(ax.XLim, [-0.5 0]), ax.XLim = [-0.5 0]; end
+% its own time ticks (the fitted ticks of the view before lie outside the last
+% 0.5 s; the ruler callback used to switch them to automatic, 1.6.3)
+xt = (-5:0) / 10;
+if ~isequal(ax.XTick, xt), ax.XTick = xt; end
 if isequal(ax.YLim, [-L L]) && isequal(ax.YTick, L * [-1 -0.5 0 0.5 1]) && strcmp(ax.YTickLabelMode, 'manual')
     return
 end
