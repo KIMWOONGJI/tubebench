@@ -246,15 +246,83 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             tc.verifyEqual(app.Pages.wave.Grid.RowHeight{1}, 92);
             app.Pages.wave.setNote('');
             tc.verifyEqual(app.Pages.wave.Grid.RowHeight{1}, 92, 'no layout change when the note goes');
+            % the live spectrum (2026-11-15): the default view of an action, with
+            % the same strip, done at the end, lined up with its graph
+            tc.verifyEqual(h.measTabs.SelectedTab, h.specTab, 'an action opens the Spectrum view');
+            tc.verifyGreaterThan(app.LiveCount, 0, 'live refreshes during the measurement');
+            tc.verifyEqual(char(h.axPSpec.Visible), 'on');
+            tc.verifySubstring(h.axPSpec.Title.String, 'Done · 4 steps');
+            ps = h.axSpec.InnerPosition; pq = h.axPSpec.InnerPosition;
+            tc.verifyEqual(pq([1 3]), ps([1 3]), 'AbsTol', 1e-6, 'same left edge and width as the spectrum');
+            tc.verifyEqual(app.Pages.spec.Grid.RowHeight{1}, 92, 'the note row is always there');
             % a swept sine: its strip too (1.6.3)
             h.exMode.Value = 'sweep'; feval(h.exMode.ValueChangedFcn, h.exMode, struct('PreviousValue', 'stepped'));
             feval(h.start.ButtonPushedFcn, h.start, []);
             tc.verifyEqual(char(h.axP.Visible), 'on', 'swept sine: strip');
             tc.verifySubstring(h.axP.Title.String, 'Done · 1 sweep');
+            tc.verifySubstring(h.axPSpec.Title.String, 'Done · 1 sweep');
             tc.verifyEqual(app.Session.Progress.kind, 'sweep');
+            % the result replaced the live curves: the Welch PSD of the record
+            tc.verifyEmpty(findobj(h.axSpec, '-regexp', 'Tag', '^timLiveSpec'), 'no live curve left');
+            tc.verifyNumElements(findobj(h.axSpec, 'Type', 'line', 'LineWidth', 1.1), 4);
             % background noise: no strip
             feval(h.background.ButtonPushedFcn, h.background, []);
             tc.verifyEqual(char(h.axP.Visible), 'off', 'background noise: no strip');
+            tc.verifyEqual(char(h.axPSpec.Visible), 'off');
+        end
+
+        function liveSpectrumStaysFixed(tc)
+            % 2026-11-15 (owner request): the live spectrum - the estimate of the
+            % result view over the last 1 s, fixed frequency axis, a y range that
+            % only grows on a 20 dB grid, labels of one width, axes not "fitted"
+            fs = 16384; n = tim.gui.liveSpectrum('samples', fs);
+            tc.verifyEqual(n, fs, 'the last 1 s');
+            t = (0:n - 1).' / fs;
+            rng(7);
+            nz = 0.002 * randn(n, 2);
+            tone = [sqrt(2) * sin(2 * pi * 1000 * t), zeros(n, 1)];        % 1 Pa rms tone in ch1
+            x = tone + nz;
+            [f, G] = tim.gui.liveSpectrum('psd', x, fs);
+            [G0, f0] = pwelch(x - mean(x, 1), hann(8192, 'periodic'), 6144, 8192, fs);
+            tc.verifyEqual(f, f0); tc.verifyEqual(G, G0, 'RelTol', 1e-12, 'the estimate of tim.plots.spectrum');
+            df = f(2) - f(1);
+            tc.verifyEqual(sum(G(:, 1)) * df, 1, 'RelTol', 0.01, 'Parseval: 1 Pa^2');
+            fg = figure('Visible', 'off'); tc.addTeardown(@() close(fg));
+            ax = axes(fg);
+            plot(ax, [10 100], [0 1]); tim.plots.fitAxes(ax);          % the result drawn before
+            o = struct('fs', fs, 'pa', true, 'names', {{'ch1 (M1)', 'ch2 (M2)'}}, 'colours', lines(2), 'band', [120 4500]);
+            S = tim.gui.liveSpectrum('prepare', ax, o);
+            tc.verifyFalse(isappdata(ax, 'timFitAxes'), 'no fitted record: the zoom handler is inert');
+            xl = ax.XLim; tc.verifyEqual(ax.YLim, [-20 100]);
+            tc.verifyNotEmpty(findobj(ax, 'Tag', 'timEmptyState'), 'waiting for data');
+            S = tim.gui.liveSpectrum('update', S, x);
+            tc.verifyEmpty(findobj(ax, 'Tag', 'timEmptyState'));
+            tc.verifyEqual(S.level(1), 20 * log10(1 / 2e-5), 'AbsTol', 0.1, 'level of the 1 Pa tone');
+            tc.verifyEqual(ax.XLim, xl, 'the frequency axis stays');
+            yl = ax.YLim;
+            tc.verifyEqual(mod(yl, 20), [0 0]); tc.verifyGreaterThanOrEqual(yl(2), max(S.L(:)) + 5);
+            S = tim.gui.liveSpectrum('update', S, 0.1 * tone + nz);          % quieter: the range stays
+            tc.verifyEqual(ax.YLim, yl, 'the y range only grows');
+            tim.gui.liveSpectrum('update', S, 100 * tone + nz);              % louder: it grows
+            tc.verifyGreaterThan(ax.YLim(2), yl(2));
+            tc.verifyEqual(ax.YLim(1), yl(1), 'the bottom follows the noise floor, not the tone');
+            feval(ax.YAxis.LimitsChangedFcn, ax.YAxis, []);
+            tc.verifyEqual(ax.YTickLabelMode, 'manual', 'the fixed labels stay');
+            fig = char(8199); mn = char(8722);
+            tc.verifyEqual(tim.gui.liveSpectrum('labels', [-120 40]), {[mn '120'], [mn '100'], [fig mn '80'], ...
+                [fig mn '60'], [fig mn '40'], [fig mn '20'], [fig fig fig '0'], [fig fig '20'], [fig fig '40']}, ...
+                'right-aligned in four places, the minus next to the digits');
+            s = tim.gui.liveSpectrum('labels', [-160 140]);
+            tc.verifyEqual(unique(cellfun(@numel, s)), 4, 'one width from -160 to 140 dB');
+            % on the axes of a swept-sine result with its right axis (incident
+            % level): the right axis is emptied and hidden, the live curves on the left
+            ax3 = axes(fg);
+            plot(ax3, [100 1000], [0 1]); yyaxis(ax3, 'right'); plot(ax3, [100 1000], [80 90]); yyaxis(ax3, 'left');
+            S3 = tim.gui.liveSpectrum('prepare', ax3, o);
+            tc.verifyEqual(char(ax3.YAxis(2).Visible), 'off');
+            tim.gui.liveSpectrum('update', S3, x);
+            tc.verifyEqual(double(ax3.YAxis(1).Exponent), 0);
+            tc.verifyNumElements(findobj(ax3, '-regexp', 'Tag', '^timLiveSpec'), 2);
         end
     end
 end

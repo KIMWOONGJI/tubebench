@@ -121,13 +121,13 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             tc.verifyEqual(app.Session.Termination, struct('kind', 'absorber', 'place', 'tubeEnd'), ...
                 'the calibration records the absorber');
             h.method.Value = 'twoLoad'; feval(h.method.ValueChangedFcn, h.method, []);
-            % the time signals while a load is measured, then the Two-load view
+            % the live spectrum while a load is measured, then the Two-load view
             % again (owner 2026-10-14)
             shown = {};
             app.TestHook = @(p) recordTab(p);
             feval(h.start.ButtonPushedFcn, h.start, []);
             app.TestHook = [];
-            tc.verifyEqual(shown, repmat({h.waveTab}, 1, 3), 'Time signal view while each load is measured');
+            tc.verifyEqual(shown, repmat({h.specTab}, 1, 3), 'live Spectrum view while each load is measured (2026-11-15)');
             tc.verifyEqual(h.measTabs.SelectedTab, h.twoLoadTab, 'the Two-load view at the end');
             % the sequence
             tc.verifyEqual(app.TwList.Keys, {'A', 'B', 'A2', 'result'});

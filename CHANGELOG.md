@@ -6,6 +6,26 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## Unreleased
+
+### Added
+- **Live spectrum** (owner request 2026-11-15). During an acquisition Measurement > Spectrum shows
+  the spectrum of the last 1 s of every channel, about five times a second: the PSD of the sound
+  pressure with the estimate of the result (Welch, Hann, nfft 8192, 75 % overlap), the analysis
+  band, the live level of every channel in the header and the progress strip of a stepped or
+  swept sine above the graph (`tim.gui.liveSpectrum`). Start measurement, Background noise and the
+  loads of a two-load run now open this view instead of Time signals; selecting Time signals during
+  the acquisition shows the time signals live instead (only the view looked at is drawn). The
+  graph keeps its place as the live time signals: fixed frequency axis, a y range that only grows
+  (20 dB steps), tick labels of one width, legend and band lines drawn once. When the measurement
+  is done, the view shows the spectrum of the whole record as before.
+
+### Changed
+- **Absorber of the 3D tube model**: it fills the whole 250 mm extension tube, as the lab absorber
+  does (owner 2026-11-15). `tubeDrawing.absorberLength` is 0.250 by default (label "absorber 250
+  mm"); the schematic absorber of an unknown length (`0`) also fills the extension tube instead of
+  60 mm. Drawing only.
+
 ## 1.6.4 - 2026-11-06 (`75b0223`)
 
 ### Fixed
