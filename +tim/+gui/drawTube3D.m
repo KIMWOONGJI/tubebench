@@ -26,7 +26,8 @@ function out = drawTube3D(ax, geom, drawing, mapping, opts)
 %     opts.highlightPorts  ports with a yellow glow (calibration ports a, b)
 %     opts.micLabels   1x4 cell, label of DAQ channel c (calibration mode)
 %     opts.absorberLength  [m] absorber drawn in calibration mode when
-%                      drawing.absorberLength is not given (schematic, 0.06)
+%                      drawing.absorberLength is not given (schematic; default
+%                      []: it fills the extension tube, as the lab absorber)
 %     opts.termination (kind, place) of the termination load (WO-005,
 %                      tim.app.describeLoad): the absorber, the empty extension
 %                      tube with the end cap, without it (open end), or at the
@@ -167,7 +168,10 @@ if ~strcmp(tk, 'open')
     annulus(S, xEnd - 0.05, 0, rb, [0.55 0.57 0.60], 'termination');   % termination face
 end
 la = mm(td.absorberLength); laGiven = isscalar(la) && isfinite(la) && la > 0;
-if (cal || strcmp(tk, 'absorber')) && ~laGiven, la = mm(opts.absorberLength); end
+if (cal || strcmp(tk, 'absorber')) && ~laGiven
+    la = mm(opts.absorberLength);
+    if ~(isscalar(la) && isfinite(la) && la > 0), la = xT - xJ; end   % schematic: the extension tube
+end
 if (isempty(tk) || strcmp(tk, 'absorber')) && isscalar(la) && isfinite(la) && la > 0
     S = solid(S, xT - la, xT - 0.1, rb - 0.1, porous([0.55 0.72 0.52]), 'absorber');
 end
@@ -344,7 +348,7 @@ end
 % ====================================================================== parts
 function o = fillOpts(o)
 d = struct('section', true, 'dimensions', true, 'view', 'keep', 'mode', 'setup', ...
-    'highlightPorts', [], 'micLabels', {{}}, 'absorberLength', 0.06, 'termination', [], ...
+    'highlightPorts', [], 'micLabels', {{}}, 'absorberLength', [],'termination', [], ...
     'highlightTermination', false);
 for f = fieldnames(d).'
     if ~isfield(o, f{1}), o.(f{1}) = d.(f{1}); end

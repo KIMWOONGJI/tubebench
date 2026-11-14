@@ -250,7 +250,7 @@ classdef TestGui < matlab.unittest.TestCase
             fig = figure('Visible', 'off'); tc.addTeardown(@() close(fig));
             ax = axes(fig);
             c = tim.app.defaultConfig(); g = c.geometry; g.xFront = 0; g.xRear = 0.075;
-            g.micPositions = [-0.070 -0.041 0.116 0.145]; td = c.tubeDrawing;      % absorberLength NaN
+            g.micPositions = [-0.070 -0.041 0.116 0.145]; td = c.tubeDrawing; td.absorberLength = NaN;   % length not known
             lbl = {{'ch1 (ref)', 's/n 111'}, {'ch2'}, {'ch3'}, {'ch4'}};
             M = tim.gui.drawTube3D(ax, g, td, [1 2 3 4], struct('mode', 'calibration', ...
                 'highlightPorts', [1 2], 'micLabels', {lbl}));

@@ -114,7 +114,7 @@ cfg.tubeDrawing = struct( ...
     'micLength', 0.0341, ...
     'micRecess', 0.00025, ...            % microphone tip behind the bore wall
     'portDiameter', 0.0064, ...          % hole between holder and bore
-    'absorberLength', NaN, ...           % absorber at the small end [m] (NaN = not specified)
+    'absorberLength', 0.250, ...         % absorber at the small end [m]: fills the extension tube (M4 + 41 -> 291 mm; owner 2026-11-15; NaN = not known)
     'specimenSectionLength', 0.075, ...  % removable middle section SIT-PT-003 (mounted EMPTY for the calibration)
     'source', 'CAD Assy_SIT (SolidWorks 2024, AP214), read 2026-10-08');
 

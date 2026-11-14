@@ -62,6 +62,7 @@ classdef Tubebench < handle
         WaveLines = gobjects(0) % lines of the time-signal view (live update)
         ProgressPrefix char = ''  % label prefix of the stepped-sine progress strip (two loads: 'Load A (1 of 3) · ')
         LiveYLim = []             % y limits of the live time signals per channel (grow-only during an action, liveAxis)
+        LiveSpec = []             % state of the live spectrum (tim.gui.liveSpectrum; Measurement > Spectrum, 2026-11-15)
         Saved logical = true   % the last measurement is saved (or there is nothing to save)
         SavedDir char = ''      % folder of the last save (or of the opened measurement)
         Opened logical = false  % the last measurement was opened from its folder (File > Open measurement…)
@@ -1213,7 +1214,7 @@ classdef Tubebench < handle
             % (titles and descriptions: tim.plots.viewText, shared with the saved figures)
             spec = struct( ...
                 'wave', {{'waveforms', 'axW', {'Axes', 4, 'Strip', 66, 'KeepNote', true}}}, ...
-                'spec', {{'spectrum', 'axSpec', {'Axes', 1}}}, ...
+                'spec', {{'spectrum', 'axSpec', {'Axes', 1, 'Strip', 128, 'KeepNote', true}}}, ...   % (strip 66 + the two legend rows above the graph, which the tiled layout takes from the strip's tile)
                 'tf', {{'transfer', 'axH', {'Axes', 3}}}, ...
                 'refl', {{'reflection', 'axR', {'Axes', 2, 'AxesHeights', {'2x', '1x'}, 'SummaryTitle', 'Octave bands'}}}, ...
                 'tl', {{'transmissionLoss', 'axTL', {'Axes', 1, 'SummaryTitle', 'Octave bands'}}}, ...
@@ -1224,7 +1225,10 @@ classdef Tubebench < handle
             [vt, vd] = tim.plots.viewText(s{1});
             page = tim.gui.ViewPage(tab, vt, vd, s{3}{:});
             h = struct(s{2}, page.Axes);
-            if ~isempty(page.Strip), h.axP = page.Strip; end   % progress of a stepped sine (time signals, 1.6.1)
+            % progress of a stepped or swept sine (time signals 1.6.1; the live spectrum 2026-11-15)
+            if ~isempty(page.Strip)
+                if strcmp(p, 'spec'), h.axPSpec = page.Strip; else, h.axP = page.Strip; end
+            end
             probe = [];                % drawing independent of the laid-out size ...
             if strcmp(p, 'tf'), probe = page.Axes(1); end   % ... except the legend rows (results)
         end
@@ -2926,14 +2930,23 @@ classdef Tubebench < handle
         end
 
         function liveUpdate(app)
-            % Called for every received data block: live time signals of the last
-            % 0.5 s (about 5 refreshes per second) and processing of STOP.
+            % Called for every received data block (about 5 refreshes per second)
+            % and processing of STOP: the live spectrum of the last 1 s
+            % (Measurement > Spectrum, the default view of an action, owner
+            % 2026-11-15) or, while Time signals is the selected tab, the live
+            % time signals of the last 0.5 s. Only the view the operator chose
+            % is drawn (the cost per block stays that of one view).
             persistent lastT
             if isempty(lastT), lastT = tic; end
-            % (the actions prepare the Time signals view before the data stream starts;
-            % it is never built here, inside the stream)
+            % (the actions prepare both views before the data stream starts; they
+            % are never built here, inside the stream)
             if toc(lastT) < 0.2 || ~app.isBuilt('wave'), drawnow('limitrate'); return; end
             lastT = tic;
+            if strcmp(app.liveView(), 'spec')
+                app.liveSpectrumUpdate();
+                drawnow('limitrate');
+                return
+            end
             try
                 daq = app.Session.Daq;
                 fs = daq.SampleRate; n = round(0.5 * fs);
@@ -2962,7 +2975,7 @@ classdef Tubebench < handle
                     % the progress strip above says it (stepped / swept sine); the title
                     % keeps its line (' ', 1.6.3: removing it moved the graphs)
                     if ~strcmp(app.H.axW(1).Title.String, ' '), title(app.H.axW(1), ' '); end
-                    app.drawProgress();
+                    app.drawProgress('wave');
                 else
                     title(app.H.axW(1), sprintf('LIVE  %s  %.1f s recorded (%s)', char(183), total, app.Session.Status));
                 end
@@ -2984,8 +2997,9 @@ classdef Tubebench < handle
             % requests 2026-11-05) and filled by liveUpdate from the session's
             % Progress; otherwise hidden
             if nargin < 2, strip = false; end
-            app.ensureBuilt('wave');
+            app.ensureBuilt({'wave', 'spec'});
             app.showProgress(strip);
+            app.prepareLiveSpectrum(strip);
             o = app.plotOpts(); o.mics = app.Session.Mics;
             o.emptyText = 'Waiting for data ...';
             info = tim.plots.timeSignals(app.H.axW, [], o);
@@ -3007,6 +3021,65 @@ classdef Tubebench < handle
                 strjoin(arrayfun(@(c) sprintf('ch%d –', c), 1:4, 'UniformOutput', false), '   ')));
         end
 
+        function prepareLiveSpectrum(app, strip)
+            % the Spectrum view in its live state (tim.gui.liveSpectrum): the
+            % channels of the connected microphones, the analysis band, fixed
+            % axes, the note line and an empty Levels table (the result of the
+            % last measurement is not shown under a live curve)
+            mics = app.Session.Mics; C = numel(mics);
+            sens = [mics.sensitivity_VperPa];
+            P = tim.gui.palette(); a = app.Cfg.analysis;
+            o = struct('fs', app.Session.Daq.SampleRate, 'pa', numel(sens) == C && all(isfinite(sens) & sens > 0), ...
+                'names', {arrayfun(@(c) sprintf('ch%d (M%d)', c, app.portOf(c)), 1:C, 'UniformOutput', false)}, ...
+                'colours', P.ch(1:C, :), 'band', [a.fMin a.fMax], 'emptyText', 'Waiting for data ...');
+            app.LiveSpec = tim.gui.liveSpectrum('prepare', app.H.axSpec, o);
+            if strip, title(app.H.axSpec, ' '); else, title(app.H.axSpec, 'LIVE'); end
+            pg = app.Pages.spec;
+            pg.setSummary(struct('title', 'Levels', 'columns', {{'Channel', 'Port'}}, 'data', ...
+                {[arrayfun(@(c) sprintf('ch%d', c), (1:C).', 'UniformOutput', false), ...
+                arrayfun(@(c) sprintf('M%d', app.portOf(c)), (1:C).', 'UniformOutput', false)]}, ...
+                'note', 'The levels of the whole record follow after the measurement.'));
+            pg.setNote(sprintf('Live level (last 1 s, 20 Hz – %.4g kHz, dB SPL): %s', o.fs / 2000, ...
+                strjoin(arrayfun(@(c) sprintf('ch%d –', c), 1:C, 'UniformOutput', false), '   ')));
+        end
+
+        function v = liveView(app)
+            % the live view drawn during an action: 'wave' while Measurement >
+            % Time signals is the selected tab, else 'spec' (the default)
+            v = 'spec';
+            try
+                if app.H.measTabs.SelectedTab == app.H.waveTab, v = 'wave'; end
+            catch
+            end
+        end
+
+        function liveSpectrumUpdate(app)
+            % one live-spectrum refresh (liveUpdate): the last 1 s of every channel
+            if isempty(app.LiveSpec) || ~app.isBuilt('spec'), return; end
+            try
+                daq = app.Session.Daq;
+                fs = daq.SampleRate;
+                [x, nTotal] = daq.recent(tim.gui.liveSpectrum('samples', fs));   % no I/O
+                if isempty(x), return; end
+                [y, unit] = app.toPressure(x, app.Session.Mics);
+                if ~strcmp(unit, 'Pa'), y = x; end                   % volts (dB re 1 V^2/Hz)
+                app.LiveSpec = tim.gui.liveSpectrum('update', app.LiveSpec, y);
+                if app.Pages.spec.StripShown
+                    if ~strcmp(app.H.axSpec.Title.String, ' '), title(app.H.axSpec, ' '); end
+                    app.drawProgress('spec');
+                else
+                    title(app.H.axSpec, sprintf('LIVE  %s  %.1f s recorded (%s)', char(183), nTotal / fs, ...
+                        app.Session.Status));
+                end
+                lv = app.LiveSpec.level; u = 'dB SPL'; if ~app.LiveSpec.pa, u = 'dB re 1 V'; end
+                app.Pages.spec.setNote(sprintf('Live level (last 1 s, 20 Hz – %.4g kHz, %s): %s', fs / 2000, u, ...
+                    strjoin(arrayfun(@(c) sprintf('ch%d %.1f dB', c, lv(c)), 1:numel(lv), 'UniformOutput', false), ...
+                    '   ')));
+                app.LiveCount = app.LiveCount + 1;
+            catch
+            end
+        end
+
         function liveAxis(app, ax, c, pk)
             % fixed axes of the live time signals (1.6.2, owner report 2026-11-05:
             % the graphs and the progress strip moved while the limits followed
@@ -3021,34 +3094,50 @@ classdef Tubebench < handle
         end
 
         function showProgress(app, tf)
-            % the progress strip of the time-signal view: shown empty ("starting")
-            % for a stepped sine that follows, or hidden and cleared
-            if ~app.isBuilt('wave') || ~isfield(app.H, 'axP'), return; end
-            if tf
-                app.Pages.wave.showStrip(true);
-                ex = app.Cfg.excitation;
-                if ~isempty(app.Session), ex = app.Session.Cfg.excitation; end
-                if strcmp(ex.mode, 'sweep')
-                    prog = tim.app.MeasurementSession.newSweepProgress(ex.sweep);
+            % the progress strips of the time-signal and the spectrum view: shown
+            % empty ("starting") for a stepped or swept sine that follows, or
+            % hidden and cleared
+            for v = {'wave', 'spec'}
+                ax = app.stripAxes(v{1});
+                if isempty(ax), continue; end
+                if tf
+                    app.Pages.(v{1}).showStrip(true);
+                    ex = app.Cfg.excitation;
+                    if ~isempty(app.Session), ex = app.Session.Cfg.excitation; end
+                    if strcmp(ex.mode, 'sweep')
+                        prog = tim.app.MeasurementSession.newSweepProgress(ex.sweep);
+                    else
+                        prog = tim.app.MeasurementSession.newProgress(ex.stepped, {'Stepped sine'});
+                    end
+                    tim.gui.progressStrip(ax, prog, app.ProgressPrefix);
                 else
-                    prog = tim.app.MeasurementSession.newProgress(ex.stepped, {'Stepped sine'});
+                    tim.gui.progressStrip(ax, []);
+                    app.Pages.(v{1}).showStrip(false);
                 end
-                tim.gui.progressStrip(app.H.axP, prog, app.ProgressPrefix);
-            else
-                tim.gui.progressStrip(app.H.axP, []);
-                app.Pages.wave.showStrip(false);
             end
         end
 
-        function drawProgress(app)
-            % the strip from the session's Progress (live, and once at the end of
-            % the action: done / stopped); nothing while it is hidden
-            if ~app.isBuilt('wave') || ~isfield(app.H, 'axP') || ~app.Pages.wave.StripShown, return; end
+        function drawProgress(app, which)
+            % the strip from the session's Progress: live only that of the view
+            % drawn ('wave' | 'spec'), at the end of the action (done / stopped)
+            % both; nothing while a strip is hidden
+            if nargin < 2, which = {'wave', 'spec'}; else, which = {which}; end
             if isempty(app.Session) || isempty(app.Session.Progress), return; end
-            try
-                tim.gui.progressStrip(app.H.axP, app.Session.Progress, app.ProgressPrefix);
-            catch
+            for v = which
+                ax = app.stripAxes(v{1});
+                if isempty(ax) || ~app.Pages.(v{1}).StripShown, continue; end
+                try
+                    tim.gui.progressStrip(ax, app.Session.Progress, app.ProgressPrefix);
+                catch
+                end
             end
+        end
+
+        function ax = stripAxes(app, v)
+            % the progress strip of a built view ('wave': axP, 'spec': axPSpec), else []
+            ax = [];
+            f = struct('wave', 'axP', 'spec', 'axPSpec');
+            if app.isBuilt(v) && isfield(app.H, f.(v)), ax = app.H.(f.(v)); end
         end
 
         function p = portOf(app, c)
@@ -3463,8 +3552,8 @@ classdef Tubebench < handle
                     'every step at its own voltage, never above the level field (the maximum).'], app.eqText(eq), ...
                     eq.preLevel_dB);
             end
-            app.ensureBuilt('wave');                     % live view: prepared BEFORE the data stream
-            app.showTab(app.H.waveTab);
+            app.ensureBuilt({'wave', 'spec'});          % live views: prepared BEFORE the data stream
+            app.showTab(app.H.specTab);
             app.ProgressPrefix = '';
             app.prepareLive(ismember(app.Cfg.excitation.mode, {'stepped', 'sweep'}));   % strip: stepped and swept sine (1.6.3)
             app.Session.setTermination(app.Cfg.measurement.loadA);   % recorded with the data (Tube setup, WO-005)
@@ -3523,7 +3612,7 @@ classdef Tubebench < handle
         end
         function doBackground(app)
             app.ensureBuilt({'wave', 'spec'});          % live view + result view, BEFORE the data stream
-            app.showTab(app.H.waveTab);
+            app.showTab(app.H.specTab);
             app.prepareLive();
             m = app.Session.measureBackground(2);
             app.LastMeas = m; app.LastRes = []; app.LastCfg = app.Cfg; app.Saved = false; app.SavedDir = ''; app.Opened = false;
@@ -3752,7 +3841,7 @@ classdef Tubebench < handle
         function doRunCal(app)
             % Calibration view (bar, 3D model, step list) and the live time signals
             % BEFORE the first step / data stream (the model is drawn at the first step)
-            app.ensureBuilt({'cal', 'wave'});
+            app.ensureBuilt({'cal', 'wave', 'spec'});
             app.readCfgFromUi();
             app.requireGain();
             app.syncSession();
@@ -4058,7 +4147,7 @@ classdef Tubebench < handle
             % A -> B (-> A') with the operator bar of the Two-load view, every load
             % saved at once (tim.app.runTwoLoad); the loads measured so far stay
             % shown and saved after a Stop or an error
-            app.ensureBuilt({'twoload', 'wave'});
+            app.ensureBuilt({'twoload', 'wave', 'spec'});
             app.readCfgFromUi();
             app.requireGain();
             app.requireEqualizerSource();
@@ -4167,9 +4256,10 @@ classdef Tubebench < handle
             else
                 app.TwList.set(key, 'run', sprintf('measuring (%s) ...', sig));
             end
-            % the live time signals while the load is measured; back to the
-            % Two-load view when it is done (twReport; owner 2026-10-14)
-            app.showTab(app.H.waveTab);
+            % the live spectrum while the load is measured (2026-11-15; before:
+            % the time signals); back to the Two-load view when it is done
+            % (twReport; owner 2026-10-14)
+            app.showTab(app.H.specTab);
             app.testPoint('twoload:measuring');
             nm = key; if strcmp(key, 'A2'), nm = ['A' char(8242)]; end
             app.ProgressPrefix = sprintf('Load %s (%d of %d) · ', nm, k, n);
@@ -4193,7 +4283,7 @@ classdef Tubebench < handle
                             min(p.vpp) / 2, max(p.vpp) / 2, nMax));
                         app.TwList.set(app.twKey(q.k), 'run', sprintf('measuring (%s, equalized) ...', ...
                             app.signalName(app.Session.Cfg.excitation.mode)));
-                        app.showTab(app.H.waveTab);
+                        app.showTab(app.H.specTab);
                         app.prepareLive(true);              % the live view starts again for the load
                     end
                 case 'load'

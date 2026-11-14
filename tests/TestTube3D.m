@@ -54,12 +54,27 @@ classdef TestTube3D < matlab.unittest.TestCase
                 'highlightTermination', true));
             tc.verifyNumElements(M.glow, 1, 'the termination to mount glows');
             tc.verifyEqual(M.glow.Tag, 'termGlow');
-            % without a load: as before (extension, end cap, no absorber without its length)
+            % the lab absorber fills the 250 mm extension tube (owner 2026-11-15:
+            % tubeDrawing.absorberLength 0.250 by default), also without a load
+            xa = @(ax) cell2mat(cellfun(@(X) X(:), get(findobj(ax, 'Tag', 'absorber'), 'XData'), 'UniformOutput', false));
+            tim.gui.drawTube3D(tc.ax, g, td, 1:4);
+            x = xa(tc.ax);
+            tc.verifyEqual([min(x) max(x)], [145 + 41, 145 + 291 - 0.1], 'AbsTol', 1e-6, 'the whole extension tube');
+            lab = findobj(tc.ax, 'Tag', 'endLabel');
+            tc.verifyEqual(cellstr(lab.String), {'termination'; 'absorber 250 mm'});
+            % length not known: no absorber without a load; the absorber load or the
+            % calibration draws a schematic one, filling the extension tube as well
+            td.absorberLength = NaN;
             tim.gui.drawTube3D(tc.ax, g, td, 1:4);
             tc.verifyEmpty(findobj(tc.ax, 'Tag', 'absorber'));
             tc.verifyNotEmpty(findobj(tc.ax, 'Tag', 'endCap'));
             lab = findobj(tc.ax, 'Tag', 'endLabel');
             tc.verifyEqual(cellstr(lab.String), {'termination'; '(absorber side)'});
+            tim.gui.drawTube3D(tc.ax, g, td, 1:4, struct('termination', struct('kind', 'absorber', 'place', 'tubeEnd')));
+            x = xa(tc.ax);
+            tc.verifyEqual([min(x) max(x)], [145 + 41, 145 + 291 - 0.1], 'AbsTol', 1e-6, 'schematic: the extension tube');
+            lab = findobj(tc.ax, 'Tag', 'endLabel');
+            tc.verifyEqual(cellstr(lab.String), {'absorbing termination'; '(absorber schematic)'});
         end
 
         function returnedStruct(tc)

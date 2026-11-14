@@ -437,8 +437,9 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 * **Background noise**: 2 s without excitation (background noise of every channel); then the
   Spectrum view opens. (It shares the row with Method: the control panel keeps its height.)
 * **Start measurement** (green; "Start two-load measurement" with two loads): measures with the
-  selected signal. In hardware mode it asks before the loudspeaker is driven (section 3). The Time
-  signals view shows the four channels live. Every measurement records its termination
+  selected signal. In hardware mode it asks before the loudspeaker is driven (section 3). The
+  Spectrum view shows the spectrum of the four channels live (the Time signals view, when it is
+  selected, their time signals). Every measurement records its termination
   (`metadata.termination`).
 * **Stop** (red): stops the running connection, measurement (also a two-load sequence: the loads
   measured so far stay saved), background-noise recording or switching calibration; the generator
@@ -520,9 +521,10 @@ design values are in `config/user_config.json` (M1..M4 at −70, −41, 116, 145
 8. Mount the **specimen section with the specimen**, check L1, d and L2 for this specimen, and
    enter its name in **Specimen** (before Start measurement: the name at Start counts).
 9. Press **Start measurement**. In hardware mode confirm the excitation dialog (**Start
-   excitation**). The Time signals view shows the last 0.5 s of every channel live ("LIVE · 3.2 s
-   recorded …"; a stepped or swept sine shows its progress strip instead) with the level of every channel in
-   the header. Stop ends the measurement at once;
+   excitation**). The Spectrum view shows the spectrum of the last 1 s of every channel live
+   ("LIVE · 3.2 s recorded …"; a stepped or swept sine shows its progress strip instead) with the
+   level of every channel in the header; select Time signals for the last 0.5 s of the time
+   signals instead. Stop ends the measurement at once;
    the views then show the last measurement again.
 10. Check the result: Measurement > Transfer functions (coherence and SNR against their limits),
     the Results views and Results > Validity (why frequency lines are not valid). The message pane
@@ -565,7 +567,7 @@ equalized.
      while the output stays on (a lower level before the new frequency, a higher one after it), so
      no frequency is played above its own level or that of the step before.
 
-   Time signals shows both runs live; the Duration is about twice that without the equalizer.
+   The live Spectrum shows both runs; the Duration is about twice that without the equalizer.
 4. Check the result. **Measurement > Spectrum** shows the incident level (black squares; with Face
    velocity also the velocity as black triangles on a right axis in mm/s) and the target as a
    dashed line in a light green band of ± the tolerance. **Results > Validity** has the row
@@ -605,8 +607,8 @@ Use it when the termination is not anechoic (the lab termination reflects: |R_te
    load the operator bar names the termination and how it is mounted ("Load B: Rigid cap at tube
    end – the extension tube empty (absorber removed), the end cap on and sealed (face 291 mm
    behind M4)"), the model shows it glowing, and in hardware mode the program waits for
-   **Measure** (or **Abort**). While the load is measured the window shows Measurement > Time
-   signals (live), then returns to Two-load. Change **only the termination**: the specimen section
+   **Measure** (or **Abort**). While the load is measured the window shows Measurement > Spectrum
+   (live), then returns to Two-load. Change **only the termination**: the specimen section
    and the microphones stay untouched. In simulation the virtual tube changes the termination by
    itself. With the equalizer on (owner decisions 2026-11-04), every change of termination (loads
    A and B) is followed by the **pre-measurement** of that load as a step of its own in the list
@@ -703,8 +705,10 @@ specimen section Ø65 mm, tube body Ø45 mm, flanges 9 mm with 6 × M4, bore end
 termination 291 mm after M4, loudspeaker housing Ø135 mm, microphone holders Ø22 mm, B&K 4957
 Ø7 × 34.1 mm with the tip 0.25 mm behind the bore wall). `tubeDrawing.absorberLength` [m] is the
 length of the absorbing material in the termination behind M4, drawn from the end cap towards the
-specimen; `null` = not known (the label then reads "(absorber side)", the calibration model shows a
-schematic absorber). Enter it in `config/user_config.json` (no field in the window). These values
+specimen. The default is 0.250: the lab absorber fills the whole 250 mm extension tube (owner
+2026-11-15; label "absorber 250 mm"); `null` keeps this default. `0` = not known: the label then
+reads "(absorber side)", and the absorber load and the calibration model draw a schematic absorber
+that fills the extension tube. Enter it in `config/user_config.json` (no field in the window). These values
 are used only for the drawings. `tim.cad.readStep` reads a STEP assembly (part names, cylinders,
 planes, placements) if the tube is changed.
 
@@ -731,8 +735,9 @@ switching calibration…".
 ### Measurement > Time signals
 
 Sound pressure (voltage / sensitivity) of the four channels, one graph per channel on a common time
-axis, labelled "ch1 (M1) [Pa]" etc. During an acquisition: the last 0.5 s, about five updates per
-second, the header note gives the live level of every channel. The live graphs keep their place
+axis, labelled "ch1 (M1) [Pa]" etc. During an acquisition, while this view is selected (an action
+opens the live Measurement > Spectrum, 2026-11-15; select this tab to switch): the last 0.5 s,
+about five updates per second, the header note gives the live level of every channel. The live graphs keep their place
 (1.6.2, 1.6.3): the y range only grows during an action, from ±0.1 Pa in steps of 1, 2, 5
 (×10ⁿ) Pa, with the ticks at −L, −L/2, 0, L/2, L, no ×10ⁿ label and tick labels of one width (two
 decimals, the digits right-aligned in fixed places up to 999 Pa), and the header line of the live
@@ -786,6 +791,21 @@ twice.
 
 The legend stands above the plot area in up to four columns, so it never covers the curves
 (1.6.1).
+
+**Live spectrum** (owner request 2026-11-15). Start measurement, Background noise and every load
+of a two-load run open this view (before: Time signals). During the acquisition it shows the
+spectrum of the **last 1 s** of every channel, about five updates per second: the PSD of the
+sound pressure in dB re (20 µPa)²/Hz with the estimate of the result (Welch, Hann window, nfft
+8192, 75 % overlap; dB re 1 V²/Hz without a valid sensitivity for every channel), one curve per
+channel, the analysis band between two dashed lines. A swept sine shows the band it swept in the
+last second moving up, a stepped sine the line of the running step. The header note gives the
+live level of every channel (20 Hz to half the sample rate), the progress strip of a stepped or
+swept sine stands above the graph (as in Time signals), and the Levels table waits for the end of
+the measurement. The graph keeps its place: the frequency axis is fixed, the y range only grows
+during an action (20 dB steps, from −20…100 dB) and its tick labels all have one width. Only the
+live view the operator looks at is drawn: select Time signals during the acquisition to see the
+time signals live instead. When the measurement is done, the view shows the result of the whole
+record as below.
 
 * Swept sine, random noise and background noise: **power spectral density** of the sound pressure
   of repetition 1 in dB re (20 µPa)²/Hz (Welch, Hann window, 75 % overlap), one curve per channel,
