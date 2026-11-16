@@ -792,26 +792,46 @@ twice.
 The legend stands above the plot area in up to four columns, so it never covers the curves
 (1.6.1).
 
-**Live spectrum** (owner request 2026-11-15). Start measurement, Background noise and every load
-of a two-load run open this view (before: Time signals). During the acquisition it shows the
-spectrum of the **last 1 s** of every channel, about five updates per second: the PSD of the
-sound pressure in dB re (20 µPa)²/Hz with the estimate of the result (Welch, Hann window, nfft
-8192, 75 % overlap; dB re 1 V²/Hz without a valid sensitivity for every channel), one curve per
-channel, the analysis band between two dashed lines. A swept sine shows the band it swept in the
-last second moving up, a stepped sine the line of the running step. The header note gives the
-live level of every channel (20 Hz to half the sample rate), the progress strip of a stepped or
-swept sine stands above the graph (as in Time signals), and the Levels table waits for the end of
-the measurement. The graph keeps its place: the frequency axis is fixed, the y range only grows
-during an action (20 dB steps, from −20…100 dB) and its tick labels all have one width. Only the
-live view the operator looks at is drawn: select Time signals during the acquisition to see the
-time signals live instead. When the measurement is done, the view shows the result of the whole
-record as below.
+**Live spectrum** (owner requests 2026-11-15). Start measurement, Background noise and every load
+of a two-load run open this view (before: Time signals). During the acquisition it updates about
+five times per second, with two kinds of curve in the colour of each channel:
 
-* Swept sine, random noise and background noise: **power spectral density** of the sound pressure
+* **the result so far**, in full colour, drawn as the result view draws it: it grows during the
+  measurement and is the result view when the measurement ends. Swept sine: the sine-equivalent
+  level (below) of the Welch average over repetition 1 so far; it fills in from the low
+  frequencies as the sweep passes them (later repetitions do not change it, as the result uses
+  repetition 1). Stepped sine: a marker with the tone level of every step whose measured part has
+  ended (sine fit of that part; with repetitions the mean amplitude, as the result).
+* **the live curve**, light and thin (legend "Last 1 s (live)"): swept sine, the sine-equivalent
+  level of the last 1 s (the band swept in that second, read at full weight in its middle);
+  stepped sine, the power spectrum of the last 0.25 s ("Last 0.25 s (live)"), one step, its peak
+  at the tone's level.
+
+Both are in dB SPL, as the result ("Level [dB SPL]", stepped "Tone level [dB SPL]"; dB re 1 V
+without a valid sensitivity for every channel). The background noise shows the PSD of the last
+1 s in full colour. The header note gives the live level of every channel (20 Hz to half the sample
+rate), the progress strip of a stepped or swept sine stands above the graph (as in Time signals),
+and the Levels table waits for the end of the measurement. The result so far costs about as much
+as the live curve: only the new samples are added at each update. The graph keeps its place: the
+frequency axis is fixed, the y range only grows during an action (20 dB steps) and its tick labels
+all have one width. Only the live view the operator looks at is drawn: select Time signals during
+the acquisition to see the time signals live instead.
+
+* Swept sine (2026-11-15): the **sine-equivalent level** of every channel in dB SPL ("Level
+  [dB SPL]"): the level of the sine as the sweep passes each frequency, from the Welch PSD of
+  repetition 1, the length of the estimate and the sweep rate (`docs/theory.md`, section 9). It
+  reads what a stepped sine of the same generator amplitude gives at that frequency (simulation:
+  within 0.04 dB at 40 frequencies), so a swept and a stepped measurement compare directly; the
+  curve stops at the ends of the sweep. Frequencies the sweep passes in the first or last 0.375 s
+  of the record read low; the default pre- and post-roll (1 s) keep the band clear. The black
+  curve of the incident wave at the front face is on the same axis. Up to now (and still for a
+  sweep whose settings are unknown) the view showed the PSD, with the incident wave on a right
+  axis. Summary **Levels** as below.
+* Random noise and background noise: **power spectral density** of the sound pressure
   of repetition 1 in dB re (20 µPa)²/Hz (Welch, Hann window, 75 % overlap), one curve per channel,
-  the analysis band between two dashed lines. Summary **Levels**: the level in the analysis band
-  and the overall level (20 Hz to half the sample rate), from the integrated PSD of the whole
-  record. Up to 1.6.3 the segments overlapped by 50 %: the squared Hann windows then do not add
+  the analysis band between two dashed lines. Summary **Levels** (also of a swept sine): the level
+  in the analysis band and the overall level (20 Hz to half the sample rate), from the integrated
+  PSD of the whole record. Up to 1.6.3 the segments overlapped by 50 %: the squared Hann windows then do not add
   up to a constant, and a slow sweep, which passes each frequency within a few segments, showed a
   ripple of up to about 3 dB peak to peak (the longer the sweep, the deeper and the denser; in
   simulation 3.0 dB for a 10 s sweep 80–5500 Hz). With 75 % overlap the sum is constant and the

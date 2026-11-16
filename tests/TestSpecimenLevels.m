@@ -290,35 +290,47 @@ classdef TestSpecimenLevels < matlab.unittest.TestCase
             tc.verifyEqual(info.levels.axis, 'left');
             tc.verifySubstring(info.note, 'incident wave at the front face');
             tc.verifySubstring(info.summary.note, 'Front face (valid lines)');
-            % ---- swept sine: right axis in dB SPL, the left one stays the PSD
+            % ---- swept sine (2026-11-15): the channels in dB SPL (sine-equivalent),
+            % the incident wave on the same axis - no right axis
             delete(ax); ax = axes(fig);
             info = tim.plots.spectrum(ax, tc.mSweep, tc.rSweep);
             lv = tc.rSweep.levels;
+            tc.verifyNumElements(ax.YAxis, 1, 'one dB SPL axis');
+            tc.verifyEqual(ax.YLabel.String, 'Level [dB SPL]');
+            tc.verifyEqual(ax.YLim, [ax.YTick(1), ax.YTick(end)] + [-1 1] * diff(ax.YTick(1:2)) / 2, 'AbsTol', 1e-9);
+            h = findobj(ax, 'Tag', 'timLevelIncident');
+            tc.assertNumElements(h, 1);
+            y = h.YData(:);
+            tc.verifyEqual(y(lv.valid), lv.incident_dB_SPL(lv.valid), 'AbsTol', 1e-9);
+            tc.verifyTrue(all(isnan(y(~lv.valid))));
+            tc.verifyLessThanOrEqual(max(y), ax.YLim(2)); tc.verifyGreaterThanOrEqual(min(y), ax.YLim(1));
+            tc.verifyTrue(any(strcmp(ax.Legend.String, 'Incident wave at the front face (sine-equivalent)')));
+            tc.verifyTrue(startsWith(ax.Legend.String{end}, 'Analysis band'));
+            tc.verifyTrue(all(strcmp({info.lines.Marker}, 'none')), 'curves without markers');
+            tc.verifyTrue(info.levels.shown);
+            tc.verifyEqual(info.levels.axis, 'left');
+            tc.verifySubstring(info.note, 'Black: incident wave at the front face');
+            tc.verifySubstring(info.summary.note, 'dB SPL');
+            % ---- a sweep whose settings are not known (no settings, no record
+            % length): the PSD, the incident wave on a right axis as before
+            mS = rmfield(tc.mSweep, 'settings'); mS = rmfield(mS, 'records');
+            rS = tc.rSweep; rS.pressureSpectrum = rmfield(rS.pressureSpectrum, {'sweep', 'recordDuration_s'});
+            delete(ax); ax = axes(fig);
+            info = tim.plots.spectrum(ax, mS, rS);
             tc.assertNumElements(ax.YAxis, 2);
             tc.verifyEqual(char(ax.YAxis(2).Visible), 'on');
             tc.verifySubstring(ax.YAxis(2).Label.String, 'dB SPL');
             tc.verifyEqual(ax.YLabel.String, 'PSD [dB re (20 \muPa)^2/Hz]', 'the left (PSD) axis stays active');
             S = getappdata(ax, 'timFitAxes');
             tc.verifyEqual(S.yl, ax.YLim, 'the fit of the left axis stays the reference');
-            tc.verifyEqual(ax.YLim, [ax.YTick(1), ax.YTick(end)] + [-1 1] * diff(ax.YTick(1:2)) / 2, 'AbsTol', 1e-9);
-            h = TestSpecimenLevels.findBothSides(ax, 'timLevelIncident');
-            tc.assertNumElements(h, 1);
-            y = h.YData(:);
-            tc.verifyEqual(y(lv.valid), lv.incident_dB_SPL(lv.valid), 'AbsTol', 1e-9);
-            tc.verifyTrue(all(isnan(y(~lv.valid))));
-            tc.verifyTrue(any(strcmp(ax.Legend.String, 'Incident wave at the front face (sine-equivalent)')));
-            tc.verifyTrue(startsWith(ax.Legend.String{end}, 'Analysis band'));
-            tc.verifyTrue(all(strcmp({info.lines.Marker}, 'none')), 'PSD curves without markers');
-            tc.verifyTrue(info.levels.shown);
             tc.verifyEqual(info.levels.axis, 'right');
-            tc.verifySubstring(info.summary.note, 'dB SPL');
             % ---- the same axes, an uncalibrated result: the right axis emptied and hidden
             r0 = tim.app.processMeasurement(tc.mSweep, tc.cfg, []);
             info = tim.plots.spectrum(ax, tc.mSweep, r0);
             tc.verifyEmpty(TestSpecimenLevels.findBothSides(ax, 'timLevelIncident'));
             tc.verifyEmpty(TestSpecimenLevels.findBothSides(ax, 'timLevelIncidentAll'));
             tc.verifyEqual(char(ax.YAxis(2).Visible), 'off');
-            tc.verifyEqual(ax.YLabel.String, 'PSD [dB re (20 \muPa)^2/Hz]');
+            tc.verifyEqual(ax.YLabel.String, 'Level [dB SPL]');
             tc.verifyNumElements(ax.Legend.String, 5, 'four channels and the band, as before 1.6.0');
             tc.verifyFalse(info.levels.shown);
             % ... and a stepped result afterwards: on the left axis, the right one stays hidden

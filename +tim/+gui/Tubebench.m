@@ -3025,13 +3025,20 @@ classdef Tubebench < handle
             % the Spectrum view in its live state (tim.gui.liveSpectrum): the
             % channels of the connected microphones, the analysis band, fixed
             % axes, the note line and an empty Levels table (the result of the
-            % last measurement is not shown under a live curve)
+            % last measurement is not shown under a live curve). strip (a
+            % stepped or swept sine follows): its live curves and its result so
+            % far in dB SPL; else (background noise) the PSD
             mics = app.Session.Mics; C = numel(mics);
             sens = [mics.sensitivity_VperPa];
             P = tim.gui.palette(); a = app.Cfg.analysis;
-            o = struct('fs', app.Session.Daq.SampleRate, 'pa', numel(sens) == C && all(isfinite(sens) & sens > 0), ...
+            ex = app.Session.Cfg.excitation;
+            kind = 'psd'; if strip, kind = ex.mode; end
+            o = struct('kind', kind, 'fs', app.Session.Daq.SampleRate, ...
+                'pa', numel(sens) == C && all(isfinite(sens) & sens > 0), ...
                 'names', {arrayfun(@(c) sprintf('ch%d (M%d)', c, app.portOf(c)), 1:C, 'UniformOutput', false)}, ...
-                'colours', P.ch(1:C, :), 'band', [a.fMin a.fMax], 'emptyText', 'Waiting for data ...');
+                'colours', P.ch(1:C, :), 'band', [a.fMin a.fMax], 'emptyText', 'Waiting for data ...', ...
+                'sweep', ex.sweep, 'plan', []);
+            if strcmp(kind, 'stepped'), o.plan = tim.app.steppedPlan(ex.stepped); end
             app.LiveSpec = tim.gui.liveSpectrum('prepare', app.H.axSpec, o);
             if strip, title(app.H.axSpec, ' '); else, title(app.H.axSpec, 'LIVE'); end
             pg = app.Pages.spec;
@@ -3039,7 +3046,7 @@ classdef Tubebench < handle
                 {[arrayfun(@(c) sprintf('ch%d', c), (1:C).', 'UniformOutput', false), ...
                 arrayfun(@(c) sprintf('M%d', app.portOf(c)), (1:C).', 'UniformOutput', false)]}, ...
                 'note', 'The levels of the whole record follow after the measurement.'));
-            pg.setNote(sprintf('Live level (last 1 s, 20 Hz – %.4g kHz, dB SPL): %s', o.fs / 2000, ...
+            pg.setNote(sprintf('Live level (last %g s, 20 Hz – %.4g kHz, dB SPL): %s', app.LiveSpec.window_s, o.fs / 2000, ...
                 strjoin(arrayfun(@(c) sprintf('ch%d –', c), 1:C, 'UniformOutput', false), '   ')));
         end
 
@@ -3055,15 +3062,14 @@ classdef Tubebench < handle
 
         function liveSpectrumUpdate(app)
             % one live-spectrum refresh (liveUpdate): the last 1 s of every channel
-            if isempty(app.LiveSpec) || ~app.isBuilt('spec'), return; end
+            if isempty(app.LiveSpec) || ~app.isBuilt('spec') || ~all(isgraphics(app.LiveSpec.lines)), return; end
             try
                 daq = app.Session.Daq;
                 fs = daq.SampleRate;
-                [x, nTotal] = daq.recent(tim.gui.liveSpectrum('samples', fs));   % no I/O
+                [x, nTotal] = daq.recent(1);                         % no I/O
                 if isempty(x), return; end
-                [y, unit] = app.toPressure(x, app.Session.Mics);
-                if ~strcmp(unit, 'Pa'), y = x; end                   % volts (dB re 1 V^2/Hz)
-                app.LiveSpec = tim.gui.liveSpectrum('update', app.LiveSpec, y);
+                app.LiveSpec = tim.gui.liveSpectrum('update', app.LiveSpec, @(n) app.liveSamples(n), ...
+                    app.Session.Progress);
                 if app.Pages.spec.StripShown
                     if ~strcmp(app.H.axSpec.Title.String, ' '), title(app.H.axSpec, ' '); end
                     app.drawProgress('spec');
@@ -3072,12 +3078,20 @@ classdef Tubebench < handle
                         app.Session.Status));
                 end
                 lv = app.LiveSpec.level; u = 'dB SPL'; if ~app.LiveSpec.pa, u = 'dB re 1 V'; end
-                app.Pages.spec.setNote(sprintf('Live level (last 1 s, 20 Hz – %.4g kHz, %s): %s', fs / 2000, u, ...
+                app.Pages.spec.setNote(sprintf('Live level (last %g s, 20 Hz – %.4g kHz, %s): %s', app.LiveSpec.window_s, fs / 2000, u, ...
                     strjoin(arrayfun(@(c) sprintf('ch%d %.1f dB', c, lv(c)), 1:numel(lv), 'UniformOutput', false), ...
                     '   ')));
                 app.LiveCount = app.LiveCount + 1;
             catch
             end
+        end
+
+        function [y, nTotal] = liveSamples(app, n)
+            % the last <= n samples of the running acquisition in Pa (volts
+            % without a valid sensitivity for every channel), no I/O
+            [x, nTotal] = app.Session.Daq.recent(n);
+            [y, unit] = app.toPressure(x, app.Session.Mics);
+            if ~strcmp(unit, 'Pa'), y = x; end
         end
 
         function liveAxis(app, ax, c, pk)
@@ -4836,7 +4850,9 @@ classdef Tubebench < handle
                             ow = o; [ow.gate, ow.gateEnds] = tim.plots.analysisGate(r);   % grey: not analysed
                             info = tim.plots.timeSignals(app.H.axW, m, ow);
                             if isfield(info, 'lines'), app.WaveLines = info.lines; else, app.WaveLines = gobjects(0); end
-                        case 'spec', info = tim.plots.spectrum(app.H.axSpec, m, r, o);
+                        case 'spec'
+                            app.LiveSpec = [];      % the live state ends: no live update draws into the result
+                            info = tim.plots.spectrum(app.H.axSpec, m, r, o);
                         case 'tf', info = tim.plots.transferFunctions(app.H.axH, r, o);
                         case 'refl', info = tim.plots.reflection(app.H.axR, r, o);
                         case 'tl', info = tim.plots.transmissionLoss(app.H.axTL, r, o);

@@ -263,7 +263,8 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             tc.verifySubstring(h.axPSpec.Title.String, 'Done · 1 sweep');
             tc.verifyEqual(app.Session.Progress.kind, 'sweep');
             % the result replaced the live curves: the Welch PSD of the record
-            tc.verifyEmpty(findobj(h.axSpec, '-regexp', 'Tag', '^timLiveSpec'), 'no live curve left');
+            tc.verifyEmpty(findobj(h.axSpec, '-regexp', 'Tag', '^timLive'), 'no live curve left');
+            tc.verifyEqual(h.axSpec.YLabel.String, 'Level [dB SPL]', 'the swept sine in dB SPL');
             tc.verifyNumElements(findobj(h.axSpec, 'Type', 'line', 'LineWidth', 1.1), 4);
             % background noise: no strip
             feval(h.background.ButtonPushedFcn, h.background, []);
@@ -295,15 +296,16 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             tc.verifyFalse(isappdata(ax, 'timFitAxes'), 'no fitted record: the zoom handler is inert');
             xl = ax.XLim; tc.verifyEqual(ax.YLim, [-20 100]);
             tc.verifyNotEmpty(findobj(ax, 'Tag', 'timEmptyState'), 'waiting for data');
-            S = tim.gui.liveSpectrum('update', S, x);
+            src = @TestProgressStrip.source;
+            S = tim.gui.liveSpectrum('update', S, src(x));
             tc.verifyEmpty(findobj(ax, 'Tag', 'timEmptyState'));
             tc.verifyEqual(S.level(1), 20 * log10(1 / 2e-5), 'AbsTol', 0.1, 'level of the 1 Pa tone');
             tc.verifyEqual(ax.XLim, xl, 'the frequency axis stays');
             yl = ax.YLim;
             tc.verifyEqual(mod(yl, 20), [0 0]); tc.verifyGreaterThanOrEqual(yl(2), max(S.L(:)) + 5);
-            S = tim.gui.liveSpectrum('update', S, 0.1 * tone + nz);          % quieter: the range stays
+            S = tim.gui.liveSpectrum('update', S, src(0.1 * tone + nz));     % quieter: the range stays
             tc.verifyEqual(ax.YLim, yl, 'the y range only grows');
-            tim.gui.liveSpectrum('update', S, 100 * tone + nz);              % louder: it grows
+            tim.gui.liveSpectrum('update', S, src(100 * tone + nz));         % louder: it grows
             tc.verifyGreaterThan(ax.YLim(2), yl(2));
             tc.verifyEqual(ax.YLim(1), yl(1), 'the bottom follows the noise floor, not the tone');
             feval(ax.YAxis.LimitsChangedFcn, ax.YAxis, []);
@@ -320,9 +322,154 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             plot(ax3, [100 1000], [0 1]); yyaxis(ax3, 'right'); plot(ax3, [100 1000], [80 90]); yyaxis(ax3, 'left');
             S3 = tim.gui.liveSpectrum('prepare', ax3, o);
             tc.verifyEqual(char(ax3.YAxis(2).Visible), 'off');
-            tim.gui.liveSpectrum('update', S3, x);
+            tim.gui.liveSpectrum('update', S3, src(x));
             tc.verifyEqual(double(ax3.YAxis(1).Exponent), 0);
             tc.verifyNumElements(findobj(ax3, '-regexp', 'Tag', '^timLiveSpec'), 2);
+        end
+
+        function liveSweepGrowsToTheResult(tc)
+            % 2026-11-15 (owner decisions): a swept sine live in dB SPL - the light
+            % curve of the last 1 s, the full-colour result so far (Welch average
+            % over repetition 1) that ends as the result view's sine-equivalent
+            % level; a 1 Pa sweep reads 91 dB SPL, as a 1 Pa stepped sine
+            fs = 16384; sw = struct('fStart', 80, 'fStop', 5500, 'duration', 5, 'spacing', 'LOG');
+            pre = 1; T = sw.duration; N = round((pre + T + 1.2) * fs);
+            t = (0:N - 1).' / fs; ts = t - pre; on = ts >= 0 & ts < T;
+            K = T / log(sw.fStop / sw.fStart);
+            s = zeros(N, 1); s(on) = sin(2 * pi * sw.fStart * K * (exp(ts(on) / K) - 1));
+            rng(3); x = s * [1 0.5] + 1e-4 * randn(N, 2);                    % 1 Pa and 0.5 Pa peak
+            fg = figure('Visible', 'off'); tc.addTeardown(@() close(fg));
+            ax = axes(fg);
+            o = struct('kind', 'sweep', 'fs', fs, 'pa', true, 'names', {{'ch1 (M1)', 'ch2 (M2)'}}, ...
+                'colours', lines(2), 'band', [120 4500], 'sweep', sw);
+            S = tim.gui.liveSpectrum('prepare', ax, o);
+            tc.verifyEqual(ax.YLabel.String, 'Level [dB SPL]');
+            tc.verifyEqual(ax.Legend.String, {'ch1 (M1)', 'ch2 (M2)', 'Last 1 s (live)', 'Analysis band 120 – 4500 Hz'});
+            c1 = findobj(ax, 'Tag', 'timLiveSpec1'); r1 = findobj(ax, 'Tag', 'timLiveResult1');
+            tc.verifyEqual(c1.Color, 0.35 * o.colours(1, :) + 0.65, 'AbsTol', 1e-12, 'live: the light channel colour');
+            tc.verifyEqual(r1.Color, o.colours(1, :), 'result: the channel colour');
+            tc.verifyEqual([c1.LineWidth r1.LineWidth], [0.8 1.1]);
+            prog = struct('kind', 'sweep', 'rep', 1, 'pass', 1, 'onSample', round(pre * fs), 'state', 'running');
+            src = @TestProgressStrip.source;
+            % the planning pass of a device that plans first (simulation): an
+            % acquisition of repetition 1 that is not the measurement - the
+            % result so far starts again with the next acquisition
+            xp = 1e-4 * randn(round(2 * fs), 2);
+            for nNow = round(0.2 * fs):round(0.2 * fs):size(xp, 1)
+                S = tim.gui.liveSpectrum('update', S, src(xp(1:nNow, :)), prog);
+            end
+            tc.verifyLessThan(max(S.R(:)), 60, 'the planning pass: noise only');
+            nMid = round((pre + T / 2) * fs);
+            for nNow = round(0.2 * fs):round(0.2 * fs):N
+                S = tim.gui.liveSpectrum('update', S, src(x(1:nNow, :)), prog);
+                if nNow <= nMid && nNow + round(0.2 * fs) > nMid
+                    % half way: the last 1 s holds the sweep from 285 to 663 Hz at 91 dB
+                    [~, i] = max(S.L(:, 1));
+                    tc.verifyGreaterThan(S.f(i), 250); tc.verifyLessThan(S.f(i), 700);
+                    in = S.f > 400 & S.f < 475;                             % swept at full window weight
+                    tc.verifyEqual(median(S.L(in, 1)), 20 * log10(1 / sqrt(2) / 2e-5), 'AbsTol', 1, 'live level');
+                    tc.verifyTrue(isempty(S.R) || all(isnan(S.R(S.f < 80, 1))));
+                end
+            end
+            S = tim.gui.liveSpectrum('update', S, src(x), prog);
+            % the result so far = the result view's sine-equivalent level of the record
+            [G, f] = pwelch(x - mean(x, 1), hann(8192, 'periodic'), 6144, 8192, fs);
+            k = f >= 20;
+            Lr = 10 * log10(tim.dsp.sweepSineLevel(G(k, :), f(k), tim.dsp.welchDuration(N, 8192, fs), sw) / 4e-10);
+            in = f(k) >= 200 & f(k) <= 4000;
+            tc.verifyEqual(S.R(in, :), Lr(in, :), 'AbsTol', 0.2, 'the live result ends as the result view');
+            tc.verifyEqual(median(S.R(in, 1)), 20 * log10(1 / sqrt(2) / 2e-5), 'AbsTol', 0.3, '1 Pa: 91 dB SPL');
+            tc.verifyEqual(median(S.R(in, 2)), 20 * log10(0.5 / sqrt(2) / 2e-5), 'AbsTol', 0.3, '0.5 Pa: 85 dB SPL');
+            % repetition 2: the result keeps repetition 1 (as the result view)
+            R1 = S.R;
+            prog.rep = 2;
+            S = tim.gui.liveSpectrum('update', S, src(0.1 * x(1:round(3 * fs), :)), prog);
+            tc.verifyEqual(S.R, R1, 'frozen after repetition 1');
+            tc.verifyLessThanOrEqual(max(S.R(:)), ax.YLim(2));
+        end
+
+        function liveSteppedMarksEveryStep(tc)
+            % 2026-11-15: a stepped sine live in dB SPL - the light power spectrum
+            % of the last 0.25 s (a tone's peak = its level) and a full-colour marker
+            % for every step whose measured part has ended (sine fit)
+            fs = 16384;
+            st = struct('fStart', 200, 'fStop', 2000, 'nPoints', 4, 'spacing', 'log', 'settleTime', 0.1, ...
+                'settleCycles', 0, 'recordTime', 0.3, 'recordCycles', 0);
+            pl = tim.app.steppedPlan(st);
+            on = round(0.5 * fs);
+            s0 = [0, cumsum(pl.step_s(1:end - 1))];
+            N = on + round(sum(pl.step_s) * fs) + round(0.5 * fs);
+            rng(5); x = 1e-4 * randn(N, 2);
+            A = 0.1 * (1:4);                                                  % Pa peak of the steps
+            for k = 1:4
+                idx = on + round(s0(k) * fs) + (1:round(pl.step_s(k) * fs));
+                t = (idx(:) - 1) / fs;
+                x(idx, :) = x(idx, :) + A(k) * sin(2 * pi * pl.freqs(k) * t + 0.3) * [1 0.5];
+            end
+            fg = figure('Visible', 'off'); tc.addTeardown(@() close(fg));
+            ax = axes(fg);
+            o = struct('kind', 'stepped', 'fs', fs, 'pa', true, 'names', {{'ch1 (M1)', 'ch2 (M2)'}}, ...
+                'colours', lines(2), 'band', [120 4500], 'plan', pl);
+            S = tim.gui.liveSpectrum('prepare', ax, o);
+            tc.verifyEqual(ax.YLabel.String, 'Tone level [dB SPL]');
+            tc.verifyEqual(findobj(ax, 'Tag', 'timLiveResult1').Marker, 'o');
+            prog = struct('kind', 'stepped', 'pass', 1, 'rep', 1, 'onSample', on, 'state', 'running');
+            src = @TestProgressStrip.source;
+            want = 20 * log10(A(:) / sqrt(2) / 2e-5) + [0, 20 * log10(0.5)];
+            i3 = on + round((s0(3) + pl.settle_s(3) + pl.record_s(3)) * fs);
+            % a planning pass first (noise only, as far as step 3): its markers go
+            % when the measurement's acquisition starts
+            for nNow = round(0.2 * fs):round(0.2 * fs):i3 + round(0.1 * fs)
+                S = tim.gui.liveSpectrum('update', S, src(1e-4 * randn(nNow, 2)), prog);
+            end
+            tc.verifyLessThan(max(S.R(:)), 40, 'the planning pass: noise only');
+            for nNow = round(0.2 * fs):round(0.2 * fs):N
+                S = tim.gui.liveSpectrum('update', S, src(x(1:nNow, :)), prog);
+                if nNow < i3 && nNow + round(0.2 * fs) >= i3
+                    tc.verifyTrue(all(isnan(S.R(3:4, 1))), 'step 3 not done yet');
+                    tc.verifyEqual(S.R(1:2, :), want(1:2, :), 'AbsTol', 0.05, 'steps 1 and 2 done');
+                end
+            end
+            S = tim.gui.liveSpectrum('update', S, src(x), prog);
+            tc.verifyEqual(S.R, want, 'AbsTol', 0.05, 'the tone level of every step');
+            % repetition 2 at twice the amplitude: the mean amplitude of both
+            % (as res.toneLevels), steps not yet measured in it keep repetition 1
+            x2 = 1e-4 * randn(N, 2);
+            for k = 1:4
+                idx = on + round(s0(k) * fs) + (1:round(pl.step_s(k) * fs));
+                t = (idx(:) - 1) / fs;
+                x2(idx, :) = x2(idx, :) + 2 * A(k) * sin(2 * pi * pl.freqs(k) * t) * [1 0.5];
+            end
+            prog.rep = 2;
+            S = tim.gui.liveSpectrum('update', S, src(x2(1:i3, :)), prog);
+            tc.verifyEqual(S.R(1:3, :), want(1:3, :) + 20 * log10(1.5), 'AbsTol', 0.05, 'mean of both repetitions');
+            tc.verifyEqual(S.R(4, :), want(4, :), 'AbsTol', 0.05, 'step 4: repetition 1 so far');
+            S = tim.gui.liveSpectrum('update', S, src(x2), prog);
+            tc.verifyEqual(S.R, want + 20 * log10(1.5), 'AbsTol', 0.05);
+            % the live power spectrum of the last 0.25 s: the last tone's peak at its
+            % level (within the scalloping of the Hann window)
+            m = round((on + round((s0(4) + pl.step_s(4) - 0.05) * fs)));
+            S = tim.gui.liveSpectrum('update', S, src(x(1:m, :)), prog);
+            [pk, i] = max(S.L(:, 1));
+            tc.verifyEqual(S.f(i), pl.freqs(4), 'AbsTol', 3);
+            tc.verifyEqual(pk, want(4, 1), 'AbsTol', 1.5);
+            % a new pass (the equalizer's measurement after its pre-measurement)
+            % starts the markers again
+            prog.pass = 2; prog.onSample = N;
+            S = tim.gui.liveSpectrum('update', S, src(x), prog);
+            tc.verifyTrue(all(isnan(S.R(:))), 'new pass: no step done yet');
+        end
+    end
+
+    methods (Static)
+        function get = source(x)
+            % the 'get' of tim.gui.liveSpectrum on the samples x received so far
+            get = @(n) TestProgressStrip.tail(x, n);
+        end
+        function [y, N] = tail(x, n)
+            % the last <= n rows of x and the number of rows (as Daq.recent)
+            N = size(x, 1);
+            y = x(max(1, N - n + 1):N, :);
         end
     end
 end
