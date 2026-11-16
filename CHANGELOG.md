@@ -19,8 +19,26 @@ automated tests verify the software's behaviour, not physical accuracy.
   graph keeps its place as the live time signals: fixed frequency axis, a y range that only grows
   (20 dB steps), tick labels of one width, legend and band lines drawn once. When the measurement
   is done, the view shows the spectrum of the whole record as before.
+- **The result so far in the live spectrum** (owner decisions 2026-11-15). Each channel has two
+  curves in its colour: the result so far in full colour, drawn as the result view draws it (it
+  grows during the measurement and is the result view at its end), and the live curve light and
+  thin. Swept sine: the Welch average over repetition 1 so far (the periodograms of the new
+  segments added at each update) and the last 1 s, both as the sine-equivalent level; stepped
+  sine: a marker with the tone level of every step whose measured part has ended (sine fit, mean
+  over the repetitions) and the power spectrum of the last 0.25 s (one step, its peak at the
+  tone's level). A planning pass of a device that plans first (simulation) does not count.
 
 ### Changed
+- **Spectrum of a swept sine in dB SPL** (owner decision 2026-11-15). The view shows the
+  sine-equivalent level of every channel, the level of the sine as the sweep passes each
+  frequency: `10·log10(G·T_W·ḟ / p0²)` from the Welch PSD `G`, its effective length `T_W`
+  (`tim.dsp.welchDuration`) and the sweep rate `ḟ` (`tim.dsp.sweepSineLevel`). It reads what a
+  stepped sine of the same generator amplitude gives (simulation: within 0.04 dB at 40
+  frequencies), so swept and stepped measurements compare directly; the incident wave at the front
+  face is drawn on the same axis (no right axis). Random noise and the background noise keep the
+  PSD, and so does a sweep whose settings are unknown. `res.pressureSpectrum` keeps the record
+  length and the sweep (`recordDuration_s`, `sweep`). Display only: H, R, τ, TL and Zt are
+  unchanged.
 - **Absorber of the 3D tube model**: it fills the whole 250 mm extension tube, as the lab absorber
   does (owner 2026-11-15). `tubeDrawing.absorberLength` is 0.250 by default (label "absorber 250
   mm"); the schematic absorber of an unknown length (`0`) also fills the extension tube instead of

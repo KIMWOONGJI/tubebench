@@ -4,11 +4,16 @@ function info = spectrum(ax, meas, res, opts)
 %   info = tim.plots.spectrum(ax, meas, [])              before processing / background noise
 %   info = tim.plots.spectrum(ax, [], [], opts)          empty view
 %
-%   Swept sine, random noise, background noise: power spectral density of
-%   the sound pressure of repetition 1 in dB re (20 µPa)²/Hz (one-sided
-%   Welch estimate: Hann window, nfft = min(8192, 2^nextpow2(N)), 75 %
-%   overlap - res.pressureSpectrum when res is given, else computed from
-%   meas in the same way). The analysis band is marked by two dashed lines.
+%   Random noise, background noise: power spectral density of the sound
+%   pressure of repetition 1 in dB re (20 µPa)²/Hz (one-sided Welch
+%   estimate: Hann window, nfft = min(8192, 2^nextpow2(N)), 75 % overlap -
+%   res.pressureSpectrum when res is given, else computed from meas in the
+%   same way). Swept sine (owner request 2026-11-15): the same PSD as the
+%   sine-equivalent level in dB SPL ("Level [dB SPL]"), the level of the sine
+%   as the sweep passes each frequency (tim.dsp.sweepSineLevel: PSD x record
+%   length x sweep rate; NaN outside the sweep), comparable with the tone
+%   levels of a stepped sine; the PSD again when the sweep settings are not
+%   known. The analysis band is marked by two dashed lines.
 %   Without a valid sensitivity for every channel: PSD of the voltages in
 %   dB re 1 V²/Hz; data in full-scale units (meas.unit 'FS', a driver with an
 %   unknown input scale) in dB re 1 FS²/Hz, without sensitivities.
@@ -24,8 +29,9 @@ function info = spectrum(ax, meas, res, opts)
 %   swept or stepped sine with known faces): the incident wave at the specimen
 %   front face in black (lines that are not valid in grey; Tag
 %   'timLevelIncident'). Stepped sine: squares on the tone-level axis (dB SPL);
-%   swept sine: a curve on a right y axis in dB SPL (the sine-equivalent level
-%   of the sweep; the left axis stays the PSD). Nothing is added for a result
+%   swept sine: a curve on the same dB SPL axis (the sine-equivalent level of
+%   the sweep, 2026-11-15; on a right y axis only when the sweep is shown as a
+%   PSD, its settings unknown). Nothing is added for a result
 %   without it (uncalibrated, faces unknown, noise, older results), and the
 %   right axis of an earlier drawing on the same axes is emptied and hidden.
 %   Equalized stepped sine (res.equalizer, 1.6.0, WO-006 stage 2): the target
@@ -93,14 +99,25 @@ if isempty(f)
     info.summary = psdSummary([], [], [], [], o.band, fs, true, o.dataUnit);
     return
 end
+% a swept sine: the sine-equivalent level of every channel in dB SPL, as the
+% tone levels of a stepped sine (owner request 2026-11-15); the PSD stays for
+% random noise, the background noise and a sweep whose settings are unknown
+sw = [];
+if ~stepped, sw = sweepOf(meas, res, src, fs); end
 if pa
     ref = 2e-5; ylabel(ax, 'PSD [dB re (20 \muPa)^2/Hz]');
+    if ~isempty(sw), ylabel(ax, 'Level [dB SPL]'); end
 else
     ref = 1; ylabel(ax, sprintf('PSD [dB re 1 %s^2/Hz]', o.dataUnit));
+    if ~isempty(sw), ylabel(ax, sprintf('Level [dB re 1 %s]', o.dataUnit)); end
 end
 [ch, port] = channelPorts(meas, res, size(G, 2));
 keep = f >= 20;
-L = 10 * log10(G(keep, :) / ref^2);
+if isempty(sw)
+    L = 10 * log10(G(keep, :) / ref^2);
+else
+    L = 10 * log10(tim.dsp.sweepSineLevel(G(keep, :), f(keep), sw.Trec, sw.sweep, sw.T) / ref^2);
+end
 L(~isfinite(L)) = NaN;
 h = gobjects(1, size(G, 2));
 for c = 1:size(G, 2)
@@ -119,10 +136,28 @@ if stepped
     em.Position(2) = 0.9;                            % in the headroom above the grey PSD
     em.BackgroundColor = ax.Color;                   % the band lines pass behind the text
     info.note = 'Grey: PSD of the raw stepped record (not a level display); step levels follow after processing.';
+elseif ~isempty(sw)
+    % swept sine in dB SPL: the incident wave on the same axis (no right axis)
+    hi = gobjects(0); iname = {};
+    if hasRes && pa, [hi, iname, itxt] = specimenCurves(ax, res, P, false, true); end
+    hold(ax, 'off');
+    f1 = min(sw.sweep.fStart, sw.sweep.fStop); f2 = max(sw.sweep.fStart, sw.sweep.fStop);
+    tim.plots.fitAxes(ax, 'XRange', [min(f1, o.band(1)), max(f2, o.band(2))]);
+    tim.plots.fitAxes(ax, 'Axis', 'y', 'YSteps', [1 2 5], 'YInclude', minSpan(L, 40));
+    tim.plots.legend(ax, [h hi hb], [names, iname, {bandName(o.band)}], 'northoutside');   % never over the data (1.6.1)
+    if pa
+        info.note = ['Sine-equivalent level of every channel: the level of the sine as the sweep passes each ' ...
+            'frequency (Welch PSD of repetition 1 × record length × sweep rate); dashed: analysis band.'];
+        if ~isempty(hi), info.note = [info.note ' Black: incident wave at the front face.']; end
+    else
+        info.note = sprintf(['No sound pressure (%s): sine-equivalent level of the channel signals; ' ...
+            'dashed: analysis band.'], o.dataUnit);
+    end
+    info.levels = struct('shown', ~isempty(hi), 'axis', 'left', 'lines', hi);
 else
     tim.plots.fitAxes(ax, 'XRange', [20 fs / 2]);
     tim.plots.fitAxes(ax, 'Axis', 'y', 'YSteps', [1 2 5], 'YInclude', minSpan(L, 40));
-    % level at the specimen (swept sine): right axis, after the left one is fitted
+    % level at the specimen (a sweep of unknown settings): right axis, after the left one is fitted
     hi = gobjects(0); iname = {};
     if hasRes && pa, [hi, iname, itxt] = specimenCurves(ax, res, P, false); end
     tim.plots.legend(ax, [h hi hb], [names, iname, {bandName(o.band)}], 'northoutside');   % never over the data (1.6.1)
@@ -156,6 +191,40 @@ else
     s = meas;
 end
 t = tim.plots.dataTitle(s, struct('simulation', o.simulation));
+end
+
+function sw = sweepOf(meas, res, src, fs)
+% settings of a swept sine for its sine-equivalent level (tim.dsp.sweepSineLevel):
+% .sweep (fStart, fStop, duration, spacing), .Trec (effective length of the
+% Welch PSD of the record, tim.dsp.welchDuration) and .T (duration of the
+% sweep on the DAQ clock when the levels at the specimen give it). [] for
+% another kind or when they are unknown.
+sw = [];
+if isempty(src) || ~isfield(src, 'kind') || ~strcmp(src.kind, 'sweep'), return; end
+need = {'fStart', 'fStop', 'duration', 'spacing'};
+s = []; Trec = NaN;
+if ~isempty(meas) && isstruct(meas) && isfield(meas, 'settings') && all(isfield(meas.settings, need))
+    s = meas.settings;
+end
+if ~isempty(res) && isstruct(res) && isfield(res, 'pressureSpectrum')
+    ps = res.pressureSpectrum;
+    if isempty(s) && isfield(ps, 'sweep'), s = ps.sweep; end
+    if isfield(ps, 'recordDuration_s'), Trec = ps.recordDuration_s; end
+end
+if ~isfinite(Trec) && ~isempty(meas) && isstruct(meas) && isfield(meas, 'records') && ~isempty(meas.records)
+    Trec = size(meas.records{1}, 1) / meas.fs;
+end
+if isempty(s) || ~(isfinite(Trec) && Trec > 0), return; end
+N = round(Trec * fs);
+Trec = tim.dsp.welchDuration(N, min(8192, 2^nextpow2(N)), fs);   % the nfft of the PSD (processMeasurement)
+if ~(Trec > 0), sw = []; return; end
+T = s.duration;
+if ~isempty(res) && isstruct(res) && isfield(res, 'levels') && isfield(res.levels, 'sweepDuration_s') && ...
+        isscalar(res.levels.sweepDuration_s) && isfinite(res.levels.sweepDuration_s)
+    T = res.levels.sweepDuration_s;
+end
+sw = struct('sweep', struct('fStart', s.fStart, 'fStop', s.fStop, 'duration', s.duration, 'spacing', s.spacing), ...
+    'Trec', Trec, 'T', T);
 end
 
 function o = defaults(opts, res)
@@ -265,14 +334,16 @@ info.summary = struct('title', 'Step levels', 'columns', {cols}, 'data', {D}, ..
     'note', ['SNR = tone level − residual noise in the fit bandwidth (per step, minimum over repetitions).' itxt]);
 end
 
-function [h, name, txt] = specimenCurves(ax, res, P, stepped)
+function [h, name, txt] = specimenCurves(ax, res, P, stepped, sameAxis)
 % level at the specimen front face (res.levels, 1.6.0, WO-006 stage 1): the
 % incident wave in black, the lines that are not valid in grey. Stepped sine:
 % squares on the tone-level axis (dB SPL; never Marker 'o' or a dotted line,
 % which are the channels and the noise); swept sine: a curve on the right y
 % axis (the left one is a PSD), fitted on its own; the left axis stays the
 % fitted, active one. Nothing for a result without it (uncalibrated, faces
-% unknown, random noise, results before 1.6.0).
+% unknown, random noise, results before 1.6.0). sameAxis (swept sine in
+% dB SPL, 2026-11-15): the curve on the left axis, which is in dB SPL as well.
+if nargin < 5, sameAxis = false; end
 h = gobjects(0); name = {}; txt = '';
 if ~levelsShown(res), return; end
 lv = res.levels;
@@ -285,6 +356,11 @@ if stepped
     h = plot(ax, fk, yv, '-', 'Color', P.q.first, 'LineWidth', 1.4, 'Marker', 's', 'MarkerSize', 6, ...
         'MarkerEdgeColor', P.q.first, 'MarkerFaceColor', P.q.first, 'Tag', 'timLevelIncident');
     name = {'Incident wave at the front face'};
+elseif sameAxis
+    hold(ax, 'on');
+    [h, hAll] = tim.plots.masked(ax, fk, y, ok, P.q.first);
+    h.Tag = 'timLevelIncident'; hAll.Tag = 'timLevelIncidentAll';
+    name = {'Incident wave at the front face (sine-equivalent)'};
 else
     S = getappdata(ax, 'timFitAxes');              % limits and ticks of the fitted left axis
     yyaxis(ax, 'right');

@@ -920,7 +920,8 @@ they reject `R` only through their upstream part (`valid.upstream`).
 | `k`, `f`, positions | rad/m, Hz, m (mm in the GUI) |
 | Sound pressure level | `L_p = 20·log10(p_rms / 20 µPa)` dB SPL (reference value: ISO 1683 [5]); tone of a step: `p_rms = \|Y\|/(√2·sensitivity)` |
 | Level at the specimen (section 3C) | incident wave at the front face `L_inc = 20·log10(\|p_inc\|_rms / 20 µPa)` dB SPL; particle velocity at the front face `\|u_L\|` in mm/s rms |
-| PSD | `10·log10(G_pp / (20 µPa)²)` dB re (20 µPa)²/Hz, one-sided Welch estimate |
+| PSD | `10·log10(G_pp / (20 µPa)²)` dB re (20 µPa)²/Hz, one-sided Welch estimate (random noise, background noise) |
+| Sine-equivalent level of a swept sine (Spectrum view, 2026-11-15) | `L = 10·log10(G_pp·T_W·ḟ / (20 µPa)²)` dB SPL: the level of the sine as the sweep passes `f`, the tone level a stepped sine of the same generator amplitude gives (`A²/2 = G·T_W·ḟ`, the energy of section 3C; `ḟ` the sweep rate; `T_W = K·nfft/4/fs` the effective length of a Welch estimate of `K` segments with 75 % overlap, `tim.dsp.welchDuration`, where the shifted squared Hann windows add up to their constant sum; frequencies swept in the first or last 3 hops of the record, 0.375 s with nfft 8192 at 16384 Hz, read low, so the pre- and post-roll of the default sweep, 1 s each, keep the band clear). Simulation: within 0.04 dB of the stepped tone levels at 40 frequencies. Display only |
 | Without sensitivities | dB re 1 V and dB re 1 V²/Hz |
 | `\|H_k\|`, `\|C_k\|` | `20·log10\|·\|` dB; phases in degrees |
 | TL, TL_τ | dB (`20·log10` of amplitude ratios) |

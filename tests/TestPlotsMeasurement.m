@@ -179,32 +179,73 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             tc.verifyNumElements(info.lines, 4);
             ps = tc.rSweep.pressureSpectrum;
             k = ps.f >= 20;
+            % 2026-11-15: the sine-equivalent level in dB SPL = PSD x record length
+            % x sweep rate (NaN outside the sweep), as the tone levels of a stepped sine
+            st = tc.mSweep.settings;
+            T = st.duration;
+            lv = tc.rSweep.levels;
+            if isfield(lv, 'sweepDuration_s') && isfinite(lv.sweepDuration_s), T = lv.sweepDuration_s; end
+            Trec = size(tc.mSweep.records{1}, 1) / tc.mSweep.fs;
+            tc.verifyEqual(ps.recordDuration_s, Trec, 'the record length is kept with the PSD');
+            tc.verifyEqual(ps.sweep.fStart, st.fStart);
+            rate = ps.f(k) * log(st.fStop / st.fStart) / T;
+            N = size(tc.mSweep.records{1}, 1);
+            Tw = tim.dsp.welchDuration(N, min(8192, 2^nextpow2(N)), tc.mSweep.fs);   % K hops of the Welch PSD
             for c = 1:4
                 tc.verifyEqual(info.lines(c).Color, P.ch(c, :));
-                tc.verifyEqual(info.lines(c).YData(:), 10 * log10(ps.PSD_Pa2perHz(k, c) / (2e-5)^2), 'AbsTol', 1e-9);
+                Lc = 10 * log10(ps.PSD_Pa2perHz(k, c) * Tw .* rate / (2e-5)^2);
+                Lc(ps.f(k) < st.fStart | ps.f(k) > st.fStop) = NaN;
+                tc.verifyEqual(info.lines(c).YData(:), Lc, 'AbsTol', 1e-9);
             end
+            y = info.lines(1).YData(:); fk = ps.f(k);
+            tc.verifyTrue(all(isnan(y(fk < st.fStart))), 'nothing below the sweep');
             % analysis band: two dashed constant lines, not part of the limits
             cl = findobj(ax, 'Type', 'ConstantLine');
             tc.verifyEqual(sort([cl.Value]), [120 4500]);
             tc.verifyEqual(unique({cl.LineStyle}), {'--'});
             tc.verifyEqual(ax.XScale, 'log');
-            tc.verifyLessThanOrEqual(ax.XLim(1), 20); tc.verifyGreaterThanOrEqual(ax.XLim(2), tc.mSweep.fs / 2);
+            tc.verifyLessThanOrEqual(ax.XLim(1), st.fStart); tc.verifyGreaterThanOrEqual(ax.XLim(2), st.fStop);
             tc.verifyEqual(ax.XLim, [ax.XTick(1) / sqrt(2), ax.XTick(end) * sqrt(2)], 'RelTol', 1e-9);
-            tc.verifyEqual(ax.YLabel.String, 'PSD [dB re (20 \muPa)^2/Hz]');
+            tc.verifyEqual(ax.YLabel.String, 'Level [dB SPL]');
             tc.verifyEqual(ax.Title.String, tim.plots.dataTitle(tc.mSweep, struct('simulation', false)), ...
                 'kind and time; no calibration tag (the PSD uses only the sensitivities)');
             tc.verifyEqual(ax.Legend.String, {'ch1 (M1)', 'ch2 (M2)', 'ch3 (M3)', 'ch4 (M4)', 'Analysis band 120 – 4500 Hz'});
             % owner request 2026-11-05: the legend above the plot area, never over the data
             tc.verifyEqual(ax.Legend.Location, 'northoutside');
             tc.verifyEqual(ax.Legend.NumColumns, 4);
-            % same Welch estimate from the raw record when no result is given
+            % same Welch estimate from the raw record when no result is given (the
+            % programmed sweep duration then: the DAQ-clock one comes with the
+            % result, here 0.09 % shorter -> 0.004 dB)
             ax2 = tc.axesFor(1);
             info2 = tim.plots.spectrum(ax2, tc.mSweep, []);
-            tc.verifyEqual(info2.lines(2).YData, info.lines(2).YData, 'AbsTol', 1e-9);
+            tc.verifyEqual(info2.lines(2).YData, info.lines(2).YData + 10 * log10(T / st.duration), 'AbsTol', 1e-9);
             % band level = PSD integrated over the band
             df = ps.f(2) - ps.f(1); in = ps.f >= 120 & ps.f <= 4500;
             tc.verifyEqual(str2double(info.summary.data{4, 3}), ...
                 10 * log10(sum(ps.PSD_Pa2perHz(in, 4)) * df / 4e-10), 'AbsTol', 0.06);
+        end
+
+        function sweptLevelEqualsSteppedToneLevel(tc)
+            % 2026-11-15 (owner request): the swept sine in dB SPL reads what a
+            % stepped sine of the same generator amplitude gives at the same
+            % frequency (simulation 2026-11-15, 5 s sweep vs 40 steps: within 0.04 dB)
+            tc.assumeEqual(tc.mStep.settings.amplitudeVpp, tc.mSweep.settings.amplitudeVpp);
+            ax = tc.axesFor(1);
+            info = tim.plots.spectrum(ax, tc.mSweep, tc.rSweep);
+            tl = tc.rStep.toneLevels;
+            % only where the sweep passes inside the full window weight of the
+            % Welch PSD (tim.dsp.welchDuration): this short test record (post-roll
+            % 0.2 s) ends 0.4 s after 4 kHz, inside the last 3 hops, which read low
+            st = tc.mSweep.settings; N = size(tc.mSweep.records{1}, 1); fs = tc.mSweep.fs;
+            tOn = tc.rSweep.spectra.excitation(1).sweepStart_s;
+            tf = tOn + st.duration * log(tl.f(:) / st.fStart) / log(st.fStop / st.fStart);   % when the sweep passes f
+            hop = 2048; K = floor((N - 3 * hop) / hop);
+            ok = tf > 3 * hop / fs + 0.05 & tf < K * hop / fs - 0.05;
+            tc.assertGreaterThanOrEqual(nnz(ok), 4);
+            for c = 1:4
+                y = interp1(info.lines(c).XData(:), info.lines(c).YData(:), tl.f(:));
+                tc.verifyEqual(y(ok), tl.spl_dB(ok, c), 'AbsTol', 0.5, sprintf('ch%d: sweep vs stepped', c));
+            end
         end
 
         function spectrumOfASlowSweepHasNoRipple(tc)
@@ -307,9 +348,16 @@ classdef TestPlotsMeasurement < matlab.unittest.TestCase
             for c = 1:4, m.mics(c).sensitivity_VperPa = NaN; end
             ax = tc.axesFor(1);
             info = tim.plots.spectrum(ax, m, []);
-            tc.verifyEqual(ax.YLabel.String, 'PSD [dB re 1 V^2/Hz]');
+            tc.verifyEqual(ax.YLabel.String, 'Level [dB re 1 V]', 'a sweep: sine-equivalent level of the voltages');
             tc.verifySubstring(info.summary.columns{3}, 'dB re 1 V');
-            tc.verifyTrue(all(isfinite(info.lines(1).YData)));
+            fk = info.lines(1).XData; st = m.settings;
+            tc.verifyTrue(all(isfinite(info.lines(1).YData(fk >= st.fStart & fk <= st.fStop))));
+            tc.verifyTrue(all(isnan(info.lines(1).YData(fk < st.fStart))), 'nothing outside the sweep');
+            % the background noise without sensitivities: the PSD of the voltages
+            mb = tc.mBg;
+            for c = 1:4, mb.mics(c).sensitivity_VperPa = NaN; end
+            tim.plots.spectrum(ax, mb, []);
+            tc.verifyEqual(ax.YLabel.String, 'PSD [dB re 1 V^2/Hz]');
             % empty view: labels, band, default limits, message
             info = tim.plots.spectrum(ax, [], []);
             tc.verifyNotEmpty(findobj(ax, 'Tag', 'timEmptyState'));

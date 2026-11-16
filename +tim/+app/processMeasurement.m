@@ -148,6 +148,14 @@ try
         res.pressureSpectrum = struct('f', fp, 'PSD', P, 'unit', unit, 'channelOrder', chCol, ...
             'note', sprintf('Data in %s (input scale unknown): no sound pressure levels.', unit));
     end
+    % the length of the record and the sweep: the sine-equivalent level of a
+    % swept sine (tim.dsp.sweepSineLevel, the Spectrum view, 2026-11-15)
+    res.pressureSpectrum.recordDuration_s = size(x, 1) / fs;
+    sts = meas.settings;
+    if strcmp(meas.kind, 'sweep') && all(isfield(sts, {'fStart', 'fStop', 'duration', 'spacing'}))
+        res.pressureSpectrum.sweep = struct('fStart', sts.fStart, 'fStop', sts.fStop, 'duration', sts.duration, ...
+            'spacing', sts.spacing);
+    end
 catch err
     res.pressureSpectrum = struct('error', err.message);
 end
