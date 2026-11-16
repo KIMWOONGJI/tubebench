@@ -6,7 +6,7 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
-## Unreleased
+## 1.6.5 - 2026-11-16
 
 ### Added
 - **Live spectrum** (owner request 2026-11-15). During an acquisition Measurement > Spectrum shows

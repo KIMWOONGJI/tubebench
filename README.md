@@ -18,7 +18,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/MATLAB-R2022b-e16737" alt="MATLAB R2022b">
   <img src="https://img.shields.io/badge/toolbox-Signal%20Processing-lightgrey" alt="Signal Processing Toolbox">
-  <img src="https://img.shields.io/badge/version-1.6.4-informational" alt="Version 1.6.4">
+  <img src="https://img.shields.io/badge/version-1.6.5-informational" alt="Version 1.6.5">
   <img src="https://img.shields.io/badge/tests-444-brightgreen" alt="444 automated tests">
   <img src="https://img.shields.io/badge/method-ASTM%20E2611-555555" alt="ASTM E2611">
 </p>
@@ -212,7 +212,7 @@ the skill `/add-instrument` runs the procedure.
 
 ## Project status
 
-Version **1.6.4** (2026-11-06); the changes of every version are in [CHANGELOG.md](CHANGELOG.md).
+Version **1.6.5** (2026-11-16); the changes of every version are in [CHANGELOG.md](CHANGELOG.md).
 The automated tests verify the software's behaviour, not physical accuracy;
 [docs/hardware_status.md](docs/hardware_status.md) lists what has been verified on the real
 instruments.
@@ -326,7 +326,7 @@ If tubebench helps your work, please cite it (GitHub's "Cite this repository" re
   author  = {Kim, Woongji},
   title   = {tubebench: four-microphone impedance-tube measurements in MATLAB},
   year    = {2026},
-  version = {1.6.4},
+  version = {1.6.5},
   url     = {https://github.com/kimwoongji/tubebench},
   license = {MIT}
 }
