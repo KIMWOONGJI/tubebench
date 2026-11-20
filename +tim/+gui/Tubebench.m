@@ -63,6 +63,7 @@ classdef Tubebench < handle
         ProgressPrefix char = ''  % label prefix of the stepped-sine progress strip (two loads: 'Load A (1 of 3) · ')
         LiveYLim = []             % y limits of the live time signals per channel (grow-only during an action, liveAxis)
         LiveSpec = []             % state of the live spectrum (tim.gui.liveSpectrum; Measurement > Spectrum, 2026-11-15)
+        LiveSpecRange = []        % its y range in this action (kind, pa, ylim): the next load / pass starts there (1.6.6)
         Saved logical = true   % the last measurement is saved (or there is nothing to save)
         SavedDir char = ''      % folder of the last save (or of the opened measurement)
         Opened logical = false  % the last measurement was opened from its folder (File > Open measurement…)
@@ -1446,6 +1447,13 @@ classdef Tubebench < handle
             tf = s.InOperation || (~isempty(s.Daq) && isvalid(s.Daq) && s.Daq.isAcquiring());
         end
 
+        function tf = acquiring(app)
+            % the data stream of a measurement is running (no I/O)
+            s = app.Session; tf = false;
+            if isempty(s) || ~isvalid(s) || isempty(s.Daq) || ~isvalid(s.Daq), return; end
+            try, tf = s.Daq.isAcquiring(); catch, end
+        end
+
         function startStep(app, txt, value)
             % next step in the start window (only while a visible window is built;
             % its drawnow also draws the part of the hidden window built so far)
@@ -2709,6 +2717,7 @@ classdef Tubebench < handle
                 return
             end
             app.PendingStop = false;
+            app.LiveSpecRange = [];             % a new action: the live spectrum starts at its default range
             if ~isempty(busyWhat)
                 % the stop flag is cleared ONCE here, before the first drawnow: a
                 % STOP / window close arriving between this click and the first
@@ -2942,6 +2951,11 @@ classdef Tubebench < handle
             % are never built here, inside the stream)
             if toc(lastT) < 0.2 || ~app.isBuilt('wave'), drawnow('limitrate'); return; end
             lastT = tic;
+            % only while data arrive: between two measurements (an operator step
+            % of a two-load run or a calibration) the data and the progress are
+            % the last measurement's, and the result so far of a stepped sine
+            % was computed again from its whole record (1.6.5: minutes)
+            if ~app.acquiring(), drawnow('limitrate'); return; end
             if strcmp(app.liveView(), 'spec')
                 app.liveSpectrumUpdate();
                 drawnow('limitrate');
@@ -3039,6 +3053,11 @@ classdef Tubebench < handle
                 'colours', P.ch(1:C, :), 'band', [a.fMin a.fMax], 'emptyText', 'Waiting for data ...', ...
                 'sweep', ex.sweep, 'plan', []);
             if strcmp(kind, 'stepped'), o.plan = tim.app.steppedPlan(ex.stepped); end
+            % the range of the measurement before in this action (the loads of a
+            % two-load run, the passes of the equalizer): the axis does not
+            % jump back at every load (1.6.6)
+            r = app.LiveSpecRange;
+            if ~isempty(r) && strcmp(r.kind, kind) && r.pa == o.pa, o.ylim = r.ylim; end
             app.LiveSpec = tim.gui.liveSpectrum('prepare', app.H.axSpec, o);
             if strip, title(app.H.axSpec, ' '); else, title(app.H.axSpec, 'LIVE'); end
             pg = app.Pages.spec;
@@ -3070,6 +3089,7 @@ classdef Tubebench < handle
                 if isempty(x), return; end
                 app.LiveSpec = tim.gui.liveSpectrum('update', app.LiveSpec, @(n) app.liveSamples(n), ...
                     app.Session.Progress);
+                app.LiveSpecRange = struct('kind', app.LiveSpec.kind, 'pa', app.LiveSpec.pa, 'ylim', app.LiveSpec.ylim);
                 if app.Pages.spec.StripShown
                     if ~strcmp(app.H.axSpec.Title.String, ' '), title(app.H.axSpec, ' '); end
                     app.drawProgress('spec');
@@ -4324,6 +4344,12 @@ classdef Tubebench < handle
                     app.refreshViews({'wave', 'spec', 'tf'});
                     app.setResultStatus();
                     app.showTab(app.H.twoLoadTab);       % the load measured: back from the time signals
+                case 'skipped'
+                    % load A again cancelled or stopped (owner request
+                    % 2026-11-20): the result follows from loads A and B
+                    app.drawProgress();
+                    app.TwList.set(app.twKey(q.k), 'warn', q.text);
+                    app.showTab(app.H.twoLoadTab);
                 case 'saving'
                     app.TwList.set('result', 'run', q.text);
                 case 'result'

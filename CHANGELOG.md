@@ -6,6 +6,34 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
+## Unreleased
+
+### Fixed
+- **Long wait before every load of a two-load run** (owner report 2026-11-20; since 1.6.5). After
+  the operator pressed Measure, the next load started only minutes later (6 min in a simulation of
+  the lab's 400-step stepped sine). The live spectrum was refreshed during the check for a Stop
+  between the loads, with the data and the progress of the load before still in the session, so
+  the result so far of a stepped sine fitted every step of that whole record again; the LAN-XI
+  stream parser joined the requested samples chunk by chunk (each request of a long record took
+  about a second). Now the live views are refreshed only while an acquisition runs, the result so
+  far only of a running measurement, and the parser joins the chunks once
+  (`LanXiStreamParser.tail`, a whole record in milliseconds; its columns now end at the sample
+  every channel has). The same wait could come before the first load after a stepped measurement
+  and between the steps of a calibration. The tests used the combined simulated device, which
+  keeps its samples in one array.
+- **The live spectrum's y axis jumped at every load.** It started at 0 … 120 dB SPL at every load
+  and pass and grew from there (to −20 … 140 dB on the lab's data). A sine now starts at −20 …
+  140 dB SPL, and every further load of a two-load run and the measurement after the equalizer's
+  pre-measurement start at the range the one before reached. Markers of the load before no longer
+  appear in the view of the next load before it starts.
+
+### Changed
+- **Load A again cancelled: the result of loads A and B** (owner request 2026-11-20). Abort at the
+  step of load A again, or Stop while it is measured, no longer ends the two-load run without a
+  result: the transfer matrix is computed from loads A and B and saved in the pair folder, without
+  the repeat check (step "not measured (…) – result from loads A and B", `tl.repeat.text`, the
+  message pane). A cancel before load B is done still ends the run.
+
 ## 1.6.5 - 2026-11-16 (`bda7c77`)
 
 ### Added

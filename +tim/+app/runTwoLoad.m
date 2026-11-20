@@ -23,6 +23,9 @@ function out = runTwoLoad(session, opts)
 %     5. saving AT ONCE in a folder of its own (tim.app.saveMeasurement, name
 %        <kind>[_<specimen>]_load<role>_<tag>): a Stop, a cancel or an error
 %        later keeps the loads measured so far.
+%   A cancel at the step of load A again, or a Stop while it is measured,
+%   does not end the sequence (owner request 2026-11-20): the result follows
+%   from loads A and B without the repeat check (report 'skipped').
 %   Then the two-load result (tim.app.processTwoLoad) is computed and saved in
 %   a pair folder (tim.app.saveTwoLoad) that names the load folders.
 %
@@ -30,7 +33,8 @@ function out = runTwoLoad(session, opts)
 %           simulation - nothing (the rig mounts the load); hardware - the
 %           message in the command window, Enter to go on
 %   opts.report(q)   q.kind 'load' after every load (role, label, folder, res,
-%           meas, k, n, load, cfg), 'saving' before the figures and the pair
+%           meas, k, n, load, cfg), 'skipped' when load A again was
+%           cancelled or stopped (role, k, n, text), 'saving' before the figures and the pair
 %           folder are written (text), 'result' at the end (tl, folder);
 %           with the equalizer 'pre' before (state 'start') and after (state
 %           'done', plan) the pre-measurement of loads A and B (role, k, n)
@@ -105,40 +109,56 @@ if eqOn
     % stepped measurement (review 2026-11-05; sends nothing)
     dropPlan = onCleanup(@() disarmPlan(session));
 end
+skippedA2 = '';
 for k = 1:n
     st = steps(k);
-    session.throwIfStopped();
-    name = st.role; if strcmp(name, 'A2'), name = tim.app.msg(lang, 'tlRepeatName'); end
-    mount = tim.app.msg(lang, ['tlMount_' st.desc.kind '_' st.desc.place], distText(st.desc.distance_m));
-    if k == 1
-        msg = tim.app.msg(lang, 'tlFirst', name, st.desc.label, mount);
-    else
-        msg = tim.app.msg(lang, 'tlSwap', name, st.desc.label, mount);
-    end
-    prompt(msg, st.load, k, n);
-    session.throwIfStopped();
-    session.log('%s', msg);
-    session.setTermination(st.load);
-    if ~eqOn && strcmp(st.role, 'B') && ms.loadBLevel_dB < 0
-        ex = ex0; md = ex.mode;
-        ex.(md).amplitudeVpp = ex0.(md).amplitudeVpp * 10^(ms.loadBLevel_dB / 20);
-        session.setExcitation(ex);
-        session.log('Load B at %+.1f dB relative to load A: %.3g Vpk.', ms.loadBLevel_dB, ex.(md).amplitudeVpp / 2);
-    elseif ~isequal(session.Cfg.excitation, ex0)
-        session.setExcitation(ex0);
-    end
-    if eqOn && strcmp(st.role, 'A2') && ~isempty(planA)
-        p = planA; p.reusedFrom = 'A';
-        session.setEqualizerPlan(p);              % checked: the same termination, steps and maximum
-        session.log('Load A again with the voltages of load A (no new pre-measurement).');
-    elseif eqOn
-        report(struct('kind', 'pre', 'state', 'start', 'role', st.role, 'k', k, 'n', n));
-        p = session.measureEqualizerPlan();       % armed for the measurement of this load
-        if strcmp(st.role, 'A'), planA = p; end
-        report(struct('kind', 'pre', 'state', 'done', 'role', st.role, 'k', k, 'n', n, 'plan', p));
+    try
         session.throwIfStopped();
+        name = st.role; if strcmp(name, 'A2'), name = tim.app.msg(lang, 'tlRepeatName'); end
+        mount = tim.app.msg(lang, ['tlMount_' st.desc.kind '_' st.desc.place], distText(st.desc.distance_m));
+        if k == 1
+            msg = tim.app.msg(lang, 'tlFirst', name, st.desc.label, mount);
+        else
+            msg = tim.app.msg(lang, 'tlSwap', name, st.desc.label, mount);
+        end
+        prompt(msg, st.load, k, n);
+        session.throwIfStopped();
+        session.log('%s', msg);
+        session.setTermination(st.load);
+        if ~eqOn && strcmp(st.role, 'B') && ms.loadBLevel_dB < 0
+            ex = ex0; md = ex.mode;
+            ex.(md).amplitudeVpp = ex0.(md).amplitudeVpp * 10^(ms.loadBLevel_dB / 20);
+            session.setExcitation(ex);
+            session.log('Load B at %+.1f dB relative to load A: %.3g Vpk.', ms.loadBLevel_dB, ex.(md).amplitudeVpp / 2);
+        elseif ~isequal(session.Cfg.excitation, ex0)
+            session.setExcitation(ex0);
+        end
+        if eqOn && strcmp(st.role, 'A2') && ~isempty(planA)
+            p = planA; p.reusedFrom = 'A';
+            session.setEqualizerPlan(p);              % checked: the same termination, steps and maximum
+            session.log('Load A again with the voltages of load A (no new pre-measurement).');
+        elseif eqOn
+            report(struct('kind', 'pre', 'state', 'start', 'role', st.role, 'k', k, 'n', n));
+            p = session.measureEqualizerPlan();       % armed for the measurement of this load
+            if strcmp(st.role, 'A'), planA = p; end
+            report(struct('kind', 'pre', 'state', 'done', 'role', st.role, 'k', k, 'n', n, 'plan', p));
+            session.throwIfStopped();
+        end
+        m = session.measure(cfg.excitation.mode);
+    catch err
+        % load A again cancelled by the operator or stopped (owner request
+        % 2026-11-20): loads A and B are measured and saved, so the two-load
+        % result follows from them; the repeat check is not made. Any other
+        % error, or a cancel before load B is done, ends the sequence.
+        if ~strcmp(st.role, 'A2') || ~any(strcmp(err.identifier, {'tim:gui:abort', 'tim:session:stopped'}))
+            rethrow(err);
+        end
+        skippedA2 = ternary(strcmp(err.identifier, 'tim:gui:abort'), 'cancelled by the operator', 'stopped');
+        session.log('Load A again not measured (%s): the two-load result is computed from loads A and B.', skippedA2);
+        report(struct('kind', 'skipped', 'role', st.role, 'k', k, 'n', n, ...
+            'text', sprintf('not measured (%s) - result from loads A and B', skippedA2)));
+        break
     end
-    m = session.measure(cfg.excitation.mode);
     m.metadata.specimen = ternary(isempty(specimen), 'unnamed specimen', specimen);
     m.metadata.twoLoad = struct('group', group, 'role', st.role, 'loadA', dA.label, 'loadB', dB.label);
     c = cfg; c.excitation = session.Cfg.excitation;
@@ -160,6 +180,9 @@ for k = 1:n
 end
 clear restoreLevel
 tl = tim.app.processTwoLoad(loadsFor(loads), cfg);
+if ~isempty(skippedA2)
+    tl.repeat.text = sprintf('load A again not measured (%s)', skippedA2);
+end
 session.log('Two-load result: %s.', tl.valid.summary);
 if tl.repeat.performed, session.log('%s.', capital(tl.repeat.text)); end
 if ~isempty(tl.level.text), session.log('%s.', capital(tl.level.text)); end

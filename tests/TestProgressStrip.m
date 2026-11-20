@@ -412,6 +412,7 @@ classdef TestProgressStrip < matlab.unittest.TestCase
                 'colours', lines(2), 'band', [120 4500], 'plan', pl);
             S = tim.gui.liveSpectrum('prepare', ax, o);
             tc.verifyEqual(ax.YLabel.String, 'Tone level [dB SPL]');
+            tc.verifyEqual(ax.YLim, [-20 140], 'the start range of a sine (1.6.6)');
             tc.verifyEqual(findobj(ax, 'Tag', 'timLiveResult1').Marker, 'o');
             prog = struct('kind', 'stepped', 'pass', 1, 'rep', 1, 'onSample', on, 'state', 'running');
             src = @TestProgressStrip.source;
@@ -458,6 +459,22 @@ classdef TestProgressStrip < matlab.unittest.TestCase
             prog.pass = 2; prog.onSample = N;
             S = tim.gui.liveSpectrum('update', S, src(x), prog);
             tc.verifyTrue(all(isnan(S.R(:))), 'new pass: no step done yet');
+            % 1.6.6: the next load of a two-load run starts at the range of the
+            % load before, and the progress of a finished measurement (left in the
+            % session until the next one starts) is not computed again - in 1.6.5
+            % every step of the last record was fitted once more from its whole
+            % tail, which took minutes on the LAN-XI between two loads
+            S2 = tim.gui.liveSpectrum('prepare', ax, setfield(o, 'ylim', [-40 160])); %#ok<SFLD>
+            tc.verifyEqual(ax.YLim, [-40 160], 'the range of the load before');
+            done = prog; done.pass = 1; done.rep = 1; done.onSample = on; done.state = 'done';
+            asked = 0;
+            S2 = tim.gui.liveSpectrum('update', S2, @counted, done);
+            tc.verifyTrue(all(isnan(S2.R(:))), 'no marker from a finished measurement');
+            tc.verifyLessThanOrEqual(asked, round(0.25 * fs), 'only the live curve asked for samples');
+            function [y, n] = counted(k)
+                asked = max(asked, k);
+                [y, n] = TestProgressStrip.tail(x, k);
+            end
         end
     end
 

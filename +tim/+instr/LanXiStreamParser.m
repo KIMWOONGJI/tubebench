@@ -76,19 +76,28 @@ classdef LanXiStreamParser < handle
         function x = tail(obj, n, ids)
             %TAIL Last n samples of the given signals (scaled), for live display.
             %   Cheap: only the newest chunks are touched. Signals without
-            %   data yet are returned as NaN; columns are aligned at the end.
+            %   data yet are returned as NaN; the columns end at the last
+            %   sample that every signal with data has (samplesAvailable).
             if nargin < 3, ids = obj.signalIds(); end
             x = nan(n, numel(ids));
+            have = ids(arrayfun(@(id) isKey(obj.Signals, id), ids));
+            if isempty(have), return; end
+            nEnd = min(arrayfun(@(id) obj.Signals(id).count, have));
             for i = 1:numel(ids)
                 if ~isKey(obj.Signals, ids(i)), continue; end
                 s = obj.Signals(ids(i));
-                got = 0; k = numel(s.chunks); parts = {};
-                while k >= 1 && got < n
-                    parts = [s.chunks(k), parts]; %#ok<AGROW>
+                % the newest chunks that hold the n samples before the common
+                % end, joined once (1.6.6: they were prepended one by one, and
+                % a request of a whole record took minutes); every column ends
+                % at the same sample, the last one all signals have
+                skip = s.count - nEnd;                 % samples after the common end
+                got = 0; k = numel(s.chunks);
+                while k >= 1 && got < n + skip
                     got = got + numel(s.chunks{k}); k = k - 1;
                 end
-                if got == 0, continue; end
-                v = vertcat(parts{:});
+                if got <= skip, continue; end
+                v = vertcat(s.chunks{k + 1:end});
+                v = v(1:end - skip);
                 v = v(max(1, end - n + 1):end);
                 sc = s.scaleFactor; if isnan(sc), sc = 1; end
                 x(end - numel(v) + 1:end, i) = v / 2^23 * sc + s.offset;
