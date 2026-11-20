@@ -6,7 +6,7 @@ that released it. Releases on GitHub start with v1.4.2; earlier versions have no
 verification is tracked separately in [docs/hardware_status.md](docs/hardware_status.md): the
 automated tests verify the software's behaviour, not physical accuracy.
 
-## Unreleased
+## 1.6.6 - 2026-11-20
 
 ### Fixed
 - **Long wait before every load of a two-load run** (owner report 2026-11-20; since 1.6.5). After
