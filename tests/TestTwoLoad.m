@@ -385,6 +385,46 @@ classdef TestTwoLoad < matlab.unittest.TestCase
             tc.verifyEqual(q.loads(2).load, struct('kind', 'rigid', 'place', 'tubeEnd'));
             clear cleanup
         end
+
+        function cancelOfTheRepeatKeepsTheResult(tc)
+            % owner request 2026-11-20: load A again cancelled at its step, or
+            % stopped, gives the result from loads A and B (no repeat check); a
+            % cancel before load B is done still ends the sequence
+            tmp = tc.applyFixture(matlab.unittest.fixtures.TemporaryFolderFixture).Folder;
+            c = tim.app.defaultConfig();
+            c.geometry = c.simulation.Geometry;
+            c.output.dataDir = fullfile(tmp, 'data'); c.output.calibrationDir = fullfile(tmp, 'cal');
+            c.excitation.sweep.duration = 1; c.excitation.sweep.repetitions = 1;
+            c.measurement.repeatLoadA = true;
+            s = tim.app.MeasurementSession(c);
+            cleanup = onCleanup(@() s.close());
+            s.connect(); s.prepareAcquisition();
+            for how = {'cancel', 'stop'}
+                kinds = {};                           % (runTwoLoad clears an old Stop: beginOperation)
+                out = tim.app.runTwoLoad(s, struct('prompt', @(msg, load, k, n) act(how{1}, k), ...
+                    'report', @(q) note(q)));
+                tc.verifyEqual({out.loads.role}, {'A', 'B'}, how{1});
+                tc.verifyEqual(kinds, {'load', 'load', 'skipped', 'saving', 'result'}, how{1});
+                tc.verifyFalse(out.tl.repeat.performed);
+                tc.verifySubstring(out.tl.repeat.text, 'load A again not measured');
+                tc.verifyTrue(isfile(fullfile(out.folder, 'twoload.json')), 'the pair folder is saved');
+                info = jsondecode(tim.app.readTextUtf8(fullfile(out.folder, 'twoload.json')));
+                tc.verifyEqual(numel(info.loads), 2);
+                tc.verifySubstring(strjoin(s.LogLines, newline), 'Load A again not measured');
+            end
+            % a cancel at load B: no result, the error goes on
+            tc.verifyError(@() tim.app.runTwoLoad(s, struct('prompt', @(msg, load, k, n) act('cancelB', k))), ...
+                'tim:gui:abort');
+            clear cleanup
+            function act(how, k)
+                switch how
+                    case 'cancel', if k == 3, error('tim:gui:abort', 'cancelled'); end
+                    case 'stop', if k == 3, s.requestStop(); end    % Stop pressed during the step
+                    case 'cancelB', if k == 2, error('tim:gui:abort', 'cancelled'); end
+                end
+            end
+            function note(q), kinds{end+1} = q.kind; end
+        end
     end
 end
 

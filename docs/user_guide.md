@@ -619,7 +619,10 @@ Use it when the termination is not anechoic (the lab termination reflects: |R_te
    only the mounting. The message pane gives the equalizer summary of every load.
 3. Every load is processed and **saved at once** in a folder of its own
    (`…_sweep_<specimen>_loadA_absorber-end`, `…_loadB_rigid-end`, `…_loadA2_absorber-end`); a Stop
-   or an error keeps the loads measured so far. After the last load the figures of the loads are
+   or an error keeps the loads measured so far. **Abort** at the step of load A again, or **Stop**
+   while it is measured (1.6.6, owner request 2026-11-20), does not end the run: its row reads "not
+   measured (…) – result from loads A and B", and the transfer matrix follows from loads A and B
+   without the repeat check, as with Repeat load A off. After the last load the figures of the loads are
    written and the transfer matrix is saved in a **pair folder** (`…_twoload_<specimen>`; about a
    minute with the figures).
 4. Check Measurement > Two-load (condQ of the two loads, the repeat of load A, the loads table) and
@@ -814,7 +817,10 @@ rate), the progress strip of a stepped or swept sine stands above the graph (as 
 and the Levels table waits for the end of the measurement. The result so far costs about as much
 as the live curve: only the new samples are added at each update. The graph keeps its place: the
 frequency axis is fixed, the y range only grows during an action (20 dB steps) and its tick labels
-all have one width. Only the live view the operator looks at is drawn: select Time signals during
+all have one width. A sine starts at −20 … 140 dB SPL, and every further load of a two-load run
+(and the measurement after the equalizer's pre-measurement) starts at the range the one before
+reached, so the axis does not jump back at every load (1.6.6). Between two measurements (an
+operator step) the view stays as it is; nothing is computed until the next acquisition runs. Only the live view the operator looks at is drawn: select Time signals during
 the acquisition to see the time signals live instead.
 
 * Swept sine (2026-11-15): the **sine-equivalent level** of every channel in dB SPL ("Level

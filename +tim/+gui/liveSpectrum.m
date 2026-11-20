@@ -34,7 +34,11 @@ function varargout = liveSpectrum(action, varargin)
 %
 %   The live axes do not move (as the live time signals, 1.6.2-1.6.4): the
 %   frequency axis is fixed, the legend and the analysis band lines are drawn
-%   once, and the y range only grows during an action, on a 20 dB grid. The y
+%   once, and the y range only grows during an action, on a 20 dB grid: it
+%   starts at −20 … 140 dB SPL for a sine (1.6.6; before: 0 … 120 dB, which
+%   the first refresh and a resonance widened) and at the range of the
+%   measurement before in the same action (o.ylim: the loads of a two-load
+%   run, the passes of the equalizer), so it does not jump back. The y
 %   tick labels all have one width (four places, right-aligned: the digits,
 %   the minus sign U+2212 next to them, figure spaces U+2007 in front), so the
 %   plot area keeps its place when the range grows. The axes are not
@@ -44,10 +48,14 @@ function varargout = liveSpectrum(action, varargin)
 %   o (prepare): .kind, .fs, .pa (true: samples in Pa, else V), .names (1xC),
 %       .colours (Cx3), .band [fMin fMax], .emptyText; 'sweep': .sweep
 %       (fStart, fStop, duration, spacing); 'stepped': .plan
-%       (tim.app.steppedPlan in seconds)
+%       (tim.app.steppedPlan in seconds); .ylim (optional): the start range
 %   update: get = @(n) [x, nTotal]: the last <= n samples (Pa or V, rows x C)
 %       and the number received in the running acquisition; prog: the
-%       session's Progress (or []): .kind, .pass, .rep, .onSample, .state
+%       session's Progress (or []): .kind, .pass, .rep, .onSample, .state.
+%       The result so far is computed only while prog.state is 'running': the
+%       progress of a measurement that has ended (left in the session until
+%       the next one starts) is not computed again (1.6.6: the next load of a
+%       two-load run waited minutes for it)
 %   S: .ax, .kind, .lines (light, live), .result (full colour), .fs, .pa,
 %       .ylim, .level (1xC: level 20 Hz .. fs/2 of the last 1 s), .f, .L
 %       (live curves drawn), .R (result curves drawn: 'sweep' over the FFT
@@ -76,11 +84,11 @@ xlabel(ax, 'Frequency [Hz]');
 if o.pa, u = 'dB SPL'; else, u = 'dB re 1 V'; end
 switch o.kind
     case 'sweep'
-        ylabel(ax, sprintf('Level [%s]', u)); yl = [0 120];
+        ylabel(ax, sprintf('Level [%s]', u)); yl = [-20 140];
         f1 = min(o.sweep.fStart, o.sweep.fStop); f2 = max(o.sweep.fStart, o.sweep.fStop);
         xr = [min(f1, o.band(1)), max(f2, o.band(2))];
     case 'stepped'
-        ylabel(ax, sprintf('Tone level [%s]', u)); yl = [0 120];
+        ylabel(ax, sprintf('Tone level [%s]', u)); yl = [-20 140];
         fk = o.plan.freqs(:);
         xr = [min([fk; o.band(1)]), max([fk; o.band(2)])];
     otherwise
@@ -89,6 +97,9 @@ switch o.kind
         xr = [20 o.fs / 2];
 end
 if ~o.pa, yl = yl - 120; end
+if isfield(o, 'ylim') && numel(o.ylim) == 2 && all(isfinite(o.ylim)) && o.ylim(2) > o.ylim(1)
+    yl = reshape(o.ylim, 1, 2);                  % the range of the measurement before (same action)
+end
 light = @(c) 0.35 * c + 0.65;                    % the channel colour mixed with white
 win = 1; if strcmp(o.kind, 'stepped'), win = 0.25; end   % [s] of the live curve: a stepped sine one step
 h = gobjects(1, C); r = gobjects(1, C);
@@ -173,9 +184,12 @@ tim.plots.emptyState(S.ax, '');
 for c = 1:min(numel(S.lines), size(L, 2))
     if isgraphics(S.lines(c)), set(S.lines(c), 'XData', fk, 'YData', L(:, c)); end
 end
-% the result so far
+% the result so far (only of a running measurement: a finished one's
+% progress stays in the session until the next one starts)
 R = [];
-switch S.kind
+running = isempty(prog) || ~isfield(prog, 'state') || strcmp(prog.state, 'running');
+kind = S.kind; if ~running, kind = ''; end
+switch kind
     case 'sweep'
         S = sweepResult(S, get, nT, prog);
         if S.acc.count > 0
@@ -201,7 +215,7 @@ switch S.kind
             if isgraphics(S.result(c)), set(S.result(c), 'XData', fs0, 'YData', R(:, c)); end
         end
 end
-S.R = R;
+if ~isempty(R), S.R = R; end
 % the y range only grows (20 dB grid): the top 5 dB above the highest value,
 % the bottom 5 dB below the 2 % quantile of the live curves (deep notches do
 % not widen it)

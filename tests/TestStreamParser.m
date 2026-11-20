@@ -141,6 +141,22 @@ classdef TestStreamParser < matlab.unittest.TestCase
             x2 = p.tail(1000, 1:4);                         % more than available -> NaN padded at the start
             tc.verifyTrue(all(isnan(x2(1:400, 1))));
             tc.verifyEqual(x2(401:end, :), v / 2^23 * tc.scale, 'AbsTol', 1e-12);
+            % a message of two signals only: every column ends at the common sample
+            % (1.6.6; before, each column ended at its own last sample)
+            p.feed(tim.sim.lanxiEncode('signal', [1 2], num2cell(ones(50, 2), 1), 1000 + 600 / tc.fs));
+            tc.verifyEqual(p.samplesAvailable(), 600);
+            tc.verifyEqual(p.tail(250, 1:4), x, 'AbsTol', 1e-12);
+        end
+
+        function tailOfAWholeRecordIsFast(tc)
+            % the live result of a stepped sine asks for long tails; the newest
+            % chunks are joined once (1.6.6: they were prepended one by one, and a
+            % 215 s record took about 1 s per request, minutes per refresh)
+            [b, v] = tc.makeStream(3000, 128);
+            p = tim.instr.LanXiStreamParser(); p.feed(b);
+            t = tic; x = p.tail(size(v, 1) - 10, 1:4); el = toc(t);
+            tc.verifyEqual(x, v(11:end, :) / 2^23 * tc.scale, 'AbsTol', 1e-12);
+            tc.verifyLessThan(el, 0.5, 'a tail of 384000 samples in one join');
         end
 
         function missingSignalError(tc)

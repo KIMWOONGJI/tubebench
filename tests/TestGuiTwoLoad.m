@@ -198,6 +198,51 @@ classdef TestGuiTwoLoad < matlab.unittest.TestCase
             end
         end
 
+        function stopDuringTheRepeatKeepsTheResult(tc)
+            % owner request 2026-11-20: Stop while load A is measured again ends
+            % the run with the result of loads A and B (the step "not measured",
+            % the pair folder saved); the live spectrum keeps its y range from
+            % one load to the next (1.6.6)
+            app = tim.gui.Tubebench(tc.config(), 'Visible', 'off');
+            cleanup = onCleanup(@() delete(app));
+            h = app.H;
+            feval(h.connect.ButtonPushedFcn, h.connect, []);
+            feval(h.runCal.ButtonPushedFcn, h.runCal, []);
+            tc.assertTrue(all(strcmp(app.CalList.States, 'ok')), strjoin(app.CalList.States, ' '));
+            h.method.Value = 'twoLoad'; feval(h.method.ValueChangedFcn, h.method, []);
+            tc.assertTrue(app.Cfg.measurement.repeatLoadA);
+            k = 0; ranges = {}; stopper = [];
+            app.TestHook = @(p) atStep(p);
+            feval(h.start.ButtonPushedFcn, h.start, []);
+            app.TestHook = [];
+            if ~isempty(stopper), stop(stopper); delete(stopper); end
+            tc.verifyEqual({app.LastLoads.role}, {'A', 'B'});
+            st = app.TwList.States;
+            tc.verifyEqual(st([1 2 4]), {'ok', 'ok', 'ok'}, strjoin(st, ' '));
+            tc.verifyEqual(st{3}, 'warn', 'load A again: not measured');
+            tc.verifySubstring(app.TwList.Details(3).Text, 'result from loads A and B');
+            tc.verifyNotEmpty(app.LastTM);
+            tc.verifyFalse(app.LastTM.repeat.performed);
+            tc.verifyTrue(isfile(fullfile(app.SavedDir, 'twoload.json')), 'the pair folder');
+            tc.verifySubstring(strjoin(cellstr(h.log.Value), newline), 'Load A again not measured (stopped)');
+            % the live range: none at the start of the action, then the range the
+            % load before reached (liveSpectrum 'prepare' starts there)
+            tc.verifyEmpty(ranges{1}, 'a new action starts at the default range');
+            tc.verifyNotEmpty(ranges{2}, 'load B starts at the range of load A');
+            tc.verifyEqual(ranges{2}.kind, 'sweep');
+            clear cleanup
+
+            function atStep(p)
+                if ~strcmp(p, 'twoload:measuring'), return; end
+                k = k + 1;
+                ranges{k} = app.LiveSpecRange;
+                if k == 3          % load A again: Stop while it is measured
+                    stopper = timer('StartDelay', 0.3, 'TimerFcn', @(~, ~) feval(h.stop.ButtonPushedFcn, h.stop, []));
+                    start(stopper);
+                end
+            end
+        end
+
         function equalizerTwoLoadInTheWindow(tc)
             % owner decisions 2026-11-04 (1.6.0, WO-006): with the stepped-sine
             % equalizer on the B level is ignored and greyed, the Two-load view
